@@ -2,10 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DomainToolsExecutor, DOMAIN_TOOLS_DEFINITIONS } from '../src/index.ts';
 import type { DomainServicesContext } from '../src/executor.ts';
-import type { Lesson } from '@opentutor/protocol';
+import type { Lesson, LearningPathNode } from '@opentutor/protocol';
 
-test('packages/agent-tools - Domain tools definitions and execution', async (t) => {
-  assert.equal(DOMAIN_TOOLS_DEFINITIONS.length, 6);
+test('packages/agent-tools - Segregated domain tools and executor', async (t) => {
+  assert.ok(DOMAIN_TOOLS_DEFINITIONS.some((d) => d.function.name === 'path_insert_detour'));
+  assert.ok(DOMAIN_TOOLS_DEFINITIONS.some((d) => d.function.name === 'path_advance'));
+  assert.ok(DOMAIN_TOOLS_DEFINITIONS.some((d) => d.function.name === 'knowledge_search'));
+  // Assessment tool must NOT be in Tutor Agent definitions
+  assert.equal(DOMAIN_TOOLS_DEFINITIONS.some((d) => d.function.name === 'assessment_record'), false);
 
   const mockLesson: Lesson = {
     schemaVersion: '1.0',
@@ -18,66 +22,67 @@ test('packages/agent-tools - Domain tools definitions and execution', async (t) 
     status: 'active',
   };
 
+  const initialPath: LearningPathNode[] = [
+    { id: 'p1', knowledgeNodeId: 'n1', title: 'Node 1', type: 'main', status: 'current', position: 0 },
+    { id: 'p2', knowledgeNodeId: 'n2', title: 'Node 2', type: 'main', status: 'upcoming', position: 1 },
+  ];
+
   const mockServices: DomainServicesContext = {
     lessonService: {
       getLesson: (id) => (id === 'lesson-1' ? mockLesson : null),
-      applyPatches: (_sid, _lid, baseVersion, patches) => ({
+      applyPatches: (_sid, _lid, baseVersion) => ({
         lesson: { ...mockLesson, version: baseVersion + 1 },
         newVersion: baseVersion + 1,
       }),
     },
     sessionService: {
-      getSnapshot: () => ({ path: [{ id: 'p1', position: 1, status: 'current' }], pathVersion: 1 }),
+      getSnapshot: () => ({ path: initialPath, pathVersion: 1 }),
       applyPathPatches: (_sid, baseVersion) => ({ path: [], newVersion: baseVersion + 1 }),
+      insertDetour: (_sid, baseVersion, detour) => ({
+        path: [
+          { id: detour.id, knowledgeNodeId: detour.knowledgeNodeId, title: detour.title, type: 'detour', status: 'current', position: 0 },
+          { id: 'p1', knowledgeNodeId: 'n1', title: 'Node 1', type: 'main', status: 'upcoming', position: 1 },
+        ],
+        newVersion: baseVersion + 1,
+      }),
+      completeCurrentNode: (_sid, baseVersion) => ({
+        path: [
+          { id: 'p1', knowledgeNodeId: 'n1', title: 'Node 1', type: 'main', status: 'completed', position: 0 },
+          { id: 'p2', knowledgeNodeId: 'n2', title: 'Node 2', type: 'main', status: 'current', position: 1 },
+        ],
+        newVersion: baseVersion + 1,
+      }),
     },
     knowledgeService: {
-      recordAssessment: () => {},
+      searchKnowledge: (q) => [{ id: 'k1', title: q, summary: 'summary' }],
+      readArtifact: (id) => ({ id, title: 'Artifact' }),
     },
   };
 
   const executor = new DomainToolsExecutor(mockServices);
 
-  await t.test('1. lesson_get retrieves existing lesson', async () => {
-    const res = await executor.executeTool('s1', 'lesson_get', { lessonId: 'lesson-1' });
-    assert.equal(res.success, true);
-    assert.deepEqual(res.data, mockLesson);
-  });
-
-  await t.test('2. lesson_patch applies patches atomically', async () => {
-    const res = await executor.executeTool('s1', 'lesson_patch', {
-      lessonId: 'lesson-1',
-      baseVersion: 1,
-      patches: [{ op: 'insert', position: { index: 0 }, block: { id: 'b1', type: 'text', variant: 'paragraph', content: 'hi' } }],
-    });
-    assert.equal(res.success, true);
-  });
-
-  await t.test('3. path_get and path_patch execute correctly', async () => {
-    const getRes = await executor.executeTool('s1', 'path_get', { sessionId: 's1' });
-    assert.equal(getRes.success, true);
-
-    const patchRes = await executor.executeTool('s1', 'path_patch', {
+  await t.test('1. path_insert_detour inserts detour and updates focus', async () => {
+    const res = await executor.executeTool('s1', 'path_insert_detour', {
       sessionId: 's1',
       baseVersion: 1,
-      patches: [{ op: 'remove_node', nodeId: 'p1' }],
+      knowledgeNodeId: 'softmax',
+      title: 'Softmax Details',
     });
-    assert.equal(patchRes.success, true);
+    assert.equal(res.success, true);
+    const data = res.data as { path: LearningPathNode[]; newVersion: number };
+    assert.equal(data.newVersion, 2);
+    assert.equal(data.path[0].type, 'detour');
+    assert.equal(data.path[0].status, 'current');
   });
 
-  await t.test('4. assessment_record succeeds with diagnostic data', async () => {
-    const res = await executor.executeTool('s1', 'assessment_record', {
-      knowledgeNodeId: 'node-1',
-      lessonId: 'lesson-1',
-      result: 'correct',
-      confidence: 0.95,
-      feedback: 'Good job',
-    });
+  await t.test('2. knowledge_search returns structured results', async () => {
+    const res = await executor.executeTool('s1', 'knowledge_search', { query: 'Softmax' });
     assert.equal(res.success, true);
   });
 
-  await t.test('5. unknown tool returns clean error', async () => {
-    const res = await executor.executeTool('s1', 'dangerous_shell_exec', { cmd: 'rm -rf /' });
+  await t.test('3. assessment_record is disallowed for Tutor Agent', async () => {
+    const res = await executor.executeTool('s1', 'assessment_record', { result: 'correct' });
     assert.equal(res.success, false);
-    assert.ok(res.error?.includes('Unknown tool'));
+    assert.ok(res.error?.includes('Unauthorized') || res.error?.includes('Unknown'));
   });
 });

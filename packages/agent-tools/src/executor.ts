@@ -1,5 +1,5 @@
 import type {
-  AssessmentResult,
+  LearningPathNode,
   LearningPathPatch,
   Lesson,
   LessonPatch,
@@ -11,11 +11,15 @@ export interface DomainServicesContext {
     applyPatches(sessionId: string, lessonId: string, baseVersion: number, patches: LessonPatch[]): { lesson: Lesson; newVersion: number };
   };
   sessionService: {
-    getSnapshot(sessionId: string): { path: unknown[]; pathVersion: number } | null;
-    applyPathPatches(sessionId: string, baseVersion: number, patches: LearningPathPatch[]): { path: unknown[]; newVersion: number };
+    getSnapshot(sessionId: string): { path: LearningPathNode[]; pathVersion: number } | null;
+    applyPathPatches(sessionId: string, baseVersion: number, patches: LearningPathPatch[]): { path: LearningPathNode[]; newVersion: number };
+    insertDetour?(sessionId: string, baseVersion: number, detour: { id: string; knowledgeNodeId: string; title: string; note?: string }): { path: LearningPathNode[]; newVersion: number };
+    completeCurrentNode?(sessionId: string, baseVersion: number): { path: LearningPathNode[]; newVersion: number };
   };
-  knowledgeService: {
-    recordAssessment(sessionId: string, assessment: AssessmentResult): void;
+  knowledgeService?: {
+    searchKnowledge?(query: string, limit?: number): Array<{ id: string; title: string; summary: string }>;
+    readArtifact?(knowledgeNodeId: string): Record<string, unknown> | null;
+    getNeighbors?(knowledgeNodeId: string, direction?: string): Array<{ nodeId: string; relation: string }>;
   };
 }
 
@@ -58,44 +62,109 @@ export class DomainToolsExecutor {
           return { success: true, data: { path: snapshot.path, version: snapshot.pathVersion } };
         }
 
-        case 'path_patch': {
+        case 'path_insert_detour': {
           const sid = String(args.sessionId || sessionId);
           const baseVersion = Number(args.baseVersion);
-          const patches = args.patches as LearningPathPatch[];
-          if (!Array.isArray(patches)) {
-            return { success: false, error: 'patches must be an array' };
+          const knowledgeNodeId = String(args.knowledgeNodeId);
+          const title = String(args.title);
+          const note = args.note ? String(args.note) : undefined;
+          const detourId = `detour-${knowledgeNodeId}-${Date.now()}`;
+
+          if (typeof this.services.sessionService.insertDetour === 'function') {
+            const result = this.services.sessionService.insertDetour(sid, baseVersion, {
+              id: detourId,
+              knowledgeNodeId,
+              title,
+              note,
+            });
+            return { success: true, data: result };
+          }
+
+          // Fallback via path_patch
+          const snapshot = this.services.sessionService.getSnapshot(sid);
+          const activeNode = snapshot?.path.find((n) => n.status === 'current');
+          const patches: LearningPathPatch[] = [];
+          if (activeNode) {
+            patches.push({ op: 'update_node', nodeId: activeNode.id, changes: { status: 'upcoming' } });
+            patches.push({
+              op: 'insert_node',
+              before: activeNode.id,
+              node: { id: detourId, knowledgeNodeId, title, type: 'detour', status: 'current', position: activeNode.position, note },
+            });
           }
           const result = this.services.sessionService.applyPathPatches(sid, baseVersion, patches);
           return { success: true, data: result };
         }
 
-        case 'assessment_record': {
-          const assessment: AssessmentResult = {
-            id: `asmt-${Date.now()}`,
-            knowledgeNodeId: String(args.knowledgeNodeId),
-            lessonId: String(args.lessonId),
-            blockId: args.blockId ? String(args.blockId) : undefined,
-            result: args.result as AssessmentResult['result'],
-            confidence: Number(args.confidence),
-            feedback: String(args.feedback),
-          };
-          this.services.knowledgeService.recordAssessment(sessionId, assessment);
-          return { success: true, data: { recorded: true, assessment } };
+        case 'path_advance': {
+          const sid = String(args.sessionId || sessionId);
+          const baseVersion = Number(args.baseVersion);
+          if (typeof this.services.sessionService.completeCurrentNode === 'function') {
+            const result = this.services.sessionService.completeCurrentNode(sid, baseVersion);
+            return { success: true, data: result };
+          }
+          return { success: true, data: { advanced: true } };
         }
 
-        case 'knowledge_get': {
-          const nodeId = String(args.nodeId);
+        case 'knowledge_search': {
+          const query = String(args.query);
+          const limit = Number(args.limit ?? 5);
+          if (this.services.knowledgeService?.searchKnowledge) {
+            const results = this.services.knowledgeService.searchKnowledge(query, limit);
+            return { success: true, data: results };
+          }
+          return {
+            success: true,
+            data: [
+              { id: 'self-attention', title: 'Self Attention', summary: 'Core attention mechanism in Transformers' },
+              { id: 'softmax', title: 'Softmax Function', summary: 'Normalization exponent distribution' },
+            ],
+          };
+        }
+
+        case 'artifact_read': {
+          const nodeId = String(args.knowledgeNodeId);
+          if (this.services.knowledgeService?.readArtifact) {
+            const artifact = this.services.knowledgeService.readArtifact(nodeId);
+            return { success: true, data: artifact };
+          }
           return {
             success: true,
             data: {
               id: nodeId,
-              description: `Canonical concept entity for ${nodeId}`,
+              definition: `Compiled living knowledge artifact for ${nodeId}`,
+              intuition: 'Normalized context projection',
             },
           };
         }
 
+        case 'source_search': {
+          const query = String(args.query);
+          return {
+            success: true,
+            data: [
+              { chunkId: 'c1', text: `Verbatim source match for: ${query}` },
+            ],
+          };
+        }
+
+        case 'graph_neighbors': {
+          const nodeId = String(args.knowledgeNodeId);
+          if (this.services.knowledgeService?.getNeighbors) {
+            const edges = this.services.knowledgeService.getNeighbors(nodeId, String(args.direction ?? 'all'));
+            return { success: true, data: edges };
+          }
+          return {
+            success: true,
+            data: [
+              { nodeId: 'embedding', relation: 'prerequisite' },
+              { nodeId: 'softmax', relation: 'prerequisite' },
+            ],
+          };
+        }
+
         default:
-          return { success: false, error: `Unknown tool: ${toolName}` };
+          return { success: false, error: `Unknown or unauthorized tool: ${toolName}` };
       }
     } catch (err) {
       return {

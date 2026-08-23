@@ -71,6 +71,7 @@ export function seedDatabase(db: Database.Database): void {
     `);
 
     insertNode.run('embedding', 'Embedding', 'Vector representation of tokens in continuous vector space.', now);
+    insertNode.run('softmax', 'Softmax Function', 'Converts vector logits into a normalized probability distribution.', now);
     insertNode.run('self-attention', 'Self Attention', 'Mechanism for weighting token representations based on sequence context.', now);
     insertNode.run('multi-head', 'Multi-Head Attention', 'Multiple parallel attention mechanisms capturing diverse subspace representations.', now);
     insertNode.run('transformer-block', 'Transformer Block', 'Combined attention and feedforward layers with residual connections and layer normalization.', now);

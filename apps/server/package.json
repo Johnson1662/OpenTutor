@@ -13,7 +13,9 @@
     "@opentutor/protocol": "workspace:*",
     "@opentutor/database": "workspace:*",
     "@opentutor/agent-tools": "workspace:*",
-    "@opentutor/agent-runtime": "workspace:*"
+    "@opentutor/agent-runtime": "workspace:*",
+    "@opentutor/knowledge-core": "workspace:*",
+    "@opentutor/assessment-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

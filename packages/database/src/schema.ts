@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 
 export const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS knowledge_nodes (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -125,4 +130,5 @@ CREATE INDEX IF NOT EXISTS idx_learning_events_session_seq ON learning_events(se
 
 export function initSchema(db: Database.Database): void {
   db.exec(SCHEMA_SQL);
+  db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(1, new Date().toISOString());
 }

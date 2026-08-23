@@ -33,11 +33,15 @@ test('packages/agent-runtime - TutorAgent execution & fallback loop', async (t) 
       }),
     },
     sessionService: {
-      getSnapshot: () => ({ path: [{ id: 'pn-2', position: 2, status: 'completed' }], pathVersion: 1 }),
+      getSnapshot: () => ({
+        path: [{ id: 'pn-2', knowledgeNodeId: 'self-attention', title: 'Self Attention', type: 'main' as const, position: 2, status: 'completed' as const }],
+        pathVersion: 1,
+      }),
       applyPathPatches: () => ({ path: [], newVersion: 2 }),
     },
     knowledgeService: {
-      recordAssessment: () => {},
+      searchKnowledge: () => [],
+      readArtifact: () => null,
     },
   };
 

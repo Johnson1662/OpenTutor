@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
-import { initSchema } from './schema.ts';
+import { runMigrations } from './migration-runner.ts';
+
+export type Database = Database.Database;
 
 export interface DatabaseOptions {
   path?: string;
@@ -32,7 +34,7 @@ export function createDatabase(dbPathOrOptions?: string | DatabaseOptions): Data
   db.pragma('foreign_keys = ON');
 
   if (!options.readonly) {
-    initSchema(db);
+    runMigrations(db);
   }
 
   return db;

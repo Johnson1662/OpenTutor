@@ -6,22 +6,27 @@ import {
   SessionRepository,
   KnowledgeRepository,
   EventRepository,
+  TraceRepository,
+  type Database,
 } from '@opentutor/database';
 import { EventBus } from './events/event-bus.ts';
 import { SessionService } from './services/session-service.ts';
 import { LessonService } from './services/lesson-service.ts';
 import { KnowledgeService } from './services/knowledge-service.ts';
-import { TutorService } from './services/tutor-service.ts';
 import { DomainToolsExecutor } from '@opentutor/agent-tools';
-import { TutorAgent } from '@opentutor/agent-runtime';
+import { PiTutorRuntime, type TutorRuntime } from '@opentutor/agent-runtime';
 import { handleRequest, type RouteContext } from './api/routes.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const DB_PATH = process.env.OPENTUTOR_DB_PATH ?? 'opentutor.sqlite';
 
-export function createServerContext(dbPath: string = DB_PATH): {
+export function createServerContext(dbPath: string = DB_PATH, customRuntime?: TutorRuntime): {
   server: http.Server;
   context: RouteContext;
+  db: Database;
+  sessionRepo: SessionRepository;
+  lessonRepo: LessonRepository;
+  knowledgeRepo: KnowledgeRepository;
   close: () => Promise<void>;
 } {
   const db = createDatabase(dbPath);
@@ -31,26 +36,26 @@ export function createServerContext(dbPath: string = DB_PATH): {
   const sessionRepo = new SessionRepository(db);
   const knowledgeRepo = new KnowledgeRepository(db);
   const eventRepo = new EventRepository(db);
+  const traceRepo = new TraceRepository(db);
 
   const eventBus = new EventBus(eventRepo);
   const sessionService = new SessionService(sessionRepo, eventBus);
   const lessonService = new LessonService(lessonRepo, eventBus);
   const knowledgeService = new KnowledgeService(knowledgeRepo, eventBus);
-  const tutorService = new TutorService(lessonService, sessionService, eventBus);
 
   const toolsExecutor = new DomainToolsExecutor({
     lessonService,
     sessionService,
     knowledgeService,
   });
-  const tutorAgent = new TutorAgent(toolsExecutor);
+
+  const tutorRuntime = customRuntime ?? new PiTutorRuntime(toolsExecutor, traceRepo);
 
   const context: RouteContext = {
     sessionService,
     lessonService,
     knowledgeService,
-    tutorService,
-    tutorAgent,
+    tutorRuntime,
     eventBus,
   };
 
@@ -67,16 +72,21 @@ export function createServerContext(dbPath: string = DB_PATH): {
   return {
     server,
     context,
-    close: () =>
-      new Promise((resolve) => {
-        if (typeof server.closeAllConnections === 'function') {
-          server.closeAllConnections();
-        }
-        server.close(() => {
-          db.close();
-          resolve();
-        });
-      }),
+    db,
+    sessionRepo,
+    lessonRepo,
+    knowledgeRepo,
+    close: () => {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
+      server.close(() => {
+        db.close();
+        resolve();
+      });
+      return promise;
+    },
   };
 }
 

@@ -17,6 +17,8 @@ export interface AssessmentResult {
 export type LearningEventType =
   | 'agent.started'
   | 'agent.text.delta'
+  | 'agent.tool.started'
+  | 'agent.tool.completed'
   | 'agent.completed'
   | 'lesson.patch'
   | 'lesson.updated'
@@ -42,6 +44,19 @@ export interface AgentStartedEventData {
 export interface AgentTextDeltaEventData {
   requestId: string;
   delta: string;
+}
+
+export interface AgentToolStartedEventData {
+  requestId: string;
+  toolCallId: string;
+  toolName: string;
+}
+
+export interface AgentToolCompletedEventData {
+  requestId: string;
+  toolCallId: string;
+  toolName: string;
+  success: boolean;
 }
 
 export interface AgentCompletedEventData {

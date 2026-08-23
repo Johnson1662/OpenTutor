@@ -163,7 +163,7 @@ describe('@opentutor/database', () => {
           op: 'insert_node',
           node: {
             id: 'detour-softmax',
-            knowledgeNodeId: 'softmax-activation',
+            knowledgeNodeId: 'softmax',
             title: 'Softmax Details',
             type: 'detour',
             status: 'current',
@@ -248,7 +248,7 @@ describe('@opentutor/database', () => {
       const assessment: AssessmentResult = {
         id: 'asmt-2',
         knowledgeNodeId: 'multi-head',
-        lessonId: 'lesson-multi-head',
+        lessonId: 'lesson-self-attention',
         result: 'incorrect',
         confidence: 0.2,
         feedback: 'Review the multi-head attention concept.',
@@ -304,6 +304,9 @@ describe('@opentutor/database', () => {
     });
 
     it('isolates sequence numbers per session', () => {
+      sessionRepo.createSession({ id: 'session-1', courseId: 'transformer' });
+      sessionRepo.createSession({ id: 'session-2', courseId: 'transformer' });
+
       const s1e1 = eventRepo.appendEvent('session-1', 'agent.started', {});
       const s2e1 = eventRepo.appendEvent('session-2', 'agent.started', {});
       const s1e2 = eventRepo.appendEvent('session-1', 'agent.completed', {});

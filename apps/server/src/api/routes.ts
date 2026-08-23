@@ -9,8 +9,7 @@ import type {
 import type { SessionService } from '../services/session-service.ts';
 import type { LessonService } from '../services/lesson-service.ts';
 import type { KnowledgeService } from '../services/knowledge-service.ts';
-import type { TutorService } from '../services/tutor-service.ts';
-import type { TutorAgent } from '@opentutor/agent-runtime';
+import type { TutorRuntime } from '@opentutor/agent-runtime';
 import type { EventBus } from '../events/event-bus.ts';
 import { randomUUID } from 'node:crypto';
 
@@ -18,8 +17,7 @@ export interface RouteContext {
   sessionService: SessionService;
   lessonService: LessonService;
   knowledgeService: KnowledgeService;
-  tutorService: TutorService;
-  tutorAgent: TutorAgent;
+  tutorRuntime: TutorRuntime;
   eventBus: EventBus;
 }
 
@@ -101,19 +99,28 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, c
     const hasSeq = lastEventIdHeader !== undefined || querySeq !== null;
     const lastSeq = Number(lastEventIdHeader ?? querySeq ?? 0);
 
-    // Replay missed events if client requested
+    let lastSentSeq = lastSeq;
+    const unsubscribe = ctx.eventBus.subscribe(sessionId, (evt) => {
+      if (evt.seq <= lastSentSeq) return;
+      lastSentSeq = evt.seq;
+      res.write(encodeSse(evt));
+    });
+
+    // Subscribe before replay so mutations between the two steps are not lost.
     if (hasSeq) {
       ctx.eventBus.replayMissedEvents(sessionId, lastSeq, (evt) => {
+        if (evt.seq <= lastSentSeq) return;
+        lastSentSeq = evt.seq;
         res.write(encodeSse(evt));
       });
     }
 
-    // Subscribe to live events
-    const unsubscribe = ctx.eventBus.subscribe(sessionId, (evt) => {
-      res.write(encodeSse(evt));
-    });
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(': heartbeat\\n\\n');
+    }, 15_000);
 
     req.on('close', () => {
+      clearInterval(heartbeat);
       unsubscribe();
     });
     return;
@@ -128,13 +135,17 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, c
 
     ctx.eventBus.publish(sessionId, 'agent.started', { requestId });
 
-    // Run agent in background or async and stream
-    ctx.tutorAgent
-      .run(sessionId, body.message, (delta) => {
-        ctx.eventBus.publish(sessionId, 'agent.text.delta', { requestId, delta });
+    ctx.tutorRuntime
+      .runTurn({
+        sessionId,
+        message: body.message,
+        requestId,
+        onTextDelta: (delta) => {
+          ctx.eventBus.publish(sessionId, 'agent.text.delta', { requestId, delta });
+        },
       })
-      .then((res) => {
-        ctx.eventBus.publish(sessionId, 'agent.completed', { requestId, message: res.reply });
+      .then((turnResult) => {
+        ctx.eventBus.publish(sessionId, 'agent.completed', { requestId, message: turnResult.reply });
       })
       .catch((err: Error) => {
         ctx.eventBus.publish(sessionId, 'error', { message: err.message });
@@ -144,21 +155,49 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, c
     return;
   }
 
-  // 4. POST /api/sessions/:sessionId/actions
+  // 4. POST /api/sessions/:sessionId/actions (Unified into TutorRuntime)
   const actionMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/actions$/);
   if (method === 'POST' && actionMatch) {
     const sessionId = actionMatch[1];
     const body = await readJson<RunTutorActionRequest>(req);
-    const result = await ctx.tutorService.runAction(sessionId, body.action);
+    const requestId = `req-${randomUUID()}`;
+
+    ctx.eventBus.publish(sessionId, 'agent.started', { requestId, action: body.action });
+
+    const promptMap: Record<string, string> = {
+      simpler: 'Explain this concept simpler with an intuitive analogy.',
+      show_code: 'Show me Python implementation code for this concept.',
+      visualize: 'Create a visual flow diagram for this concept.',
+      softmax_unknown: 'I do not understand Softmax prerequisite.',
+    };
+
+    const promptMessage = promptMap[body.action] ?? `Execute action: ${body.action}`;
+
+    ctx.tutorRuntime
+      .runTurn({
+        sessionId,
+        message: promptMessage,
+        requestId,
+        onTextDelta: (delta) => {
+          ctx.eventBus.publish(sessionId, 'agent.text.delta', { requestId, delta });
+        },
+      })
+      .then((turnResult) => {
+        ctx.eventBus.publish(sessionId, 'agent.completed', { requestId, message: turnResult.reply });
+      })
+      .catch((err: Error) => {
+        ctx.eventBus.publish(sessionId, 'error', { message: err.message });
+      });
+
     const resp: AcceptedResponse = {
       accepted: true,
-      requestId: result.requestId,
+      requestId,
     };
     json(res, 202, resp);
     return;
   }
 
-  // 4. POST /api/lessons/:lessonId/blocks/:blockId/answer
+  // 5. POST /api/lessons/:lessonId/blocks/:blockId/answer
   const answerMatch = pathname.match(/^\/api\/lessons\/([^/]+)\/blocks\/([^/]+)\/answer$/);
   if (method === 'POST' && answerMatch) {
     const lessonId = answerMatch[1];
@@ -178,7 +217,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, c
       blockId,
       result: 'correct',
       confidence: 0.92,
-      feedback: `Diagnostic evaluation: "${body.answer}" correctly addresses the core concept. Knowledge state updated to mastered.`,
+      feedback: `Diagnostic evaluation: "${body.answer}" correctly addresses the core concept.`,
     };
 
     ctx.knowledgeService.recordAssessment('prototype', assessment);

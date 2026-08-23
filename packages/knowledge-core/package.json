@@ -1,0 +1,11 @@
+{
+  "name": "@opentutor/knowledge-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {"typecheck": "tsc --noEmit", "test": "node --test --experimental-strip-types tests/**/*.test.ts"},
+  "dependencies": {"@opentutor/database": "workspace:*"},
+  "devDependencies": {"@types/better-sqlite3": "^7.6.12", "@types/node": "^22.13.4", "typescript": "^5.7.3"}
+}

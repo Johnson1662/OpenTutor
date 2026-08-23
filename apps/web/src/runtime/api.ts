@@ -59,6 +59,8 @@ export function subscribeToLearningEvents(
   const types = [
     'agent.started',
     'agent.text.delta',
+    'agent.tool.started',
+    'agent.tool.completed',
     'agent.completed',
     'lesson.patch',
     'lesson.updated',

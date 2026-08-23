@@ -1,5 +1,5 @@
 {
-  "name": "@opentutor/agent-runtime",
+  "name": "@opentutor/assessment-core",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -8,11 +8,6 @@
   "scripts": {
     "test": "node --test --experimental-strip-types tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@opentutor/protocol": "workspace:*",
-    "@opentutor/database": "workspace:*",
-    "@opentutor/agent-tools": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

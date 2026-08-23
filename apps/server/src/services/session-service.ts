@@ -29,7 +29,48 @@ export class SessionService {
     };
 
     this.eventBus.publish(sessionId, 'path.patch', eventData);
+    return result;
+  }
 
+  insertDetour(
+    sessionId: string,
+    baseVersion: number,
+    detour: { id: string; knowledgeNodeId: string; title: string; note?: string }
+  ): { path: LearningPathNode[]; newVersion: number } {
+    const result = this.sessionRepo.insertDetour(sessionId, baseVersion, detour);
+    const eventData: PathPatchEventData = {
+      baseVersion,
+      version: result.newVersion,
+      patches: [
+        {
+          op: 'insert_node',
+          node: {
+            id: detour.id,
+            knowledgeNodeId: detour.knowledgeNodeId,
+            title: detour.title,
+            type: 'detour',
+            status: 'current',
+            position: 0,
+            note: detour.note,
+          },
+        },
+      ],
+    };
+    this.eventBus.publish(sessionId, 'path.patch', eventData);
+    return result;
+  }
+
+  completeCurrentNode(
+    sessionId: string,
+    baseVersion: number
+  ): { path: LearningPathNode[]; newVersion: number } {
+    const result = this.sessionRepo.completeCurrentNode(sessionId, baseVersion);
+    const eventData: PathPatchEventData = {
+      baseVersion,
+      version: result.newVersion,
+      patches: [],
+    };
+    this.eventBus.publish(sessionId, 'path.patch', eventData);
     return result;
   }
 }

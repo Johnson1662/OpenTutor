@@ -1,0 +1,44 @@
+[
+  {
+    "id": "lesson-cpp-smart-pointers-raii",
+    "topic": "RAII and Smart Pointers (unique_ptr and shared_ptr)",
+    "expectedConcepts": ["raii-and-ownership", "smart-pointers"],
+    "expectedQuizObjectives": [
+      "Explain how unique_ptr enforces exclusive ownership without runtime overhead",
+      "Describe how shared_ptr reference counting works and how weak_ptr breaks cycles",
+      "Demonstrate how RAII guarantees exception safety"
+    ],
+    "expectedClaims": [
+      "Acquires resources in constructor and releases them deterministically in destructor",
+      "std::unique_ptr provides exclusive zero-overhead ownership and prevents copying",
+      "std::weak_ptr prevents reference count cycles in shared pointer graphs"
+    ]
+  },
+  {
+    "id": "lesson-cpp-move-semantics",
+    "topic": "Rvalue References, Move Semantics, and std::move",
+    "expectedConcepts": ["copy-vs-move-semantics", "std-move-and-rvalue-references"],
+    "expectedQuizObjectives": [
+      "Explain why std::move does not move anything at runtime",
+      "Contrast copy constructor with move constructor resource allocation",
+      "Identify when an rvalue reference binds to an expression"
+    ],
+    "expectedClaims": [
+      "std::move is an unconditional static_cast to rvalue reference and emits no runtime machine code by itself",
+      "Move semantics transfer ownership of pointers and buffer handles from expiring objects"
+    ]
+  },
+  {
+    "id": "lesson-cpp-templates",
+    "topic": "Template Metaprogramming and Static Introspection",
+    "expectedConcepts": ["pointers-and-references", "template-metaprogramming"],
+    "expectedQuizObjectives": [
+      "Explain how template specialization enables compile-time branching",
+      "Contrast runtime polymorphism with compile-time templates"
+    ],
+    "expectedClaims": [
+      "Executes computation and code generation during compilation",
+      "Produces zero runtime overhead for static abstractions"
+    ]
+  }
+]

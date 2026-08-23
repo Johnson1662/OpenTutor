@@ -1,0 +1,20 @@
+[
+  {
+    "id": "transformer-goal-mha",
+    "goal": "Understand Multi-Head Attention mechanism from first principles",
+    "targetNodes": ["multi-head-attention"],
+    "expectedPrerequisites": ["positional-encoding", "qkv-projections", "softmax-normalization", "self-attention"]
+  },
+  {
+    "id": "transformer-goal-self-attention",
+    "goal": "Master the fundamentals of Scaled Dot-Product Self-Attention",
+    "targetNodes": ["self-attention"],
+    "expectedPrerequisites": ["qkv-projections", "softmax-normalization"]
+  },
+  {
+    "id": "transformer-goal-encoder-block",
+    "goal": "Understand the complete Transformer Encoder Layer architecture",
+    "targetNodes": ["feed-forward-network", "layer-normalization"],
+    "expectedPrerequisites": ["positional-encoding", "qkv-projections", "softmax-normalization", "self-attention", "multi-head-attention", "residual-connections"]
+  }
+]

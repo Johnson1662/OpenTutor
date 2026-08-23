@@ -1,0 +1,34 @@
+[
+  {
+    "id": "transformer-tutor-simplify",
+    "userMessage": "I'm confused by the matrix math for Self-Attention. Can you explain it more simply with an analogy and update the lesson?",
+    "contextTopic": "self-attention",
+    "expectedTools": ["lesson_patch"],
+    "forbiddenTools": ["path_advance"],
+    "expectedIntent": "SIMPLIFY_EXPLANATION"
+  },
+  {
+    "id": "transformer-tutor-add-code",
+    "userMessage": "Can you show a PyTorch code snippet demonstrating how the scaled dot-product attention calculation works?",
+    "contextTopic": "self-attention",
+    "expectedTools": ["lesson_patch"],
+    "forbiddenTools": ["path_insert_detour"],
+    "expectedIntent": "ADD_CODE_EXAMPLE"
+  },
+  {
+    "id": "transformer-tutor-missing-prerequisite",
+    "userMessage": "Wait, what exactly is Softmax Normalization? I haven't learned that yet, can we take a detour?",
+    "contextTopic": "self-attention",
+    "expectedTools": ["path_insert_detour", "knowledge_search"],
+    "forbiddenTools": ["path_advance"],
+    "expectedIntent": "INSERT_DETOUR"
+  },
+  {
+    "id": "transformer-tutor-advance",
+    "userMessage": "I understand Self-Attention now and finished the quiz. Let's proceed to Multi-Head Attention.",
+    "contextTopic": "self-attention",
+    "expectedTools": ["path_advance"],
+    "forbiddenTools": ["path_insert_detour"],
+    "expectedIntent": "ADVANCE_PATH"
+  }
+]

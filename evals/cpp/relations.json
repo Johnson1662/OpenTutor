@@ -1,0 +1,32 @@
+[
+  {
+    "from": "pointers-and-references",
+    "to": "raii-and-ownership",
+    "type": "prerequisite"
+  },
+  {
+    "from": "raii-and-ownership",
+    "to": "smart-pointers",
+    "type": "prerequisite"
+  },
+  {
+    "from": "pointers-and-references",
+    "to": "copy-vs-move-semantics",
+    "type": "prerequisite"
+  },
+  {
+    "from": "copy-vs-move-semantics",
+    "to": "std-move-and-rvalue-references",
+    "type": "prerequisite"
+  },
+  {
+    "from": "std-move-and-rvalue-references",
+    "to": "smart-pointers",
+    "type": "prerequisite"
+  },
+  {
+    "from": "pointers-and-references",
+    "to": "template-metaprogramming",
+    "type": "prerequisite"
+  }
+]

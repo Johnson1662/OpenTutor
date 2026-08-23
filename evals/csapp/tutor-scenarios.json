@@ -1,0 +1,34 @@
+[
+  {
+    "id": "csapp-tutor-code-cache-sim",
+    "userMessage": "Can you give me a simple C code example showing the difference between row-major and column-major matrix traversal cache misses?",
+    "contextTopic": "cache-memory",
+    "expectedTools": ["lesson_patch"],
+    "forbiddenTools": ["path_insert_detour"],
+    "expectedIntent": "ADD_CODE_EXAMPLE"
+  },
+  {
+    "id": "csapp-tutor-simplify-pagetable",
+    "userMessage": "Multi-level page tables seem very complicated. Can you give me an analogy like a book index and update the lesson canvas?",
+    "contextTopic": "page-table",
+    "expectedTools": ["lesson_patch"],
+    "forbiddenTools": ["path_advance"],
+    "expectedIntent": "SIMPLIFY_EXPLANATION"
+  },
+  {
+    "id": "csapp-tutor-missing-vm",
+    "userMessage": "I don't understand how TLB works because I don't know what Virtual Memory is. Can we cover Virtual Memory first?",
+    "contextTopic": "tlb",
+    "expectedTools": ["path_insert_detour", "knowledge_search"],
+    "forbiddenTools": ["path_advance"],
+    "expectedIntent": "INSERT_DETOUR"
+  },
+  {
+    "id": "csapp-tutor-advance-concurrency",
+    "userMessage": "I've mastered process and thread differences and passed the quiz. Let's move to socket concurrency.",
+    "contextTopic": "process-vs-thread",
+    "expectedTools": ["path_advance"],
+    "forbiddenTools": ["path_insert_detour"],
+    "expectedIntent": "ADVANCE_PATH"
+  }
+]

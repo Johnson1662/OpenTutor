@@ -1,0 +1,20 @@
+[
+  {
+    "id": "csapp-goal-tlb-translation",
+    "goal": "Understand hardware address translation and TLB caching mechanism",
+    "targetNodes": ["tlb"],
+    "expectedPrerequisites": ["memory-hierarchy", "cache-memory", "virtual-memory", "page-table"]
+  },
+  {
+    "id": "csapp-goal-virtual-memory",
+    "goal": "Master the principles and mechanisms of Virtual Memory",
+    "targetNodes": ["virtual-memory", "page-table"],
+    "expectedPrerequisites": ["memory-hierarchy", "cache-memory"]
+  },
+  {
+    "id": "csapp-goal-socket-concurrency",
+    "goal": "Build scalable concurrent network servers using threads and multiplexing",
+    "targetNodes": ["socket-concurrency"],
+    "expectedPrerequisites": ["virtual-memory", "process-vs-thread"]
+  }
+]

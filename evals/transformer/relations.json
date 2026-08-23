@@ -1,0 +1,37 @@
+[
+  {
+    "from": "qkv-projections",
+    "to": "self-attention",
+    "type": "prerequisite"
+  },
+  {
+    "from": "softmax-normalization",
+    "to": "self-attention",
+    "type": "prerequisite"
+  },
+  {
+    "from": "self-attention",
+    "to": "multi-head-attention",
+    "type": "prerequisite"
+  },
+  {
+    "from": "positional-encoding",
+    "to": "multi-head-attention",
+    "type": "prerequisite"
+  },
+  {
+    "from": "multi-head-attention",
+    "to": "residual-connections",
+    "type": "prerequisite"
+  },
+  {
+    "from": "residual-connections",
+    "to": "layer-normalization",
+    "type": "prerequisite"
+  },
+  {
+    "from": "layer-normalization",
+    "to": "feed-forward-network",
+    "type": "prerequisite"
+  }
+]

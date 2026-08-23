@@ -1,0 +1,44 @@
+[
+  {
+    "id": "lesson-csapp-virtual-memory-tlb",
+    "topic": "Virtual Memory and TLB Address Translation",
+    "expectedConcepts": ["virtual-memory", "page-table", "tlb"],
+    "expectedQuizObjectives": [
+      "Explain how VPN is translated to PPN using page tables",
+      "Describe why TLB hits prevent main memory access during address translation",
+      "Identify the conditions that trigger a page fault"
+    ],
+    "expectedClaims": [
+      "Maps virtual page numbers to physical page numbers or disk addresses",
+      "Caches page table entries in hardware MMU",
+      "Triggers page faults when requested virtual pages are unmapped or invalid"
+    ]
+  },
+  {
+    "id": "lesson-csapp-cache-locality",
+    "topic": "Memory Hierarchy and Cache Locality",
+    "expectedConcepts": ["memory-hierarchy", "cache-memory"],
+    "expectedQuizObjectives": [
+      "Differentiate between temporal and spatial locality with examples",
+      "Explain cache organization into sets, lines, tags, and block offsets",
+      "Analyze the latency gap between L1 cache and main DRAM memory"
+    ],
+    "expectedClaims": [
+      "Organizes registers, SRAM cache, DRAM main memory, and disk in order of decreasing speed and increasing capacity",
+      "Organized into sets, lines, tags, and block offsets"
+    ]
+  },
+  {
+    "id": "lesson-csapp-concurrency",
+    "topic": "Process vs Thread Concurrency and Network Sockets",
+    "expectedConcepts": ["process-vs-thread", "socket-concurrency"],
+    "expectedQuizObjectives": [
+      "Contrast resource isolation between processes and threads",
+      "Explain why I/O multiplexing with epoll scales better than one-thread-per-client"
+    ],
+    "expectedClaims": [
+      "Processes have separate private virtual memory address spaces and isolated resources",
+      "Threads share the same virtual address space, code segment, and global data while keeping private stacks and registers"
+    ]
+  }
+]

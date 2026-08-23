@@ -1,0 +1,7 @@
+[
+  ["Move Semantics", "std::move"],
+  ["Reference", "Pointer"],
+  ["RAII", "Ownership"],
+  ["unique_ptr", "shared_ptr"],
+  ["Pointers", "Smart Pointers"]
+]

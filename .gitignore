@@ -8,3 +8,4 @@ dist/
 models-store.json
 *.sqlite*
 .opentutor/
+eval-report.json

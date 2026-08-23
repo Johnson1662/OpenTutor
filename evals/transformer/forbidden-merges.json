@@ -1,0 +1,7 @@
+[
+  ["Self Attention", "Cross Attention"],
+  ["Softmax", "Attention"],
+  ["Q/K/V", "Multi-Head Attention"],
+  ["Layer Normalization", "Batch Normalization"],
+  ["Feed-Forward Network", "Multi-Head Attention"]
+]

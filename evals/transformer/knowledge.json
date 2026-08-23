@@ -1,0 +1,91 @@
+{
+  "entities": [
+    {
+      "id": "positional-encoding",
+      "canonicalName": "Positional Encoding",
+      "definition": "A technique to inject token order information into sequence models lacking recurrence or convolutions by adding sinusoidal or learned vectors to input embeddings.",
+      "keyClaims": [
+        "Injected into input embeddings to supply sequence order",
+        "Uses sinusoidal functions with varying frequencies or learned embeddings",
+        "Compensates for permutation invariance of pure attention"
+      ],
+      "aliases": ["Positional Encoding", "Positional Embeddings", "Position Encoding"]
+    },
+    {
+      "id": "qkv-projections",
+      "canonicalName": "Q/K/V Projections",
+      "definition": "Linear transformations that project input embeddings into Query, Key, and Value vector representations.",
+      "keyClaims": [
+        "Queries represent search targets of the current token",
+        "Keys represent content identifiers matched against queries",
+        "Values carry the semantic content to be aggregated"
+      ],
+      "aliases": ["Q/K/V Projections", "Query Key Value Projections", "QKV Linear Projections"]
+    },
+    {
+      "id": "softmax-normalization",
+      "canonicalName": "Softmax Normalization",
+      "definition": "An exponential normalization function converting raw logits into a valid probability distribution where weights sum to 1.",
+      "keyClaims": [
+        "Divides dot products by square root of key dimension to prevent gradient saturation",
+        "Converts attention logits into a non-negative probability distribution summing to 1"
+      ],
+      "aliases": ["Softmax Normalization", "Softmax Scaling", "Scaled Softmax"]
+    },
+    {
+      "id": "self-attention",
+      "canonicalName": "Self-Attention",
+      "definition": "An attention mechanism relating different positions of a single sequence to compute a contextualized representation as a weighted sum of Values.",
+      "keyClaims": [
+        "Computes contextual representations within a single sequence",
+        "Computes weighted sum of Values using scaled dot-product attention softmax(QK^T / sqrt(d_k))V",
+        "Captures pairwise token dependencies across arbitrary sequence distances"
+      ],
+      "aliases": ["Self-Attention", "Self Attention", "Self Attention Mechanism", "Intra-Attention"]
+    },
+    {
+      "id": "multi-head-attention",
+      "canonicalName": "Multi-Head Attention",
+      "definition": "An attention architecture running multiple attention heads in parallel across different linear representation subspaces.",
+      "keyClaims": [
+        "Projects queries, keys, and values into h distinct lower-dimensional subspaces",
+        "Computes scaled dot-product attention in parallel for all heads",
+        "Concatenates head outputs and projects linearly to final output"
+      ],
+      "aliases": ["Multi-Head Attention", "Multi Head Attention", "MHA"]
+    },
+    {
+      "id": "residual-connections",
+      "canonicalName": "Residual Connections",
+      "definition": "Skip connections that add the input of a sub-layer directly to its output prior to normalization.",
+      "keyClaims": [
+        "Computes x + SubLayer(x) across each encoder and decoder sub-layer",
+        "Enables uninterrupted gradient propagation through deep Transformer stacks",
+        "Mitigates the vanishing gradient problem"
+      ],
+      "aliases": ["Residual Connections", "Skip Connections", "Residual Shortcut"]
+    },
+    {
+      "id": "layer-normalization",
+      "canonicalName": "Layer Normalization",
+      "definition": "A normalization technique computing mean and variance across feature dimensions for each individual token independently.",
+      "keyClaims": [
+        "Normalizes activations across features for each individual sample and token",
+        "Stabilizes training dynamics independent of batch size",
+        "Applied after residual addition in standard Transformer architectures"
+      ],
+      "aliases": ["Layer Normalization", "LayerNorm", "LN"]
+    },
+    {
+      "id": "feed-forward-network",
+      "canonicalName": "Feed-Forward Network",
+      "definition": "A position-wise two-layer fully connected network with non-linear activation applied identically to each token representation.",
+      "keyClaims": [
+        "Consists of two linear transformations with non-linear activation (e.g. ReLU or GeLU)",
+        "Operates identically and independently on each sequence position",
+        "Expands representation dimension then projects back to model dimension"
+      ],
+      "aliases": ["Feed-Forward Network", "Position-wise Feed-Forward Network", "FFN"]
+    }
+  ]
+}

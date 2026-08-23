@@ -1,0 +1,20 @@
+[
+  {
+    "id": "cpp-goal-smart-pointers",
+    "goal": "Master modern C++ memory management and smart pointers",
+    "targetNodes": ["smart-pointers"],
+    "expectedPrerequisites": ["pointers-and-references", "raii-and-ownership", "copy-vs-move-semantics", "std-move-and-rvalue-references"]
+  },
+  {
+    "id": "cpp-goal-move-semantics",
+    "goal": "Understand C++11 Move Semantics, rvalue references, and std::move",
+    "targetNodes": ["std-move-and-rvalue-references"],
+    "expectedPrerequisites": ["pointers-and-references", "copy-vs-move-semantics"]
+  },
+  {
+    "id": "cpp-goal-raii",
+    "goal": "Learn RAII and deterministic resource ownership idioms",
+    "targetNodes": ["raii-and-ownership"],
+    "expectedPrerequisites": ["pointers-and-references"]
+  }
+]

@@ -158,6 +158,43 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  packages/evaluation:
+    dependencies:
+      '@opentutor/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
+      '@opentutor/course-core':
+        specifier: workspace:*
+        version: link:../course-core
+      '@opentutor/database':
+        specifier: workspace:*
+        version: link:../database
+      '@opentutor/knowledge-core':
+        specifier: workspace:*
+        version: link:../knowledge-core
+      '@opentutor/lesson-core':
+        specifier: workspace:*
+        version: link:../lesson-core
+      '@opentutor/model-runtime':
+        specifier: workspace:*
+        version: link:../model-runtime
+      '@opentutor/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@opentutor/tutor-tools':
+        specifier: workspace:*
+        version: link:../tutor-tools
+      typebox:
+        specifier: ^1.3.17
+        version: 1.3.17
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.4
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/knowledge-core:
     dependencies:
       '@opentutor/database':

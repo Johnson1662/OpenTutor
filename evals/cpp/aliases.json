@@ -1,0 +1,8 @@
+[
+  ["RAII & Resource Ownership", "RAII", "Resource Acquisition Is Initialization", "Scoped Resource Management"],
+  ["Smart Pointers", "C++ Smart Pointers", "unique_ptr and shared_ptr"],
+  ["Template Metaprogramming", "TMP", "C++ Templates and Metaprogramming"],
+  ["Copy vs Move Semantics", "Move Semantics", "Copy and Move"],
+  ["std::move & Rvalue References", "std::move", "Rvalue References", "Move Cast"],
+  ["Pointers and References", "Pointers vs References", "C++ Pointers and Refs"]
+]

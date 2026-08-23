@@ -1,0 +1,45 @@
+[
+  {
+    "id": "lesson-self-attention",
+    "topic": "Scaled Dot-Product Self-Attention",
+    "expectedConcepts": ["self-attention", "qkv-projections", "softmax-normalization"],
+    "expectedQuizObjectives": [
+      "Explain the role of Query, Key, and Value vectors",
+      "Calculate why scaling by sqrt(d_k) is applied before softmax",
+      "Describe how attention weights produce the weighted sum of values"
+    ],
+    "expectedClaims": [
+      "Computes contextual representations within a single sequence",
+      "Divides dot products by square root of key dimension to prevent gradient saturation",
+      "Queries represent search targets of the current token"
+    ]
+  },
+  {
+    "id": "lesson-multi-head-attention",
+    "topic": "Multi-Head Attention and Subspace Projections",
+    "expectedConcepts": ["multi-head-attention", "self-attention", "positional-encoding"],
+    "expectedQuizObjectives": [
+      "Explain why multiple attention heads are used instead of a single wider head",
+      "Describe how parallel head outputs are combined",
+      "Identify the purpose of positional encodings when fed into multi-head attention"
+    ],
+    "expectedClaims": [
+      "Projects queries, keys, and values into h distinct lower-dimensional subspaces",
+      "Concatenates head outputs and projects linearly to final output",
+      "Injected into input embeddings to supply sequence order"
+    ]
+  },
+  {
+    "id": "lesson-transformer-normalization-residuals",
+    "topic": "Residual Connections and Layer Normalization",
+    "expectedConcepts": ["residual-connections", "layer-normalization"],
+    "expectedQuizObjectives": [
+      "Explain the purpose of skip connections x + SubLayer(x)",
+      "Contrast layer normalization across feature dimension with batch normalization"
+    ],
+    "expectedClaims": [
+      "Enables uninterrupted gradient propagation through deep Transformer stacks",
+      "Normalizes activations across features for each individual sample and token"
+    ]
+  }
+]

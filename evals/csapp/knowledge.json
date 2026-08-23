@@ -1,0 +1,91 @@
+{
+  "entities": [
+    {
+      "id": "memory-hierarchy",
+      "canonicalName": "Memory Hierarchy",
+      "definition": "A tiered storage architecture exploiting temporal and spatial locality where faster, smaller storage devices act as caches for larger, slower devices.",
+      "keyClaims": [
+        "Organizes registers, SRAM cache, DRAM main memory, and disk in order of decreasing speed and increasing capacity",
+        "Exploits temporal and spatial locality in computer programs"
+      ],
+      "aliases": ["Memory Hierarchy", "Storage Hierarchy", "Hierarchical Memory"]
+    },
+    {
+      "id": "cache-memory",
+      "canonicalName": "Cache Memory",
+      "definition": "Fast SRAM-based storage hardware situated between CPU registers and main memory to accelerate data access.",
+      "keyClaims": [
+        "Organized into sets, lines, tags, and block offsets",
+        "Reduces average memory access latency by servicing CPU read and write requests from fast SRAM",
+        "Classified into direct-mapped, set-associative, and fully-associative caches"
+      ],
+      "aliases": ["Cache Memory", "Hardware Cache", "SRAM Cache", "CPU Cache"]
+    },
+    {
+      "id": "virtual-memory",
+      "canonicalName": "Virtual Memory",
+      "definition": "An operating system and hardware abstraction that provides each process with a private, uniform address space and manages physical memory allocation.",
+      "keyClaims": [
+        "Treats main memory as a cache for disk-backed virtual address pages",
+        "Provides memory protection and process isolation",
+        "Simplifies linking and loading by providing a uniform address space"
+      ],
+      "aliases": ["Virtual Memory", "VM", "Virtual Addressing"]
+    },
+    {
+      "id": "page-table",
+      "canonicalName": "Page Table",
+      "definition": "An in-memory data structure mapping virtual page numbers (VPN) to physical page numbers (PPN) with protection flags.",
+      "keyClaims": [
+        "Maps virtual page numbers to physical page numbers or disk addresses",
+        "Uses multi-level hierarchical structures to minimize page table memory overhead",
+        "Triggers page faults when requested virtual pages are unmapped or invalid"
+      ],
+      "aliases": ["Page Table", "Multi-Level Page Table", "Page Directory"]
+    },
+    {
+      "id": "tlb",
+      "canonicalName": "Translation Lookaside Buffer (TLB)",
+      "definition": "A small, highly associative hardware cache inside the MMU that caches recent virtual-to-physical address translations.",
+      "keyClaims": [
+        "Caches page table entries in hardware MMU",
+        "Eliminates memory lookup overhead during address translation on hits",
+        "Directly speeds up page translation for virtual memory"
+      ],
+      "aliases": ["Translation Lookaside Buffer", "TLB", "Address Translation Cache"]
+    },
+    {
+      "id": "exceptions-and-syscalls",
+      "canonicalName": "System Call & Exceptions",
+      "definition": "Hardware and OS mechanisms for abrupt control transfers in response to system events, classified into interrupts, traps, faults, and aborts.",
+      "keyClaims": [
+        "Categorized into interrupts, traps, faults, and aborts",
+        "Traps provide intentional synchronous interface for user programs to invoke kernel system calls",
+        "Faults handle recoverable exceptional conditions like page faults"
+      ],
+      "aliases": ["System Call & Exceptions", "Exceptions", "Syscalls and Exception Handling"]
+    },
+    {
+      "id": "process-vs-thread",
+      "canonicalName": "Process vs Thread",
+      "definition": "Distinct abstractions of execution contexts: processes own private virtual memory address spaces while threads share address spaces within a process.",
+      "keyClaims": [
+        "Processes have separate private virtual memory address spaces and isolated resources",
+        "Threads share the same virtual address space, code segment, and global data while keeping private stacks and registers",
+        "Thread switching incurs lower context switch overhead than process switching"
+      ],
+      "aliases": ["Process vs Thread", "Processes and Threads", "Thread vs Process Concurrency"]
+    },
+    {
+      "id": "socket-concurrency",
+      "canonicalName": "Socket Concurrency",
+      "definition": "Architectures and OS primitives for handling multiple concurrent network socket connections, using processes, threads, or event-driven I/O multiplexing.",
+      "keyClaims": [
+        "Employs process-based, thread-based, or non-blocking I/O multiplexing models",
+        "I/O multiplexing uses epoll/select to serve multiple connections on a single thread",
+        "Enables scalable concurrent network services without unbounded thread creation"
+      ],
+      "aliases": ["Socket Concurrency", "Concurrent Network Programming", "I/O Multiplexing Concurrency"]
+    }
+  ]
+}

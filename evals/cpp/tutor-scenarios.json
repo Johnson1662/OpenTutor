@@ -1,0 +1,34 @@
+[
+  {
+    "id": "cpp-tutor-code-unique-ptr",
+    "userMessage": "Can you provide a minimal C++ code example implementing a custom simplified UniquePtr class with RAII?",
+    "contextTopic": "smart-pointers",
+    "expectedTools": ["lesson_patch"],
+    "forbiddenTools": ["path_insert_detour"],
+    "expectedIntent": "ADD_CODE_EXAMPLE"
+  },
+  {
+    "id": "cpp-tutor-simplify-std-move",
+    "userMessage": "I don't understand why std::move doesn't actually move anything. Can you give me a simple explanation and update the lesson?",
+    "contextTopic": "std-move-and-rvalue-references",
+    "expectedTools": ["lesson_patch"],
+    "forbiddenTools": ["path_advance"],
+    "expectedIntent": "SIMPLIFY_EXPLANATION"
+  },
+  {
+    "id": "cpp-tutor-missing-move-semantics",
+    "userMessage": "I'm trying to learn smart pointers, but I don't know what Move Semantics are. Can we learn that first?",
+    "contextTopic": "smart-pointers",
+    "expectedTools": ["path_insert_detour", "knowledge_search"],
+    "forbiddenTools": ["path_advance"],
+    "expectedIntent": "INSERT_DETOUR"
+  },
+  {
+    "id": "cpp-tutor-advance-templates",
+    "userMessage": "I have fully understood smart pointers and RAII. Let's move on to Template Metaprogramming.",
+    "contextTopic": "smart-pointers",
+    "expectedTools": ["path_advance"],
+    "forbiddenTools": ["path_insert_detour"],
+    "expectedIntent": "ADVANCE_PATH"
+  }
+]

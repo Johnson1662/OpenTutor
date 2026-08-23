@@ -1,0 +1,8 @@
+[
+  ["Self Attention", "Self-Attention", "Self Attention Mechanism", "Intra-Attention"],
+  ["Multi-Head Attention", "Multi Head Attention", "MHA"],
+  ["Layer Normalization", "LayerNorm", "LN"],
+  ["Feed-Forward Network", "Position-wise Feed-Forward Network", "FFN"],
+  ["Positional Encoding", "Positional Embeddings", "Position Encoding"],
+  ["Residual Connections", "Skip Connections", "Residual Shortcut"]
+]

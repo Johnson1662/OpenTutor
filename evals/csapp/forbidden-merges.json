@@ -1,0 +1,7 @@
+[
+  ["Cache", "TLB"],
+  ["Process", "Thread"],
+  ["Exception", "Interrupt"],
+  ["Virtual Memory", "Physical Memory"],
+  ["Page Table", "TLB"]
+]

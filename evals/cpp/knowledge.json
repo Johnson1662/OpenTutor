@@ -1,0 +1,69 @@
+{
+  "entities": [
+    {
+      "id": "pointers-and-references",
+      "canonicalName": "Pointers and References",
+      "definition": "Fundamental mechanisms for indirect object access in C++: pointers hold rebindable memory addresses and can be null; references are non-null immutable aliases.",
+      "keyClaims": [
+        "Pointers hold addresses, can be null, and can be reassigned to different objects",
+        "References are immutable aliases that must be initialized upon creation and cannot be null",
+        "Both provide indirect access without copying values"
+      ],
+      "aliases": ["Pointers and References", "Pointers vs References", "C++ Pointers and Refs"]
+    },
+    {
+      "id": "raii-and-ownership",
+      "canonicalName": "RAII & Resource Ownership",
+      "definition": "Resource Acquisition Is Initialization (RAII) ties resource management directly to object lifetime so destructors automatically release resources upon leaving scope.",
+      "keyClaims": [
+        "Acquires resources in constructor and releases them deterministically in destructor",
+        "Guarantees leak-free exception safety without explicit cleanup code"
+      ],
+      "aliases": ["RAII & Resource Ownership", "RAII", "Resource Acquisition Is Initialization", "Scoped Resource Management"]
+    },
+    {
+      "id": "copy-vs-move-semantics",
+      "canonicalName": "Copy vs Move Semantics",
+      "definition": "Value management semantics in C++: copying duplicates resource state whereas moving transfers ownership from rvalue objects without deep allocation.",
+      "keyClaims": [
+        "Copy semantics perform deep duplication of resources",
+        "Move semantics transfer ownership of pointers and buffer handles from expiring objects",
+        "Significantly optimizes performance by eliminating redundant heap allocations"
+      ],
+      "aliases": ["Copy vs Move Semantics", "Move Semantics", "Copy and Move"]
+    },
+    {
+      "id": "std-move-and-rvalue-references",
+      "canonicalName": "std::move & Rvalue References",
+      "definition": "Language features enabling move semantics: rvalue references (T&&) bind to temporaries, and std::move is an unconditional cast to an rvalue reference.",
+      "keyClaims": [
+        "Rvalue references (T&&) bind to temporary expiring values",
+        "std::move is an unconditional static_cast to rvalue reference and emits no runtime machine code by itself",
+        "std::move enables move constructors and move assignment operators during overload resolution"
+      ],
+      "aliases": ["std::move & Rvalue References", "std::move", "Rvalue References", "Move Cast"]
+    },
+    {
+      "id": "smart-pointers",
+      "canonicalName": "Smart Pointers",
+      "definition": "RAII wrapper classes managing heap memory lifetimes: std::unique_ptr for exclusive ownership, std::shared_ptr for reference-counted ownership, and std::weak_ptr for breaking cycles.",
+      "keyClaims": [
+        "std::unique_ptr provides exclusive zero-overhead ownership and prevents copying",
+        "std::shared_ptr maintains atomic reference counting for shared ownership",
+        "std::weak_ptr prevents reference count cycles in shared pointer graphs"
+      ],
+      "aliases": ["Smart Pointers", "C++ Smart Pointers", "unique_ptr and shared_ptr"]
+    },
+    {
+      "id": "template-metaprogramming",
+      "canonicalName": "Template Metaprogramming",
+      "definition": "Compile-time programming paradigm in C++ using templates, SFINAE, type traits, and concepts to compute types and values at compile time.",
+      "keyClaims": [
+        "Executes computation and code generation during compilation",
+        "Uses type traits and SFINAE/Concepts for compile-time type constraints and introspection",
+        "Produces zero runtime overhead for static abstractions"
+      ],
+      "aliases": ["Template Metaprogramming", "TMP", "C++ Templates and Metaprogramming"]
+    }
+  ]
+}

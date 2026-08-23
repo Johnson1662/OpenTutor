@@ -19,7 +19,12 @@
     "test:knowledge:live": "node --test --experimental-strip-types packages/knowledge-core/tests/knowledge-live.test.ts",
     "test:product:e2e": "node --test --experimental-strip-types apps/server/tests/product-e2e.test.ts",
     "test:adversarial": "node --test --experimental-strip-types apps/server/tests/adversarial-v0.6.test.ts",
-    "check": "pnpm test && pnpm typecheck && pnpm build"
+    "check": "pnpm test && pnpm typecheck && pnpm build",
+    "eval": "node --experimental-strip-types packages/evaluation/src/cli.ts",
+    "eval:knowledge": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite knowledge",
+    "eval:course": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite course",
+    "eval:lesson": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite lesson",
+    "eval:tutor": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite tutor"
   },
   "dependencies": {
     "typebox": "^1.3.17"

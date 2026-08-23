@@ -1,0 +1,37 @@
+[
+  {
+    "from": "memory-hierarchy",
+    "to": "cache-memory",
+    "type": "prerequisite"
+  },
+  {
+    "from": "cache-memory",
+    "to": "virtual-memory",
+    "type": "prerequisite"
+  },
+  {
+    "from": "virtual-memory",
+    "to": "page-table",
+    "type": "prerequisite"
+  },
+  {
+    "from": "page-table",
+    "to": "tlb",
+    "type": "prerequisite"
+  },
+  {
+    "from": "exceptions-and-syscalls",
+    "to": "page-table",
+    "type": "prerequisite"
+  },
+  {
+    "from": "virtual-memory",
+    "to": "process-vs-thread",
+    "type": "prerequisite"
+  },
+  {
+    "from": "process-vs-thread",
+    "to": "socket-concurrency",
+    "type": "prerequisite"
+  }
+]

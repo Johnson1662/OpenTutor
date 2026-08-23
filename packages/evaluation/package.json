@@ -15,6 +15,7 @@
     "@opentutor/knowledge-core": "workspace:*",
     "@opentutor/course-core": "workspace:*",
     "@opentutor/lesson-core": "workspace:*",
+    "@opentutor/assessment-core": "workspace:*",
     "@opentutor/tutor-tools": "workspace:*",
     "@opentutor/agent-runtime": "workspace:*",
     "@opentutor/model-runtime": "workspace:*",

@@ -109,6 +109,10 @@ importers:
         version: 5.9.3
 
   packages/assessment-core:
+    dependencies:
+      '@opentutor/protocol':
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -163,6 +167,9 @@ importers:
       '@opentutor/agent-runtime':
         specifier: workspace:*
         version: link:../agent-runtime
+      '@opentutor/assessment-core':
+        specifier: workspace:*
+        version: link:../assessment-core
       '@opentutor/course-core':
         specifier: workspace:*
         version: link:../course-core

@@ -26,6 +26,16 @@ CREATE TABLE IF NOT EXISTS user_knowledge_states (
   knowledge_node_id TEXT NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
   status TEXT NOT NULL CHECK(status IN ('unknown', 'learning', 'weak', 'mastered')),
   confidence REAL NOT NULL DEFAULT 0.0,
+  mastery_probability REAL NOT NULL DEFAULT 0.5,
+  alpha REAL NOT NULL DEFAULT 1.0,
+  beta REAL NOT NULL DEFAULT 1.0,
+  evidence_count INTEGER NOT NULL DEFAULT 0,
+  correct_count INTEGER NOT NULL DEFAULT 0,
+  incorrect_count INTEGER NOT NULL DEFAULT 0,
+  stability REAL NOT NULL DEFAULT 7.0,
+  difficulty REAL NOT NULL DEFAULT 1.0,
+  last_assessed_at TEXT,
+  last_reviewed_at TEXT,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (user_id, knowledge_node_id)
 );
@@ -126,6 +136,23 @@ CREATE TABLE IF NOT EXISTS learning_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_learning_events_session_seq ON learning_events(session_id, seq);
+
+CREATE TABLE IF NOT EXISTS learning_evidence (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'default-user',
+  knowledge_node_id TEXT NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  source TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  difficulty REAL NOT NULL DEFAULT 1.0,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  weight REAL NOT NULL DEFAULT 1.0,
+  assessment_id TEXT,
+  session_id TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_learning_evidence_user_node ON learning_evidence(user_id, knowledge_node_id);
 `;
 
 export function initSchema(db: Database.Database): void {

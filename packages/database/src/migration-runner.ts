@@ -12,6 +12,7 @@ import { migration009 } from './migrations/009_claims_and_evidence.ts';
 import { migration010 } from './migrations/010_course_pipeline.ts';
 import { migration011 } from './migrations/011_course_sources.ts';
 import { migration012 } from './migrations/012_learning_session_frames.ts';
+import { migration013 } from './migrations/013_learning_evidence.ts';
 
 export const ALL_MIGRATIONS: Migration[] = [
   migration001,
@@ -26,6 +27,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   migration010,
   migration011,
   migration012,
+  migration013,
 ];
 
 export function runMigrations(db: Database, migrations: Migration[] = ALL_MIGRATIONS): number {

@@ -7,6 +7,7 @@ import {
   CourseEvalSuite,
   LessonEvalSuite,
   TutorEvalSuite,
+  LearnerEvalSuite,
   runCli,
   loadAllDomainBundles,
   loadDomainBundle,
@@ -97,6 +98,21 @@ test('TutorEvalSuite simulates learner interaction scenarios and tool invocation
   assert.equal(result.metrics.chat_dump_rate, 0.0, 'Chat dump rate must be 0.0');
 });
 
+test('LearnerEvalSuite verifies one-answer impossibility, determinism, decay, and threshold consistency', async () => {
+  const suite = new LearnerEvalSuite();
+  const result = await suite.runSuite('all');
+
+  assert.equal(result.totalCases, 3, 'Should evaluate 3 domain cases');
+  assert.equal(result.hardFailureCount, 0, `Learner suite hard failures: ${JSON.stringify(result.results.flatMap((r) => r.hardFailures))}`);
+  assert.equal(result.passedCases, 3, 'All 3 domain cases must pass');
+  assert.equal(result.passed, true, 'Learner suite must pass overall');
+
+  assert.equal(result.metrics.OneAnswerMasteryImpossibleRate, 1.0, 'One answer mastery impossible rate must be 1.0');
+  assert.equal(result.metrics.EvidenceAggregationDeterminism, 1.0, 'Evidence aggregation determinism must be 1.0');
+  assert.equal(result.metrics.DecayMonotonicity, 1.0, 'Decay monotonicity must be 1.0');
+  assert.equal(result.metrics.ThresholdConsistency, 1.0, 'Threshold consistency must be 1.0');
+});
+
 test('CLI runner executes suites and generates eval-report.json output', async () => {
   const testReportPath = path.resolve(process.cwd(), 'temp-test-report.json');
   try {
@@ -106,7 +122,7 @@ test('CLI runner executes suites and generates eval-report.json output', async (
 
     const reportContent = JSON.parse(fs.readFileSync(testReportPath, 'utf-8'));
     assert.equal(reportContent.passed, true, 'Report should indicate passed');
-    assert.equal(reportContent.totalSuites, 4, 'Report should contain 4 suites');
+    assert.equal(reportContent.totalSuites, 5, 'Report should contain 5 suites');
   } finally {
     if (fs.existsSync(testReportPath)) {
       fs.unlinkSync(testReportPath);

@@ -5,6 +5,7 @@ import {
   CourseEvalSuite,
   LessonEvalSuite,
   TutorEvalSuite,
+  LearnerEvalSuite,
   formatTerminalReport,
   generateJsonReport,
   type EvalSuiteResult,
@@ -35,7 +36,7 @@ Usage:
   node --experimental-strip-types packages/evaluation/src/cli.ts [options]
 
 Options:
-  --suite, -s   Suite to run: all | knowledge | course | lesson | tutor (default: all)
+  --suite, -s   Suite to run: all | knowledge | course | lesson | tutor | learner (default: all)
   --domain, -d  Domain to evaluate: all | transformer | csapp | cpp (default: all)
   --out, -o     Path to write JSON evaluation report (default: eval-report.json)
   --help, -h    Display this help message
@@ -80,6 +81,14 @@ Options:
     console.log(`[Eval] Executing Tutor Behavior Evaluation Suite...`);
     const tutorSuite = new TutorEvalSuite();
     const result = await tutorSuite.runSuite(selectedDomain);
+    suiteResults.push(result);
+  }
+
+  // 5. Learner Model v2 Suite
+  if (selectedSuite === 'all' || selectedSuite === 'learner') {
+    console.log(`[Eval] Executing Learner Model v2 Evaluation Suite...`);
+    const learnerSuite = new LearnerEvalSuite();
+    const result = await learnerSuite.runSuite(selectedDomain);
     suiteResults.push(result);
   }
 

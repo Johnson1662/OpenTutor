@@ -24,7 +24,8 @@
     "eval:knowledge": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite knowledge",
     "eval:course": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite course",
     "eval:lesson": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite lesson",
-    "eval:tutor": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite tutor"
+    "eval:tutor": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite tutor",
+    "eval:learner": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite learner"
   },
   "dependencies": {
     "typebox": "^1.3.17"

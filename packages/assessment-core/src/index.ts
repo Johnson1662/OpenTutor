@@ -242,3 +242,6 @@ export class CourseCompiler {
     return this.compile(nodes, edges, goalNodeIds, masteredNodeIds).nodeIds;
   }
 }
+
+export * from './mastery/beta-mastery-aggregator.ts';
+

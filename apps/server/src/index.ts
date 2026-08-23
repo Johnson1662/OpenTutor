@@ -5,6 +5,7 @@ import {
   LessonRepository,
   SessionRepository,
   KnowledgeRepository,
+  LearningEvidenceRepository,
   EventRepository,
   TraceRepository,
   AgentSessionRepository,
@@ -77,6 +78,7 @@ export async function createServerContext(
   const lessonRepo = new LessonRepository(db);
   const sessionRepo = new SessionRepository(db);
   const knowledgeRepo = new KnowledgeRepository(db);
+  const learningEvidenceRepo = new LearningEvidenceRepository(db);
   const courseRepo = new CourseRepository(db);
   const eventRepo = new EventRepository(db);
   const traceRepo = new TraceRepository(db);
@@ -126,7 +128,7 @@ export async function createServerContext(
   const sessionService = new SessionService(sessionRepo, eventBus, learningSessionCoordinator);
   const lessonService = new LessonService(lessonRepo, eventBus);
   const searchService = new SearchService(db);
-  const knowledgeService = new KnowledgeService(knowledgeRepo, searchService, eventBus);
+  const knowledgeService = new KnowledgeService(knowledgeRepo, searchService, eventBus, learningEvidenceRepo);
   const learningProgressService = new LearningProgressService(sessionService, eventBus);
   const assessmentService = new AssessmentService(lessonService, knowledgeService, learningProgressService);
 

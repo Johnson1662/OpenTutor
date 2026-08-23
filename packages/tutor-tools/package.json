@@ -1,5 +1,5 @@
 {
-  "name": "@opentutor/agent-tools",
+  "name": "@opentutor/tutor-tools",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@opentutor/protocol": "workspace:*"
+    "@opentutor/database": "workspace:*",
+    "@opentutor/protocol": "workspace:*",
+    "typebox": "^1.3.17"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

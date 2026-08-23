@@ -1,29 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DomainToolsExecutor } from '@opentutor/agent-tools';
 import {
-  TUTOR_ALLOWED_TOOLS,
-  TUTOR_FORBIDDEN_TOOLS,
-  createTutorTools,
-  validateTutorToolAllowlist,
+  DomainToolsExecutor,
+  TUTOR_TOOL_NAMES,
+  TUTOR_TOOL_DEFINITIONS,
+} from '@opentutor/tutor-tools';
+import {
+  createOpenTutorExtension,
   PiEventAdapter,
   FakeTutorRuntime,
 } from '../src/index.ts';
 
-test('packages/agent-runtime - Pi Tool Sandbox and Whitelist', async (t) => {
-  await t.test('1. Pi exposed tools strictly match Tutor allowlist and forbid dangerous tools', () => {
-    assert.ok(!TUTOR_ALLOWED_TOOLS.has('bash'));
-    assert.ok(!TUTOR_ALLOWED_TOOLS.has('write'));
-    assert.ok(!TUTOR_ALLOWED_TOOLS.has('edit'));
-    assert.ok(!TUTOR_ALLOWED_TOOLS.has('read'));
-    assert.ok(!TUTOR_ALLOWED_TOOLS.has('grep'));
-    assert.ok(!TUTOR_ALLOWED_TOOLS.has('find'));
-    assert.ok(!TUTOR_ALLOWED_TOOLS.has('ls'));
+test('packages/agent-runtime - Pi Extension Security & Event Handling', async (t) => {
+  await t.test('1. Tutor tools allowlist strictly forbids dangerous shell/system tools', () => {
+    const forbiddenTools = ['bash', 'write', 'edit', 'read', 'grep', 'find', 'ls'];
+    for (const tool of forbiddenTools) {
+      assert.equal(TUTOR_TOOL_NAMES.has(tool), false, `Tool "${tool}" must not be in allowlist`);
+    }
 
-    assert.ok(TUTOR_FORBIDDEN_TOOLS.has('bash'));
-    assert.ok(TUTOR_FORBIDDEN_TOOLS.has('write'));
-    assert.ok(TUTOR_FORBIDDEN_TOOLS.has('edit'));
+    assert.equal(TUTOR_TOOL_DEFINITIONS.length, 10);
+    for (const def of TUTOR_TOOL_DEFINITIONS) {
+      assert.ok(TUTOR_TOOL_NAMES.has(def.name));
+    }
+  });
 
+  await t.test('2. Extension security gate blocks forbidden tool execution', () => {
     const mockServices = {
       lessonService: { getLesson: () => ({ id: 'l1', version: 1 }), patchLesson: () => ({}) },
       sessionService: { getSnapshot: () => ({ pathVersion: 1 }), insertDetour: () => ({}) },
@@ -31,25 +32,34 @@ test('packages/agent-runtime - Pi Tool Sandbox and Whitelist', async (t) => {
     };
 
     const executor = new DomainToolsExecutor(mockServices as any);
-    const tools = createTutorTools('test-session', executor);
+    const registeredHandlers = new Map<string, Function[]>();
+    const fakePi: any = {
+      registerTool: () => { },
+      on: (event: string, handler: Function) => {
+        const existing = registeredHandlers.get(event) ?? [];
+        existing.push(handler);
+        registeredHandlers.set(event, existing);
+      },
+    };
 
-    assert.ok(tools.length > 0);
-    assert.ok(validateTutorToolAllowlist(tools));
+    const extensionFactory = createOpenTutorExtension({
+      sessionId: 'test-session',
+      executor,
+    });
+    extensionFactory(fakePi);
 
-    for (const tool of tools) {
-      assert.ok(TUTOR_ALLOWED_TOOLS.has(tool.name));
-      assert.ok(!TUTOR_FORBIDDEN_TOOLS.has(tool.name));
-    }
-  });
+    const handlers = registeredHandlers.get('tool_call') ?? [];
+    assert.ok(handlers.length > 0);
 
-  await t.test('2. validateTutorToolAllowlist throws when forbidden tool is passed', () => {
-    assert.throws(() => {
-      validateTutorToolAllowlist([{ name: 'bash' }]);
-    }, /Forbidden tool "bash"/);
+    const gate = handlers[0];
+    const blockedBash = gate({ type: 'tool_call', toolName: 'bash' });
+    assert.ok(blockedBash);
+    assert.equal(blockedBash.block, true);
+    assert.ok(blockedBash.reason.includes('Security Violation'));
 
-    assert.throws(() => {
-      validateTutorToolAllowlist([{ name: 'write' }]);
-    }, /Forbidden tool "write"/);
+    const blockedWrite = gate({ type: 'tool_call', toolName: 'write' });
+    assert.ok(blockedWrite);
+    assert.equal(blockedWrite.block, true);
   });
 
   await t.test('3. PiEventAdapter translates text_delta and tool lifecycle events', () => {
@@ -80,7 +90,12 @@ test('packages/agent-runtime - Pi Tool Sandbox and Whitelist', async (t) => {
     adapter.handleEvent({ type: 'tool_call_start', toolCallId: 'tc-1', toolName: 'lesson_patch' });
     assert.equal(startedTool, 'lesson_patch');
 
-    adapter.handleEvent({ type: 'tool_call_end', toolCallId: 'tc-1', toolName: 'lesson_patch', isError: false });
+    adapter.handleEvent({
+      type: 'tool_call_end',
+      toolCallId: 'tc-1',
+      toolName: 'lesson_patch',
+      isError: false,
+    });
     assert.equal(completedTool, 'lesson_patch');
     assert.equal(isSuccess, true);
   });

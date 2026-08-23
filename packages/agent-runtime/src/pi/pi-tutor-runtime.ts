@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentSession } from '@earendil-works/pi-coding-agent';
-import type { DomainToolsExecutor } from '@opentutor/agent-tools';
+import type { DomainToolsExecutor } from '@opentutor/tutor-tools';
 import type { TraceRepository } from '@opentutor/database';
 import type { TutorRuntime, TutorTurnInput, TutorTurnResult } from '../tutor-runtime.ts';
 import { FakeTutorRuntime } from '../fake-tutor-runtime.ts';
-import { PiSessionRegistry, type PiSessionRegistryOptions } from './pi-session-registry.ts';
+import {
+  PiSessionRegistry,
+  type PiSessionRegistryOptions,
+  type TurnContextInfo,
+} from './pi-session-registry.ts';
 import { PiEventAdapter } from './pi-event-adapter.ts';
-import type { RetrievalStepTracker } from './pi-tool-adapter.ts';
 
 export interface PiTutorRuntimeOptions extends PiSessionRegistryOptions {
   runtimeMode?: 'pi' | 'fake';
@@ -23,10 +26,7 @@ export class PiTutorRuntime implements TutorRuntime {
     string,
     { session?: AgentSession; controller: AbortController }
   >();
-  private readonly currentTurnContext = new Map<
-    string,
-    { requestId: string; retrieval: RetrievalStepTracker }
-  >();
+  private readonly currentTurnContext = new Map<string, TurnContextInfo>();
   private readonly runtimeMode: 'pi' | 'fake';
 
   constructor(
@@ -50,8 +50,8 @@ export class PiTutorRuntime implements TutorRuntime {
 
     this.registry = new PiSessionRegistry(toolsExecutor, {
       ...options,
-      getRetrievalTracker: (sessionId: string) => {
-        return this.currentTurnContext.get(sessionId)?.retrieval;
+      getTurnContext: (sessionId: string) => {
+        return this.currentTurnContext.get(sessionId);
       },
     });
   }
@@ -59,7 +59,9 @@ export class PiTutorRuntime implements TutorRuntime {
   async runTurn(input: TutorTurnInput): Promise<TutorTurnResult> {
     const previous = this.sessionLocks.get(input.sessionId) ?? Promise.resolve();
     let release!: () => void;
-    const current = new Promise<void>((resolve) => { release = resolve; });
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const queued = previous.then(() => current);
     this.sessionLocks.set(input.sessionId, queued);
     await previous;
@@ -96,10 +98,20 @@ export class PiTutorRuntime implements TutorRuntime {
 
   private determineRetrievalBudget(message?: string): number {
     const lower = (message ?? '').toLowerCase();
-    if (lower.includes('simple') || lower.includes('简单') || lower.includes('code') || lower.includes('代码')) {
+    if (
+      lower.includes('simple') ||
+      lower.includes('简单') ||
+      lower.includes('code') ||
+      lower.includes('代码')
+    ) {
       return 0; // None
     }
-    if (lower.includes('conflict') || lower.includes('verify') || lower.includes('compare') || lower.includes('冲突')) {
+    if (
+      lower.includes('conflict') ||
+      lower.includes('verify') ||
+      lower.includes('compare') ||
+      lower.includes('冲突')
+    ) {
       return 5; // Deep
     }
     return 2; // Standard
@@ -115,16 +127,11 @@ export class PiTutorRuntime implements TutorRuntime {
     const controller = new AbortController();
     const runId = `run-${randomUUID()}`;
 
-    // Verify auth configuration in production
     let resolvedProvider = this.options.model?.provider ?? 'anthropic';
     if (this.options.sessionModelResolver) {
-      try {
-        const resolved = await this.options.sessionModelResolver.resolveSessionModel(input.sessionId);
-        if (resolved.providerId) {
-          resolvedProvider = resolved.providerId;
-        }
-      } catch {
-        // Fall back to default provider
+      const resolved = await this.options.sessionModelResolver.resolveSessionModel(input.sessionId);
+      if (resolved.providerId) {
+        resolvedProvider = resolved.providerId;
       }
     }
 
@@ -137,14 +144,16 @@ export class PiTutorRuntime implements TutorRuntime {
     );
 
     if (!isConfigured) {
-      throw new Error(`MODEL_SETUP_REQUIRED: No API key or OAuth credentials found for provider '${resolvedProvider}'. Please connect in Settings.`);
+      throw new Error(
+        `MODEL_SETUP_REQUIRED: No API key or OAuth credentials found for provider '${resolvedProvider}'. Please connect in Settings.`
+      );
     }
 
     const budget = this.determineRetrievalBudget(input.message);
     let currentRetrievalSteps = 0;
 
-    const retrievalTracker: RetrievalStepTracker = {
-      consumeStep: (_tool: string, _query?: string, _resultCount?: number) => {
+    const retrievalTracker = {
+      consumeStep: (_tool: string, _query?: string) => {
         if (currentRetrievalSteps >= budget) {
           throw new Error(`RETRIEVAL_BUDGET_EXCEEDED: step limit of ${budget} reached`);
         }
@@ -170,7 +179,7 @@ export class PiTutorRuntime implements TutorRuntime {
       input.sessionId,
       input.onToolStart,
       input.onToolEnd,
-      () => this.currentTurnContext.get(input.sessionId)?.retrieval
+      () => this.currentTurnContext.get(input.sessionId)
     );
 
     this.activeTurns.set(requestId, { session, controller });
@@ -186,12 +195,16 @@ export class PiTutorRuntime implements TutorRuntime {
 
       const unsubscribe = session.subscribe((event: unknown) => {
         if (event && typeof event === 'object' && 'type' in event) {
+          const evType = (event as { type: string }).type;
           eventAdapter.handleEvent(event as { type: string;[key: string]: unknown });
-          const ev = event as { type: string; text?: string; delta?: string };
-          if (ev.type === 'text_delta' && typeof ev.delta === 'string') {
-            assistantReply += ev.delta;
-          } else if (ev.type === 'content_delta' && typeof ev.text === 'string') {
-            assistantReply += ev.text;
+          if (evType === 'text_delta' && 'delta' in event && typeof event.delta === 'string') {
+            assistantReply += event.delta;
+          } else if (
+            evType === 'content_delta' &&
+            'text' in event &&
+            typeof event.text === 'string'
+          ) {
+            assistantReply += event.text;
           }
         }
       });

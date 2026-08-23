@@ -17,9 +17,6 @@ importers:
       '@opentutor/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
-      '@opentutor/agent-tools':
-        specifier: workspace:*
-        version: link:../../packages/agent-tools
       '@opentutor/assessment-core':
         specifier: workspace:*
         version: link:../../packages/assessment-core
@@ -41,6 +38,9 @@ importers:
       '@opentutor/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@opentutor/tutor-tools':
+        specifier: workspace:*
+        version: link:../../packages/tutor-tools
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -88,9 +88,6 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: ^0.84.2
         version: 0.84.2(ws@8.21.3)
-      '@opentutor/agent-tools':
-        specifier: workspace:*
-        version: link:../agent-tools
       '@opentutor/database':
         specifier: workspace:*
         version: link:../database
@@ -100,19 +97,9 @@ importers:
       '@opentutor/protocol':
         specifier: workspace:*
         version: link:../protocol
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.1
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-
-  packages/agent-tools:
-    dependencies:
-      '@opentutor/protocol':
+      '@opentutor/tutor-tools':
         specifier: workspace:*
-        version: link:../protocol
+        version: link:../tutor-tools
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -238,6 +225,25 @@ importers:
         version: 5.9.3
 
   packages/protocol: {}
+
+  packages/tutor-tools:
+    dependencies:
+      '@opentutor/database':
+        specifier: workspace:*
+        version: link:../database
+      '@opentutor/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      typebox:
+        specifier: ^1.3.17
+        version: 1.3.17
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
 
 packages:
 

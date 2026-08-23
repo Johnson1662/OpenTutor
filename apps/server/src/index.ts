@@ -48,7 +48,7 @@ import {
   PiModelDriver,
   FakeModelDriver,
 } from '@opentutor/model-runtime';
-import { DomainToolsExecutor } from '@opentutor/agent-tools';
+import { DomainToolsExecutor } from '@opentutor/tutor-tools';
 import { PiTutorRuntime, type TutorRuntime } from '@opentutor/agent-runtime';
 import { handleRequest, type RouteContext } from './api/router.ts';
 

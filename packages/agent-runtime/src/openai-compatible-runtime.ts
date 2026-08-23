@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { DomainToolsExecutor } from '@opentutor/agent-tools';
-import { DOMAIN_TOOLS_DEFINITIONS } from '@opentutor/agent-tools';
+import type { DomainToolsExecutor } from '@opentutor/tutor-tools';
+import { TUTOR_TOOL_DEFINITIONS } from '@opentutor/tutor-tools';
 import type { TraceRepository } from '@opentutor/database';
 import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from './prompt.ts';
 import type { TutorRuntime, TutorTurnInput, TutorTurnResult } from './tutor-runtime.ts';
@@ -11,6 +11,15 @@ export interface OpenAICompatibleRuntimeOptions {
   baseURL?: string;
   model?: string;
 }
+
+const OPENAI_TOOLS = TUTOR_TOOL_DEFINITIONS.map((def) => ({
+  type: 'function' as const,
+  function: {
+    name: def.name,
+    description: def.description,
+    parameters: def.parameters,
+  },
+}));
 
 export class OpenAICompatibleTutorRuntime implements TutorRuntime {
   private readonly toolsExecutor: DomainToolsExecutor;
@@ -36,7 +45,9 @@ export class OpenAICompatibleTutorRuntime implements TutorRuntime {
   async runTurn(input: TutorTurnInput): Promise<TutorTurnResult> {
     const previous = this.sessionLocks.get(input.sessionId) ?? Promise.resolve();
     let release!: () => void;
-    const current = new Promise<void>((resolve) => { release = resolve; });
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const queued = previous.then(() => current);
     this.sessionLocks.set(input.sessionId, queued);
     await previous;
@@ -44,7 +55,9 @@ export class OpenAICompatibleTutorRuntime implements TutorRuntime {
       return await this.runTurnUnlocked(input);
     } finally {
       release();
-      if (this.sessionLocks.get(input.sessionId) === queued) this.sessionLocks.delete(input.sessionId);
+      if (this.sessionLocks.get(input.sessionId) === queued) {
+        this.sessionLocks.delete(input.sessionId);
+      }
     }
   }
 
@@ -66,7 +79,12 @@ export class OpenAICompatibleTutorRuntime implements TutorRuntime {
     const controller = new AbortController();
     this.activeRequests.set(requestId, controller);
     const runId = `run-${randomUUID()}`;
-    this.traceRepo?.startRun({ id: runId, sessionId: input.sessionId, requestId, model: this.model });
+    this.traceRepo?.startRun({
+      id: runId,
+      sessionId: input.sessionId,
+      requestId,
+      model: this.model,
+    });
 
     try {
       const response = await fetch(`${this.baseURL}/chat/completions`, {
@@ -82,7 +100,7 @@ export class OpenAICompatibleTutorRuntime implements TutorRuntime {
             { role: 'system', content: SOCRATIC_TUTOR_SYSTEM_PROMPT },
             { role: 'user', content: input.message },
           ],
-          tools: DOMAIN_TOOLS_DEFINITIONS,
+          tools: OPENAI_TOOLS,
           tool_choice: 'auto',
         }),
       });

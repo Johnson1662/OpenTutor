@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { DomainToolsExecutor } from '@opentutor/agent-tools';
+import type { DomainToolsExecutor } from '@opentutor/tutor-tools';
 import type { TraceRepository } from '@opentutor/database';
 import type { LessonPatch } from '@opentutor/protocol';
 import type { TutorRuntime, TutorTurnInput, TutorTurnResult } from './tutor-runtime.ts';
@@ -18,7 +18,9 @@ export class FakeTutorRuntime implements TutorRuntime {
   async runTurn(input: TutorTurnInput): Promise<TutorTurnResult> {
     const previous = this.sessionLocks.get(input.sessionId) ?? Promise.resolve();
     let release!: () => void;
-    const current = new Promise<void>((resolve) => { release = resolve; });
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const queued = previous.then(() => current);
     this.sessionLocks.set(input.sessionId, queued);
     await previous;
@@ -26,7 +28,9 @@ export class FakeTutorRuntime implements TutorRuntime {
       return await this.runTurnUnlocked(input);
     } finally {
       release();
-      if (this.sessionLocks.get(input.sessionId) === queued) this.sessionLocks.delete(input.sessionId);
+      if (this.sessionLocks.get(input.sessionId) === queued) {
+        this.sessionLocks.delete(input.sessionId);
+      }
     }
   }
 
@@ -51,11 +55,16 @@ export class FakeTutorRuntime implements TutorRuntime {
     }
   }
 
-  private async runTurnWithRequest(input: TutorTurnInput, requestId: string, signal: AbortSignal): Promise<TutorTurnResult> {
+  private async runTurnWithRequest(
+    input: TutorTurnInput,
+    requestId: string,
+    signal: AbortSignal
+  ): Promise<TutorTurnResult> {
     if (signal.aborted) throw new Error('Turn cancelled');
     const runId = `run-${randomUUID()}`;
     const lower = (input.message ?? input.action ?? '').toLowerCase();
-    const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> = [];
+    const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> =
+      [];
 
     this.traceRepo?.startRun({
       id: runId,
@@ -67,27 +76,33 @@ export class FakeTutorRuntime implements TutorRuntime {
     let reply = '';
 
     try {
-      const sessionSnap = await this.toolsExecutor.executeTool(input.sessionId, 'session_get', {
-        sessionId: input.sessionId,
-      });
-      const activeLessonId =
-        sessionSnap && typeof sessionSnap === 'object' && 'data' in sessionSnap && sessionSnap.data && typeof sessionSnap.data === 'object' && 'lesson' in sessionSnap.data && typeof (sessionSnap.data as any).lesson === 'object' && 'id' in (sessionSnap.data as any).lesson
-          ? (sessionSnap.data as any).lesson.id
-          : 'lesson-self-attention';
-
-      const snap = await this.toolsExecutor.executeTool(input.sessionId, 'lesson_get', {
-        lessonId: activeLessonId,
-      });
-      const currentLessonVersion =
-        snap && typeof snap === 'object' && 'data' in snap && snap.data && typeof snap.data === 'object' && 'version' in snap.data && typeof snap.data.version === 'number'
-          ? snap.data.version
-          : 1;
+      let activeLessonId = 'lesson-self-attention';
+      let currentLessonVersion = 1;
+      const snap = await this.toolsExecutor.executeTool(input.sessionId, 'lesson_get', {});
+      if (
+        snap.success &&
+        snap.data &&
+        typeof snap.data === 'object' &&
+        'id' in snap.data &&
+        typeof snap.data.id === 'string'
+      ) {
+        activeLessonId = snap.data.id;
+        if ('version' in snap.data && typeof snap.data.version === 'number') {
+          currentLessonVersion = snap.data.version;
+        }
+      }
 
       const pathSnap = await this.toolsExecutor.executeTool(input.sessionId, 'path_get', {
         sessionId: input.sessionId,
       });
       let currentPathVersion = 1;
-      if (pathSnap && typeof pathSnap === 'object' && 'data' in pathSnap && pathSnap.data && typeof pathSnap.data === 'object' && 'version' in pathSnap.data && typeof pathSnap.data.version === 'number') {
+      if (
+        pathSnap.success &&
+        pathSnap.data &&
+        typeof pathSnap.data === 'object' &&
+        'version' in pathSnap.data &&
+        typeof pathSnap.data.version === 'number'
+      ) {
         currentPathVersion = pathSnap.data.version;
       }
 
@@ -125,7 +140,11 @@ export class FakeTutorRuntime implements TutorRuntime {
           status: toolRes.success ? 'success' : 'error',
         });
 
-        executedToolCalls.push({ tool: 'lesson_patch', args: { lessonId: activeLessonId }, result: toolRes });
+        executedToolCalls.push({
+          tool: 'lesson_patch',
+          args: { lessonId: activeLessonId },
+          result: toolRes,
+        });
         reply = 'Injected a working PyTorch code implementation into the lesson canvas.';
       } else if (lower.includes('simple') || lower.includes('简单') || lower.includes('simpler')) {
         const patch: LessonPatch = {
@@ -135,7 +154,8 @@ export class FakeTutorRuntime implements TutorRuntime {
             id: `simple-${Date.now()}`,
             type: 'text',
             variant: 'callout',
-            content: '💡 Intuition: Self-attention allows each token to dynamically lookup and focus on relevant context across the sequence.',
+            content:
+              '💡 Intuition: Self-attention allows each token to dynamically lookup and focus on relevant context across the sequence.',
           },
         };
 
@@ -157,30 +177,48 @@ export class FakeTutorRuntime implements TutorRuntime {
           status: toolRes.success ? 'success' : 'error',
         });
 
-        executedToolCalls.push({ tool: 'lesson_patch', args: { lessonId: activeLessonId }, result: toolRes });
+        executedToolCalls.push({
+          tool: 'lesson_patch',
+          args: { lessonId: activeLessonId },
+          result: toolRes,
+        });
         reply = 'Simplified the explanation with an intuitive callout analogy.';
-      } else if (lower.includes('softmax') || lower.includes('detour') || lower.includes('softmax_unknown')) {
+      } else if (
+        lower.includes('softmax') ||
+        lower.includes('detour') ||
+        lower.includes('softmax_unknown')
+      ) {
         const toolCallId = `tc-${randomUUID()}`;
         input.onToolStart?.(toolCallId, 'path_insert_detour');
-        const detourRes = await this.toolsExecutor.executeTool(input.sessionId, 'path_insert_detour', {
-          sessionId: input.sessionId,
-          baseVersion: currentPathVersion,
-          knowledgeNodeId: 'softmax',
-          title: 'Detour: Softmax Normalization',
-          note: 'Diagnosed prerequisite gap from learner query',
-        });
+        const detourRes = await this.toolsExecutor.executeTool(
+          input.sessionId,
+          'path_insert_detour',
+          {
+            detourKnowledgeNodeId: 'softmax',
+            detourTitle: 'Detour: Softmax Normalization',
+            note: 'Diagnosed prerequisite gap from learner query',
+          }
+        );
         input.onToolEnd?.(toolCallId, 'path_insert_detour', detourRes.success);
 
         this.traceRepo?.recordToolCall({
           id: toolCallId,
           runId,
           toolName: 'path_insert_detour',
-          arguments: { sessionId: input.sessionId, knowledgeNodeId: 'softmax', baseVersion: currentPathVersion },
+          arguments: {
+            sessionId: input.sessionId,
+            knowledgeNodeId: 'softmax',
+            baseVersion: currentPathVersion,
+          },
           result: detourRes,
           status: detourRes.success ? 'success' : 'error',
         });
 
-        executedToolCalls.push({ tool: 'path_insert_detour', args: { knowledgeNodeId: 'softmax' }, result: detourRes });
+        executedToolCalls.push({
+          tool: 'path_insert_detour',
+          args: { knowledgeNodeId: 'softmax' },
+          result: detourRes,
+        });
         reply = 'Identified prerequisite gap: inserted Softmax detour before Self Attention.';
       } else {
         reply = `I have received your request: "${input.message}". Canvas remains structured.`;

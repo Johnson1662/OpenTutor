@@ -1,5 +1,8 @@
 import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from './prompt.ts';
-import { DOMAIN_TOOLS_DEFINITIONS, type DomainToolsExecutor } from '@opentutor/agent-tools';
+import {
+  TUTOR_TOOL_DEFINITIONS,
+  type DomainToolsExecutor,
+} from '@opentutor/tutor-tools';
 import type { LessonPatch, LearningPathPatch } from '@opentutor/protocol';
 
 export interface TutorAgentOptions {
@@ -14,6 +17,15 @@ export interface AgentRunResult {
   toolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }>;
 }
 
+const OPENAI_TOOLS = TUTOR_TOOL_DEFINITIONS.map((def) => ({
+  type: 'function' as const,
+  function: {
+    name: def.name,
+    description: def.description,
+    parameters: def.parameters,
+  },
+}));
+
 export class TutorAgent {
   private readonly toolsExecutor: DomainToolsExecutor;
   private readonly apiKey: string | undefined;
@@ -24,7 +36,11 @@ export class TutorAgent {
   constructor(toolsExecutor: DomainToolsExecutor, options?: TutorAgentOptions) {
     this.toolsExecutor = toolsExecutor;
     this.apiKey = options?.apiKey ?? process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY;
-    this.baseURL = options?.baseURL ?? process.env.LLM_BASE_URL ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1';
+    this.baseURL =
+      options?.baseURL ??
+      process.env.LLM_BASE_URL ??
+      process.env.OPENAI_BASE_URL ??
+      'https://api.openai.com/v1';
     this.model = options?.model ?? process.env.LLM_MODEL ?? 'gpt-4o-mini';
     this.systemPrompt = options?.systemPrompt ?? SOCRATIC_TUTOR_SYSTEM_PROMPT;
   }
@@ -45,7 +61,8 @@ export class TutorAgent {
     userMessage: string,
     emitTextDelta?: (delta: string) => void
   ): Promise<AgentRunResult> {
-    const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> = [];
+    const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> =
+      [];
 
     const messages = [
       { role: 'system', content: this.systemPrompt },
@@ -61,7 +78,7 @@ export class TutorAgent {
       body: JSON.stringify({
         model: this.model,
         messages,
-        tools: DOMAIN_TOOLS_DEFINITIONS,
+        tools: OPENAI_TOOLS,
         tool_choice: 'auto',
       }),
     });
@@ -119,9 +136,9 @@ export class TutorAgent {
     emitTextDelta?: (delta: string) => void
   ): Promise<AgentRunResult> {
     const lower = userMessage.toLowerCase();
-    const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> = [];
+    const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> =
+      [];
 
-    // 1. Fetch current session snapshot via tool
     const snapRes = (await this.toolsExecutor.executeTool(sessionId, 'path_get', { sessionId })) as {
       success: boolean;
       data?: { path: Array<{ id: string; position: number; status: string }>; version: number };
@@ -158,9 +175,18 @@ export class TutorAgent {
         baseVersion: lessonVersion,
         patches: [patch],
       });
-      executedToolCalls.push({ tool: 'lesson_patch', args: { lessonId: currentLessonId, baseVersion: lessonVersion }, result: res });
+      executedToolCalls.push({
+        tool: 'lesson_patch',
+        args: { lessonId: currentLessonId, baseVersion: lessonVersion },
+        result: res,
+      });
       reply = 'I have injected a concise PyTorch implementation into your lesson canvas.';
-    } else if (lower.includes('simple') || lower.includes('简单') || lower.includes('通俗') || lower.includes('比喻')) {
+    } else if (
+      lower.includes('simple') ||
+      lower.includes('简单') ||
+      lower.includes('通俗') ||
+      lower.includes('比喻')
+    ) {
       const patch: LessonPatch = {
         op: 'insert',
         position: { index: 1 },
@@ -168,7 +194,8 @@ export class TutorAgent {
           id: `simple-${Date.now()}`,
           type: 'text',
           variant: 'callout',
-          content: '💡 Intuitive Analogy: Imagine searching in a library catalog — Queries are your search terms, Keys are book titles, and Values are the actual book contents.',
+          content:
+            '💡 Intuitive Analogy: Imagine searching in a library catalog — Queries are your search terms, Keys are book titles, and Values are the actual book contents.',
         },
       };
 
@@ -177,30 +204,30 @@ export class TutorAgent {
         baseVersion: lessonVersion,
         patches: [patch],
       });
-      executedToolCalls.push({ tool: 'lesson_patch', args: { lessonId: currentLessonId, baseVersion: lessonVersion }, result: res });
-      reply = 'Here is an intuitive mental model to simplify the concept.';
-    } else if (lower.includes('softmax') || lower.includes('不懂') || lower.includes('前置') || lower.includes('gap')) {
-      const pathPatch: LearningPathPatch = {
-        op: 'insert_node',
-        after: 'pn-2',
-        node: {
-          id: `detour-softmax-${Date.now()}`,
-          knowledgeNodeId: 'softmax',
-          title: 'Detour: Softmax Normalization',
-          type: 'detour',
-          position: 3,
-          status: 'current',
-          note: 'Diagnosed prerequisite gap from query',
-        },
-      };
-
-      const res = await this.toolsExecutor.executeTool(sessionId, 'path_patch', {
-        sessionId,
-        baseVersion: pathVersion,
-        patches: [pathPatch],
+      executedToolCalls.push({
+        tool: 'lesson_patch',
+        args: { lessonId: currentLessonId, baseVersion: lessonVersion },
+        result: res,
       });
-      executedToolCalls.push({ tool: 'path_patch', args: { sessionId, baseVersion: pathVersion }, result: res });
-      reply = 'I detected a prerequisite gap on Softmax and inserted a targeted detour into your learning path.';
+      reply = 'Here is an intuitive mental model to simplify the concept.';
+    } else if (
+      lower.includes('softmax') ||
+      lower.includes('不懂') ||
+      lower.includes('前置') ||
+      lower.includes('gap')
+    ) {
+      const detourRes = await this.toolsExecutor.executeTool(sessionId, 'path_insert_detour', {
+        detourKnowledgeNodeId: 'softmax',
+        detourTitle: 'Detour: Softmax Normalization',
+        note: 'Diagnosed prerequisite gap from query',
+      });
+      executedToolCalls.push({
+        tool: 'path_insert_detour',
+        args: { detourKnowledgeNodeId: 'softmax' },
+        result: detourRes,
+      });
+      reply =
+        'I detected a prerequisite gap on Softmax and inserted a targeted detour into your learning path.';
     } else {
       reply = `I understand your question about "${userMessage}". Let's break this down systematically on your lesson canvas.`;
     }

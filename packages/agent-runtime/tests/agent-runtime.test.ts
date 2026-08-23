@@ -1,11 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TutorAgent } from '../src/index.ts';
-import { DomainToolsExecutor } from '@opentutor/agent-tools';
+import { DomainToolsExecutor } from '@opentutor/tutor-tools';
 
 test('packages/agent-runtime - TutorAgent execution & fallback loop', async (t) => {
-  const toolExecutions: Array<{ tool: string; args: Record<string, unknown> }> = [];
-
   const mockServices = {
     lessonService: {
       getLesson: () => ({
@@ -34,9 +32,19 @@ test('packages/agent-runtime - TutorAgent execution & fallback loop', async (t) 
     },
     sessionService: {
       getSnapshot: () => ({
-        path: [{ id: 'pn-2', knowledgeNodeId: 'self-attention', title: 'Self Attention', type: 'main' as const, position: 2, status: 'completed' as const }],
+        path: [
+          {
+            id: 'pn-2',
+            knowledgeNodeId: 'self-attention',
+            title: 'Self Attention',
+            type: 'main' as const,
+            position: 2,
+            status: 'completed' as const,
+          },
+        ],
         pathVersion: 1,
       }),
+      insertDetour: () => ({ path: [], newVersion: 2 }),
       applyPathPatches: () => ({ path: [], newVersion: 2 }),
     },
     knowledgeService: {
@@ -50,22 +58,32 @@ test('packages/agent-runtime - TutorAgent execution & fallback loop', async (t) 
 
   await t.test('1. User asks for code -> agent invokes lesson_patch with CodeBlock', async () => {
     let textReceived = '';
-    const result = await agent.run('prototype', 'Can you explain self attention with python code?', (delta) => {
-      textReceived += delta;
-    });
+    const result = await agent.run(
+      'prototype',
+      'Can you explain self attention with python code?',
+      (delta) => {
+        textReceived += delta;
+      }
+    );
 
     assert.ok(result.reply.includes('PyTorch'));
     assert.equal(textReceived, result.reply);
     assert.ok(result.toolCalls.some((tc) => tc.tool === 'lesson_patch'));
   });
 
-  await t.test('2. User asks for simpler intuition -> agent invokes lesson_patch with callout', async () => {
-    const result = await agent.run('prototype', 'Please explain this simpler with an analogy');
-    assert.ok(result.toolCalls.some((tc) => tc.tool === 'lesson_patch'));
-  });
+  await t.test(
+    '2. User asks for simpler intuition -> agent invokes lesson_patch with callout',
+    async () => {
+      const result = await agent.run('prototype', 'Please explain this simpler with an analogy');
+      assert.ok(result.toolCalls.some((tc) => tc.tool === 'lesson_patch'));
+    }
+  );
 
-  await t.test('3. User indicates prerequisite gap -> agent invokes path_patch with Detour', async () => {
-    const result = await agent.run('prototype', 'I do not understand Softmax yet');
-    assert.ok(result.toolCalls.some((tc) => tc.tool === 'path_patch'));
-  });
+  await t.test(
+    '3. User indicates prerequisite gap -> agent invokes path_insert_detour',
+    async () => {
+      const result = await agent.run('prototype', 'I do not understand Softmax yet');
+      assert.ok(result.toolCalls.some((tc) => tc.tool === 'path_insert_detour'));
+    }
+  );
 });

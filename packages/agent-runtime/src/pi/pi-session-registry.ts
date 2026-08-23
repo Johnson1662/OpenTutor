@@ -1,38 +1,43 @@
 import {
   createAgentSession,
+  SessionManager,
+  SettingsManager,
   type AgentSession,
-  type ToolDefinition,
   type ModelRuntime,
 } from '@earendil-works/pi-coding-agent';
-import type { Model } from '@earendil-works/pi-ai';
+import type { Api, Model } from '@earendil-works/pi-ai';
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { DomainToolsExecutor } from '@opentutor/agent-tools';
-import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from '../prompt.ts';
 import {
-  createTutorTools,
-  TUTOR_ALLOWED_TOOLS,
-  validateTutorToolAllowlist,
-  type RetrievalStepTracker,
-} from './pi-tool-adapter.ts';
+  TUTOR_TOOL_NAMES,
+  type DomainToolsExecutor,
+} from '@opentutor/tutor-tools';
+import { createOpenTutorResourceLoader } from './opentutor-resource-loader.ts';
 
 export interface SessionModelResolverLike {
   resolveSessionModel(sessionId: string): Promise<{
     providerId?: string;
     modelId?: string;
-    model?: Model<any>;
+    model?: Model<Api>;
     thinkingLevel?: ThinkingLevel;
   }>;
 }
 
+export interface TurnContextInfo {
+  requestId: string;
+  retrieval: {
+    consumeStep: (tool: string, query?: string) => void;
+  };
+}
+
 export interface PiSessionRegistryOptions {
   cwd?: string;
-  model?: Model<any>;
+  model?: Model<Api>;
   thinkingLevel?: ThinkingLevel;
   apiKey?: string;
   baseURL?: string;
   modelRuntime?: ModelRuntime;
   sessionModelResolver?: SessionModelResolverLike;
-  getRetrievalTracker?: (sessionId: string) => RetrievalStepTracker | undefined;
+  getTurnContext?: (sessionId: string) => TurnContextInfo | undefined;
 }
 
 export class PiSessionRegistry {
@@ -53,52 +58,58 @@ export class PiSessionRegistry {
     sessionId: string,
     onToolStart?: (toolCallId: string, toolName: string) => void,
     onToolEnd?: (toolCallId: string, toolName: string, success: boolean) => void,
-    getRetrievalTracker?: () => RetrievalStepTracker | undefined
+    getTurnContext?: () => TurnContextInfo | undefined
   ): Promise<AgentSession> {
     const existing = this.sessions.get(sessionId);
     if (existing) {
       return existing;
     }
 
-    const trackerResolver = getRetrievalTracker ?? (() => this.options.getRetrievalTracker?.(sessionId));
-
-    const tutorTools = createTutorTools(
-      sessionId,
-      this.toolsExecutor,
-      onToolStart,
-      onToolEnd,
-      trackerResolver
-    );
-    validateTutorToolAllowlist(tutorTools);
-
     let model = this.options.model;
     let thinkingLevel = this.options.thinkingLevel;
 
     if (this.options.sessionModelResolver) {
-      try {
-        const resolved = await this.options.sessionModelResolver.resolveSessionModel(sessionId);
-        if (resolved.model) {
-          model = resolved.model;
-        }
-        if (resolved.thinkingLevel) {
-          thinkingLevel = resolved.thinkingLevel;
-        }
-      } catch {
-        // Fall back to default options
+      const resolved = await this.options.sessionModelResolver.resolveSessionModel(sessionId);
+      if (resolved.model) {
+        model = resolved.model;
+      }
+      if (resolved.thinkingLevel) {
+        thinkingLevel = resolved.thinkingLevel;
       }
     }
 
+    const cwd = this.options.cwd ?? process.cwd();
+    const turnContextResolver =
+      getTurnContext ?? (() => this.options.getTurnContext?.(sessionId));
+
+    const resourceLoader = await createOpenTutorResourceLoader({
+      cwd,
+      extensionOptions: {
+        sessionId,
+        executor: this.toolsExecutor,
+        getTurnContext: turnContextResolver,
+        onToolStart,
+        onToolEnd,
+      },
+    });
+
+    const settingsManager = SettingsManager.inMemory({
+      retry: { enabled: true, maxRetries: 2 },
+    });
+
     const result = await createAgentSession({
-      cwd: this.options.cwd ?? process.cwd(),
+      cwd,
+      resourceLoader,
+      settingsManager,
+      sessionManager: SessionManager.inMemory(cwd),
+      modelRuntime: this.options.modelRuntime,
       model,
       thinkingLevel,
       noTools: 'builtin',
-      customTools: tutorTools as unknown as ToolDefinition[],
-      tools: Array.from(TUTOR_ALLOWED_TOOLS),
+      tools: Array.from(TUTOR_TOOL_NAMES),
     });
 
-    const session = (result as any).session ?? (result as unknown as AgentSession);
-    session.agent.state.systemPrompt = SOCRATIC_TUTOR_SYSTEM_PROMPT;
+    const session = result.session;
     this.sessions.set(sessionId, session);
     return session;
   }
@@ -119,10 +130,9 @@ export class PiSessionRegistry {
     return this.sessions.has(sessionId);
   }
 
-  clear(): void {
-    for (const [id] of this.sessions) {
-      this.disposeSession(id);
-    }
+  async clear(): Promise<void> {
+    const sessionIds = Array.from(this.sessions.keys());
+    await Promise.all(sessionIds.map((id) => this.disposeSession(id)));
     this.sessions.clear();
   }
 }

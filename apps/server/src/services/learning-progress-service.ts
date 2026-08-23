@@ -22,11 +22,14 @@ export class LearningProgressService {
     const currentNode = snapshot.path.find((n) => n.status === 'current');
     if (!currentNode) return;
 
-    // Check if the current node matches or if a detour has satisfied mastery
+    // Check if the current node matches or if a detour has satisfied diagnostic check
     const isMatchingNode = currentNode.knowledgeNodeId === knowledgeNodeId;
-    const isMastered = status === 'mastered' || confidence >= 0.8;
+    const isSatisfied =
+      status === 'mastered' ||
+      confidence >= 0.8 ||
+      (currentNode.type === 'detour' && confidence >= 0.25);
 
-    if (isMatchingNode && isMastered) {
+    if (isMatchingNode && isSatisfied) {
       this.sessionService.completeCurrentNode(sessionId, snapshot.pathVersion);
     }
   }

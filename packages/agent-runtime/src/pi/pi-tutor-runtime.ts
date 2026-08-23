@@ -6,6 +6,7 @@ import type { TutorRuntime, TutorTurnInput, TutorTurnResult } from '../tutor-run
 import { FakeTutorRuntime } from '../fake-tutor-runtime.ts';
 import { PiSessionRegistry, type PiSessionRegistryOptions } from './pi-session-registry.ts';
 import { PiEventAdapter } from './pi-event-adapter.ts';
+import type { RetrievalStepTracker } from './pi-tool-adapter.ts';
 
 export interface PiTutorRuntimeOptions extends PiSessionRegistryOptions {
   runtimeMode?: 'pi' | 'fake';
@@ -21,6 +22,10 @@ export class PiTutorRuntime implements TutorRuntime {
   private readonly activeTurns = new Map<
     string,
     { session?: AgentSession; controller: AbortController }
+  >();
+  private readonly currentTurnContext = new Map<
+    string,
+    { requestId: string; retrieval: RetrievalStepTracker }
   >();
   private readonly runtimeMode: 'pi' | 'fake';
 
@@ -40,7 +45,6 @@ export class PiTutorRuntime implements TutorRuntime {
     } else if (process.env.NODE_ENV === 'test') {
       this.runtimeMode = 'fake';
     } else {
-      // If a model or auth credentials exist, default to pi; otherwise fake
       const hasAuth = Boolean(
         options.apiKey ??
         process.env.LLM_API_KEY ??
@@ -90,6 +94,17 @@ export class PiTutorRuntime implements TutorRuntime {
     await this.registry.disposeSession(sessionId);
   }
 
+  private determineRetrievalBudget(message: string): number {
+    const lower = message.toLowerCase();
+    if (lower.includes('simple') || lower.includes('简单') || lower.includes('code') || lower.includes('代码')) {
+      return 0; // None
+    }
+    if (lower.includes('conflict') || lower.includes('verify') || lower.includes('compare') || lower.includes('冲突')) {
+      return 5; // Deep
+    }
+    return 2; // Standard
+  }
+
   private async runTurnUnlocked(input: TutorTurnInput): Promise<TutorTurnResult> {
     if (this.runtimeMode === 'fake') {
       const fake = new FakeTutorRuntime(this.toolsExecutor, this.traceRepo);
@@ -99,6 +114,23 @@ export class PiTutorRuntime implements TutorRuntime {
     const requestId = input.requestId ?? `req-${randomUUID()}`;
     const controller = new AbortController();
     const runId = `run-${randomUUID()}`;
+
+    const budget = this.determineRetrievalBudget(input.message);
+    let currentRetrievalSteps = 0;
+
+    const retrievalTracker: RetrievalStepTracker = {
+      consumeStep: (tool: string, _query?: string, _resultCount?: number) => {
+        if (currentRetrievalSteps >= budget) {
+          throw new Error(`RETRIEVAL_BUDGET_EXCEEDED: step limit of ${budget} reached`);
+        }
+        currentRetrievalSteps++;
+      },
+    };
+
+    this.currentTurnContext.set(input.sessionId, {
+      requestId,
+      retrieval: retrievalTracker,
+    });
 
     this.traceRepo?.startRun({
       id: runId,
@@ -118,7 +150,8 @@ export class PiTutorRuntime implements TutorRuntime {
         (tcId, name, success) => {
           input.onToolEnd?.(tcId, name, success);
           toolCalls.push({ tool: name, args: {}, result: { success } });
-        }
+        },
+        () => this.currentTurnContext.get(input.sessionId)?.retrieval
       );
 
       this.activeTurns.set(requestId, { session, controller });
@@ -156,6 +189,7 @@ export class PiTutorRuntime implements TutorRuntime {
       throw err;
     } finally {
       this.activeTurns.delete(requestId);
+      this.currentTurnContext.delete(input.sessionId);
     }
   }
 }

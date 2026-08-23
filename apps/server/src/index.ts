@@ -7,6 +7,7 @@ import {
   KnowledgeRepository,
   EventRepository,
   TraceRepository,
+  AgentSessionRepository,
   type Database,
 } from '@opentutor/database';
 import { EventBus } from './events/event-bus.ts';
@@ -21,6 +22,8 @@ import {
   ProviderService,
   AuthService,
   ModelPreferencesRepository,
+  ModelSelectionService,
+  SessionModelResolver,
 } from '@opentutor/model-runtime';
 import { DomainToolsExecutor } from '@opentutor/agent-tools';
 import { PiTutorRuntime, type TutorRuntime } from '@opentutor/agent-runtime';
@@ -51,6 +54,7 @@ export async function createServerContext(
   const knowledgeRepo = new KnowledgeRepository(db);
   const eventRepo = new EventRepository(db);
   const traceRepo = new TraceRepository(db);
+  const agentSessionRepo = new AgentSessionRepository(db);
   const preferencesRepo = new ModelPreferencesRepository(db);
 
   const modelRuntime = await createOpenTutorModelRuntime({
@@ -61,6 +65,8 @@ export async function createServerContext(
 
   const providerService = new ProviderService(modelRuntime);
   const authService = new AuthService(modelRuntime);
+  const modelSelectionService = new ModelSelectionService(modelRuntime, preferencesRepo);
+  const sessionModelResolver = new SessionModelResolver(modelSelectionService, modelRuntime, agentSessionRepo);
 
   const eventBus = new EventBus(eventRepo);
   const sessionService = new SessionService(sessionRepo, eventBus);
@@ -80,6 +86,7 @@ export async function createServerContext(
     customRuntime ??
     new PiTutorRuntime(toolsExecutor, traceRepo, {
       modelRuntime,
+      sessionModelResolver,
     });
 
   const context: RouteContext = {

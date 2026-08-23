@@ -105,7 +105,7 @@ test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptiv
   assert.equal(quizRes.status, 200);
   const quizBody = (await quizRes.json()) as { assessment: { result: string; confidence: number } };
   assert.equal(quizBody.assessment.result, 'correct');
-  assert.ok(quizBody.assessment.confidence >= 0.75);
+  assert.ok(quizBody.assessment.confidence >= 0.25);
 
   // 6. Verify Automatic Detour Resume on Main Track
   const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);

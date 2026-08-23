@@ -3,7 +3,19 @@ import type { Model } from '@earendil-works/pi-ai';
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { DomainToolsExecutor } from '@opentutor/agent-tools';
 import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from '../prompt.ts';
-import { createTutorTools, TUTOR_ALLOWED_TOOLS, validateTutorToolAllowlist } from './pi-tool-adapter.ts';
+import {
+  createTutorTools,
+  TUTOR_ALLOWED_TOOLS,
+  validateTutorToolAllowlist,
+  type RetrievalStepTracker,
+} from './pi-tool-adapter.ts';
+
+export interface SessionModelResolverLike {
+  resolveSessionModel(sessionId: string): Promise<{
+    model?: Model<any>;
+    thinkingLevel?: ThinkingLevel;
+  }>;
+}
 
 export interface PiSessionRegistryOptions {
   cwd?: string;
@@ -12,6 +24,7 @@ export interface PiSessionRegistryOptions {
   apiKey?: string;
   baseURL?: string;
   modelRuntime?: ModelRuntime;
+  sessionModelResolver?: SessionModelResolverLike;
 }
 
 export class PiSessionRegistry {
@@ -31,21 +44,45 @@ export class PiSessionRegistry {
   async getOrCreateSession(
     sessionId: string,
     onToolStart?: (toolCallId: string, toolName: string) => void,
-    onToolEnd?: (toolCallId: string, toolName: string, success: boolean) => void
+    onToolEnd?: (toolCallId: string, toolName: string, success: boolean) => void,
+    getRetrievalTracker?: () => RetrievalStepTracker | undefined
   ): Promise<AgentSession> {
     const existing = this.sessions.get(sessionId);
     if (existing) {
       return existing;
     }
 
-    const tutorTools = createTutorTools(sessionId, this.toolsExecutor, onToolStart, onToolEnd);
+    const tutorTools = createTutorTools(
+      sessionId,
+      this.toolsExecutor,
+      onToolStart,
+      onToolEnd,
+      getRetrievalTracker
+    );
     validateTutorToolAllowlist(tutorTools);
+
+    let model = this.options.model;
+    let thinkingLevel = this.options.thinkingLevel;
+
+    if (this.options.sessionModelResolver) {
+      try {
+        const resolved = await this.options.sessionModelResolver.resolveSessionModel(sessionId);
+        if (resolved.model) {
+          model = resolved.model;
+        }
+        if (resolved.thinkingLevel) {
+          thinkingLevel = resolved.thinkingLevel;
+        }
+      } catch {
+        // Fall back to configured defaults
+      }
+    }
 
     const { session } = await createAgentSession({
       cwd: this.options.cwd ?? process.cwd(),
       modelRuntime: this.options.modelRuntime,
-      model: this.options.model,
-      thinkingLevel: this.options.thinkingLevel,
+      model,
+      thinkingLevel,
       noTools: 'builtin',
       customTools: tutorTools as unknown as ToolDefinition[],
       tools: Array.from(TUTOR_ALLOWED_TOOLS),

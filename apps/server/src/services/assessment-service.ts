@@ -101,7 +101,7 @@ export class AssessmentService {
 
     const userId = input.userId ?? 'default-user';
     const userState = this.knowledgeService.getUserKnowledgeState(userId, lesson.knowledgeNodeId);
-    const previousConfidence = userState ? userState.confidence : 0.60;
+    const previousConfidence = userState?.confidence ?? 0;
     const newConfidence = this.policy.updateConfidence(previousConfidence, evaluationResult);
     const newStatus = this.policy.statusForConfidence(newConfidence);
 

@@ -154,48 +154,6 @@ export class CourseRepository {
   return row?.count ?? 0;
  }
 
- addCourseSource(
-  courseId: string,
-  title: string,
-  content: string
- ): CourseSourceRecord {
-  const documentId = `doc-${randomUUID()}`;
-  const versionId = `ver-${randomUUID()}`;
-  const contentHash = createHash('sha256').update(content).digest('hex');
-  const now = new Date().toISOString();
-
-  this.db.transaction(() => {
-   this.db
-    .prepare(
-     `INSERT INTO documents (id, title, created_at, updated_at)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at`
-    )
-    .run(documentId, title, now, now);
-
-   this.db
-    .prepare(
-     `INSERT INTO document_versions (id, document_id, version, content_hash, content, status, created_at)
-           VALUES (?, ?, 1, ?, ?, 'active', ?)
-           ON CONFLICT(document_id, content_hash) DO NOTHING`
-    )
-    .run(versionId, documentId, contentHash, content, now);
-
-   this.attachCourseSource(courseId, documentId);
-  })();
-
-  return {
-   id: documentId,
-   courseId,
-   documentId,
-   title,
-   content,
-   version: 1,
-   status: 'active',
-   createdAt: now,
-  };
- }
-
  listCourseSources(courseId: string): CourseSourceRecord[] {
   const rows = this.db
    .prepare(

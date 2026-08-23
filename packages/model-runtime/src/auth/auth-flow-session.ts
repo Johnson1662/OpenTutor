@@ -94,7 +94,12 @@ export class AuthFlowSession {
     }
 
     const promptId = `prompt-${randomUUID()}`;
-    const { promise, resolve, reject } = Promise.withResolvers<string>();
+    let resolve!: (value: string) => void;
+    let reject!: (err: Error) => void;
+    const promise = new Promise<string>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
     this.pendingPrompts.set(promptId, { resolve, reject });
 
     this.emit('auth.prompt', {

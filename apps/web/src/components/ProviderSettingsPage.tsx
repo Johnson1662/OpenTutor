@@ -620,15 +620,35 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
                         <label style={{ display: 'block', fontSize: '13px', marginBottom: '8px' }}>
                           {authPrompt.message}
                         </label>
-                        <input
-                          type="text"
-                          value={promptInput}
-                          onChange={(e) => setPromptInput(e.target.value)}
-                          placeholder={authPrompt.placeholder || 'Enter response...'}
-                          className="modal-input"
-                          style={{ marginBottom: '10px' }}
-                          autoFocus
-                        />
+                        {authPrompt.promptType === 'select' && authPrompt.choices && authPrompt.choices.length > 0 ? (
+                          <select
+                            value={promptInput}
+                            onChange={(e) => setPromptInput(e.target.value)}
+                            className="modal-input"
+                            style={{ marginBottom: '10px' }}
+                            autoFocus
+                          >
+                            <option value="" disabled>Select an option...</option>
+                            {authPrompt.choices.map((c) => {
+                              const val = c.value ?? c.id ?? c.label;
+                              return <option key={val} value={val}>{c.label}</option>;
+                            })}
+                          </select>
+                        ) : (
+                          <input
+                            type={authPrompt.promptType === 'secret' ? 'password' : 'text'}
+                            value={promptInput}
+                            onChange={(e) => setPromptInput(e.target.value)}
+                            placeholder={
+                              authPrompt.promptType === 'manual_code'
+                                ? 'Enter authorization code'
+                                : (authPrompt.placeholder || 'Enter response...')
+                            }
+                            className="modal-input"
+                            style={{ marginBottom: '10px' }}
+                            autoFocus
+                          />
+                        )}
                         <button
                           type="submit"
                           className="btn-primary"

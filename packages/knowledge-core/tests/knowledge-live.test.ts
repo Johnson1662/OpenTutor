@@ -56,10 +56,4 @@ test('packages/knowledge-core - Live Knowledge Compiler Integration Test', async
     assert.ok(firstArt?.content.definition.text);
     assert.ok(firstArt?.content.definition.claimIds.length > 0);
   });
-
-  t.after(() => {
-    setImmediate(() => {
-      process.exit(0);
-    });
-  });
 });

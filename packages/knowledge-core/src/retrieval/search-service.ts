@@ -86,20 +86,28 @@ export class SearchService {
 
    if (!node) continue;
 
-   const artifact = this.artifactCompiler.getLatestArtifact(nodeId);
+   // Filter out claims that have status = 'deprecated'
    const claimsRows = this.db
-    .prepare('SELECT statement FROM claims WHERE knowledge_node_id = ? LIMIT 3')
+    .prepare("SELECT statement FROM claims WHERE knowledge_node_id = ? AND status != 'deprecated' LIMIT 3")
     .all(nodeId) as Array<{ statement: string }>;
 
+   // Only count active evidence
    const evidenceCount = (
     this.db
      .prepare(
       `SELECT count(*) AS total FROM claim_evidence ce
              JOIN claims c ON c.id = ce.claim_id
-             WHERE c.knowledge_node_id = ?`
+             WHERE c.knowledge_node_id = ? AND ce.is_active = 1`
      )
      .get(nodeId) as { total: number }
    ).total;
+
+   // If all claims are deprecated and no active evidence exists, skip from knowledge search
+   if (claimsRows.length === 0 && evidenceCount === 0) {
+    continue;
+   }
+
+   const artifact = this.artifactRead(nodeId);
 
    results.push({
     nodeId: node.id,
@@ -115,7 +123,34 @@ export class SearchService {
 
  // 2. artifact_read
  artifactRead(nodeId: string): KnowledgeArtifact | null {
-  return this.artifactCompiler.getLatestArtifact(nodeId);
+  const artifact = this.artifactCompiler.getLatestArtifact(nodeId);
+  if (!artifact) return null;
+
+  // Check if the node has at least one active piece of evidence or active claim
+  const activeEvidence = (
+   this.db
+    .prepare(
+     `SELECT count(*) AS total FROM claim_evidence ce
+           JOIN claims c ON c.id = ce.claim_id
+           WHERE c.knowledge_node_id = ? AND ce.is_active = 1`
+    )
+    .get(nodeId) as { total: number }
+  ).total;
+
+  const activeClaims = (
+   this.db
+    .prepare(
+     `SELECT count(*) AS total FROM claims
+           WHERE knowledge_node_id = ? AND status != 'deprecated'`
+    )
+    .get(nodeId) as { total: number }
+  ).total;
+
+  if (activeEvidence === 0 && activeClaims === 0) {
+   return null;
+  }
+
+  return artifact;
  }
 
  // 3. source_search
@@ -125,16 +160,20 @@ export class SearchService {
 
   let rows: Array<{ chunk_id: string; document_title: string; heading: string | null; content: string }> = [];
 
-  // 1. Try FTS5 MATCH
+  // 1. Try FTS5 MATCH with active document_versions filter
   try {
    const ftsWords = cleanQuery.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, ' ').trim().split(/\s+/).filter(Boolean);
    if (ftsWords.length > 0) {
     const matchExpr = ftsWords.join(' OR ');
     rows = this.db
      .prepare(
-      `SELECT chunk_id, document_title, heading, content
-             FROM source_fts
-             WHERE source_fts MATCH ?
+      `SELECT c.id AS chunk_id, d.title AS document_title, s.heading, c.content
+             FROM source_fts f
+             JOIN document_chunks c ON c.id = f.chunk_id
+             JOIN document_sections s ON s.id = c.document_section_id
+             JOIN document_versions dv ON dv.id = c.document_version_id
+             JOIN documents d ON d.id = dv.document_id
+             WHERE source_fts MATCH ? AND dv.status = 'active'
              LIMIT ?`
      )
      .all(matchExpr, limit) as typeof rows;
@@ -143,7 +182,7 @@ export class SearchService {
    rows = [];
   }
 
-  // 2. Fallback to LIKE if FTS5 yielded no results
+  // 2. Fallback to LIKE if FTS5 yielded no results with active document_versions filter
   if (rows.length === 0) {
    const clean = `%${normalizeText(cleanQuery)}%`;
    rows = this.db
@@ -153,7 +192,8 @@ export class SearchService {
            JOIN document_sections s ON s.id = c.document_section_id
            JOIN document_versions dv ON dv.id = c.document_version_id
            JOIN documents d ON d.id = dv.document_id
-           WHERE lower(c.content) LIKE ? OR lower(COALESCE(s.heading, '')) LIKE ?
+           WHERE (lower(c.content) LIKE ? OR lower(COALESCE(s.heading, '')) LIKE ?)
+             AND dv.status = 'active'
            LIMIT ?`
     )
     .all(clean, clean, limit) as typeof rows;
@@ -174,7 +214,8 @@ export class SearchService {
     `SELECT c.id, c.ordinal, s.heading, s.level, c.content, c.content_hash
          FROM document_chunks c
          JOIN document_sections s ON s.id = c.document_section_id
-         WHERE c.id = ?`
+         JOIN document_versions dv ON dv.id = c.document_version_id
+         WHERE c.id = ? AND dv.status = 'active'`
    )
    .get(chunkId) as
    | { id: string; ordinal: number; heading: string | null; level: number; content: string; content_hash: string }

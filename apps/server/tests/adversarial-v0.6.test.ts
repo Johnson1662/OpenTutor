@@ -18,6 +18,8 @@ import {
  EvidenceService,
  DocumentLifecycleService,
  EntityResolver,
+ CourseSourceService,
+ IngestionService,
 } from '@opentutor/knowledge-core';
 import {
  LessonValidator,
@@ -192,15 +194,19 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
 
  await t.test('6. Course Sources: Documents uploaded to Course A are strictly isolated from Course B', () => {
   const courseRepo = new CourseRepository(db);
+  const claims = new ClaimService(db);
+  const evidence = new EvidenceService(db);
+  const lifecycle = new DocumentLifecycleService(db, claims, evidence);
+  const sourceService = new CourseSourceService(courseRepo, new IngestionService(db), lifecycle);
 
   courseRepo.createCourse({ id: 'course-iso-a', title: 'Course A' });
   courseRepo.createCourse({ id: 'course-iso-b', title: 'Course B' });
 
-  courseRepo.addCourseSource('course-iso-a', 'Doc A.md', '# Content A');
-  courseRepo.addCourseSource('course-iso-b', 'Doc B.md', '# Content B');
+  sourceService.addSource('course-iso-a', 'Doc A.md', '# Content A');
+  sourceService.addSource('course-iso-b', 'Doc B.md', '# Content B');
 
-  const sourcesA = courseRepo.listCourseSources('course-iso-a');
-  const sourcesB = courseRepo.listCourseSources('course-iso-b');
+  const sourcesA = sourceService.listSources('course-iso-a');
+  const sourcesB = sourceService.listSources('course-iso-b');
 
   assert.equal(sourcesA.length, 1);
   assert.equal(sourcesA[0]?.title, 'Doc A.md');
@@ -214,17 +220,17 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
   const claims = new ClaimService(db);
   const evidence = new EvidenceService(db);
   const lifecycle = new DocumentLifecycleService(db, claims, evidence);
+  const sourceService = new CourseSourceService(courseRepo, new IngestionService(db), lifecycle);
 
   courseRepo.createCourse({ id: 'course-del', title: 'Course Del' });
-  const src = courseRepo.addCourseSource('course-del', 'Doc Del.md', '# Del Content');
+  const src = sourceService.addSource('course-del', 'Doc Del.md', '# Del Content');
 
-  assert.equal(courseRepo.listCourseSources('course-del').length, 1);
+  assert.equal(sourceService.listSources('course-del').length, 1);
 
-  // Delete source
-  courseRepo.deleteCourseSource('course-del', src.documentId);
-  lifecycle.deleteDocument(src.documentId);
+  // Delete source via CourseSourceService
+  sourceService.deleteSource('course-del', src.documentId);
 
-  assert.equal(courseRepo.listCourseSources('course-del').length, 0);
+  assert.equal(sourceService.listSources('course-del').length, 0);
  });
 
  await t.test('8. AI: Unconfigured role model throws MODEL_SETUP_REQUIRED error', async () => {

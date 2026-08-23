@@ -63,10 +63,4 @@ test('packages/model-runtime - Live AI Model Integration Test', async (t) => {
     assert.equal(typeof result.status, 'string');
     assert.equal(typeof result.version, 'number');
   });
-
-  t.after(() => {
-    setImmediate(() => {
-      process.exit(0);
-    });
-  });
 });

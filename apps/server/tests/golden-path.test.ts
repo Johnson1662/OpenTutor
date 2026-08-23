@@ -9,12 +9,12 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
   process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
   const { server, db, context, close } = await createServerContext(':memory:');
   const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
-  server.listen(0, () => resolveListen());
+  server.listen(0, '127.0.0.1', () => resolveListen());
   await listenPromise;
 
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 8787;
-  const baseUrl = `http://localhost:${port}`;
+  const baseUrl = `http://127.0.0.1:${port}`;
 
   t.after(async () => {
     await close();

@@ -94,6 +94,9 @@ importers:
       '@opentutor/database':
         specifier: workspace:*
         version: link:../database
+      '@opentutor/model-runtime':
+        specifier: workspace:*
+        version: link:../model-runtime
       '@opentutor/protocol':
         specifier: workspace:*
         version: link:../protocol

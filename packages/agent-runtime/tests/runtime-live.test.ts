@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { createDatabase, seedDatabase } from '@opentutor/database';
 import { DomainToolsExecutor } from '@opentutor/agent-tools';
+import { createOpenTutorModelRuntime } from '@opentutor/model-runtime';
 import { PiTutorRuntime } from '../src/index.ts';
 
 test('packages/agent-runtime - Live Model Integration Test', async (t) => {
-  const modelRuntime = await ModelRuntime.create();
+  const modelRuntime = await createOpenTutorModelRuntime();
   const available = await modelRuntime.getAvailable();
 
   if (available.length === 0) {
@@ -62,19 +62,32 @@ test('packages/agent-runtime - Live Model Integration Test', async (t) => {
     runtimeMode: 'pi',
   });
 
-  await t.test('Executes real turn with live AI model', async () => {
-    const result = await runtime.runTurn({
-      sessionId: 'live-test-session',
-      message: 'Explain self-attention briefly in one sentence.',
+  const sessionId = 'live-multi-turn-test-session';
+
+  await t.test('Executes multi-turn conversation preserving persistent session context', async () => {
+    // Turn 1: Seed a unique nonce token in conversation context
+    const turn1Result = await runtime.runTurn({
+      sessionId,
+      message: 'Please remember this secret test verification code: OT-7391. Reply acknowledging you remembered it.',
     });
 
-    assert.ok(result.reply);
-    assert.ok(result.reply.length > 10);
+    assert.ok(turn1Result.reply);
+    assert.ok(turn1Result.reply.length > 0);
+
+    // Turn 2: Query the agent for the verification code across turns
+    const turn2Result = await runtime.runTurn({
+      sessionId,
+      message: 'What was the secret test verification code I just told you to remember? Reply with the code.',
+    });
+
+    assert.ok(turn2Result.reply);
+    assert.ok(
+      turn2Result.reply.includes('OT-7391') || turn2Result.reply.includes('7391'),
+      `Turn 2 response must recall session memory code OT-7391. Got: ${turn2Result.reply}`
+    );
   });
 
-  t.after(() => {
-    setImmediate(() => {
-      process.exit(0);
-    });
+  t.after(async () => {
+    await runtime.disposeSession(sessionId);
   });
 });

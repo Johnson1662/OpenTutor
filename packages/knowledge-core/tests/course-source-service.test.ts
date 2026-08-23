@@ -150,4 +150,32 @@ test('packages/knowledge-core - CourseSourceService & Ref-Counted Deletion', asy
     assert.equal(activeEvidence.length, 0);
     assert.equal(livingCompiler.claims.getClaimById(claim.id)?.status, 'deprecated');
   });
+
+  await t.test('5. Zero Deleted Knowledge Retrieval: sourceSearch, sourceRead, knowledgeSearch, artifactRead completely hide deleted knowledge', () => {
+    const searchService = livingCompiler.retrieval;
+
+    // 1. sourceSearch on deleted content returns 0 results
+    const sourceSearchResults = searchService.sourceSearch('Self-attention connects all positions');
+    assert.equal(sourceSearchResults.length, 0, 'Deleted source chunks must not appear in sourceSearch');
+
+    // 2. sourceRead on deleted chunk returns null
+    const chunks = db
+      .prepare('SELECT id FROM document_chunks WHERE document_version_id IN (SELECT id FROM document_versions WHERE document_id = ?)')
+      .all(docId) as Array<{ id: string }>;
+    assert.ok(chunks.length > 0);
+    for (const chunk of chunks) {
+      const readRes = searchService.sourceRead(chunk.id);
+      assert.equal(readRes, null, 'Deleted chunk must return null on sourceRead');
+    }
+
+    // 3. knowledgeSearch for deleted node with all deprecated claims returns 0 results
+    const node = livingCompiler.resolver.resolve('Self Attention');
+    const knowledgeResults = searchService.knowledgeSearch('Self Attention');
+    const foundDeletedNode = knowledgeResults.find((r) => r.nodeId === node.id);
+    assert.equal(foundDeletedNode, undefined, 'Knowledge node with only deprecated claims and 0 evidence must not be returned');
+
+    // 4. artifactRead for deleted knowledge returns null
+    const artifact = searchService.artifactRead(node.id);
+    assert.equal(artifact, null, 'Artifact for deleted knowledge must return null');
+  });
 });

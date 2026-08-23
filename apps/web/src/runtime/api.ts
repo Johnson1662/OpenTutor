@@ -148,11 +148,18 @@ export interface AuthDeviceCodeEventData {
   verificationUri?: string;
 }
 
+export interface AuthPromptChoice {
+  id?: string;
+  value?: string;
+  label: string;
+}
+
 export interface AuthPromptEventData {
   promptId: string;
-  promptType?: string;
+  promptType?: 'text' | 'secret' | 'select' | 'manual_code' | string;
   message: string;
   placeholder?: string;
+  choices?: AuthPromptChoice[];
 }
 
 export interface AuthProgressEventData {

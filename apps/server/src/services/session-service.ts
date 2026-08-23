@@ -105,24 +105,11 @@ export class SessionService {
     const eventData: PathPatchEventData = {
       baseVersion,
       version: result.newVersion,
-      patches: [
-        {
-          op: 'insert_node',
-          node: {
-            id: detour.id,
-            knowledgeNodeId: detour.knowledgeNodeId,
-            title: detour.title,
-            type: 'detour',
-            status: 'current',
-            position: 0,
-            note: detour.note,
-          },
-        },
-      ],
+      patches: result.patches,
     };
     this.eventBus.publish(sessionId, 'path.patch', eventData);
 
-    return result;
+    return { path: result.path, newVersion: result.newVersion };
   }
 
   async completeCurrentNode(
@@ -168,10 +155,10 @@ export class SessionService {
     const eventData: PathPatchEventData = {
       baseVersion,
       version: result.newVersion,
-      patches: [],
+      patches: result.patches,
     };
     this.eventBus.publish(sessionId, 'path.patch', eventData);
 
-    return result;
+    return { path: result.path, newVersion: result.newVersion };
   }
 }

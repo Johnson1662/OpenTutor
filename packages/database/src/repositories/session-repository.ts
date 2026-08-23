@@ -488,7 +488,7 @@ export class SessionRepository {
     savedLessonId: string;
    };
   }
- ): { path: LearningPathNode[]; newVersion: number } {
+ ): { path: LearningPathNode[]; newVersion: number; patches: LearningPathPatch[] } {
   const applyTx = this.db.transaction(() => {
    const sessionRow = this.db
     .prepare('SELECT id, path_version, active_lesson_id FROM learning_sessions WHERE id = ?')
@@ -578,7 +578,7 @@ export class SessionRepository {
     );
    }
 
-   return { path: nextNodes, newVersion };
+   return { path: nextNodes, newVersion, patches };
   });
 
   return applyTx();
@@ -598,6 +598,7 @@ export class SessionRepository {
  ): {
   path: LearningPathNode[];
   newVersion: number;
+  patches: LearningPathPatch[];
   resumedFrame?: LearningSessionFrame | null;
   resumedLessonId?: string | null;
  } {
@@ -618,7 +619,7 @@ export class SessionRepository {
    const activeIdx = currentNodes.findIndex((n) => n.status === 'current');
 
    if (activeIdx < 0) {
-    return { path: currentNodes, newVersion: baseVersion, resumedFrame: null, resumedLessonId: null };
+    return { path: currentNodes, newVersion: baseVersion, patches: [], resumedFrame: null, resumedLessonId: null };
    }
 
    const activeNode = currentNodes[activeIdx];
@@ -683,6 +684,7 @@ export class SessionRepository {
    return {
     path: nextNodes,
     newVersion,
+    patches,
     resumedFrame,
     resumedLessonId: resumedFrame ? resumedFrame.savedLessonId : null,
    };

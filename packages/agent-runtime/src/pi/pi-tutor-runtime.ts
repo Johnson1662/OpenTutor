@@ -42,7 +42,10 @@ export class PiTutorRuntime implements TutorRuntime {
       this.runtimeMode = options.runtimeMode;
     } else if (envMode === 'pi' || envMode === 'fake') {
       this.runtimeMode = envMode;
-    } else if (process.env.NODE_ENV === 'test') {
+    } else if (
+      process.env.NODE_ENV === 'test' ||
+      (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.LLM_API_KEY && !options.apiKey)
+    ) {
       this.runtimeMode = 'fake';
     } else {
       const hasAuth = Boolean(
@@ -94,8 +97,8 @@ export class PiTutorRuntime implements TutorRuntime {
     await this.registry.disposeSession(sessionId);
   }
 
-  private determineRetrievalBudget(message: string): number {
-    const lower = message.toLowerCase();
+  private determineRetrievalBudget(message?: string): number {
+    const lower = (message ?? '').toLowerCase();
     if (lower.includes('simple') || lower.includes('简单') || lower.includes('code') || lower.includes('代码')) {
       return 0; // None
     }
@@ -172,7 +175,7 @@ export class PiTutorRuntime implements TutorRuntime {
       });
 
       try {
-        await session.prompt(input.message);
+        await session.prompt(input.message ?? input.action ?? '');
       } finally {
         unsubscribe();
       }

@@ -1,22 +1,7 @@
 import type { SourceChunk } from '../source/markdown-parser.ts';
+import type { KnowledgeCandidate, ClaimCandidate, RelationCandidate } from './knowledge-candidate-schema.ts';
 
-export interface ClaimCandidate {
-  statement: string;
-  sourceChunkIds: string[];
-}
-
-export interface RelationCandidate {
-  targetName: string;
-  type: 'prerequisite' | 'related' | 'part_of';
-}
-
-export interface KnowledgeCandidate {
-  canonicalName: string;
-  aliases: string[];
-  definition?: string;
-  claims: ClaimCandidate[];
-  relations: RelationCandidate[];
-}
+export type { KnowledgeCandidate, ClaimCandidate, RelationCandidate };
 
 export interface KnowledgeAnalyzer {
   analyzeChunks(chunks: SourceChunk[]): Promise<KnowledgeCandidate[]>;

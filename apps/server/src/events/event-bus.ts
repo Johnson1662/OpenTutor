@@ -43,6 +43,10 @@ export class EventBus {
     return event;
   }
 
+  getEventsSince(sessionId: string, lastSeq: number): LearningEvent[] {
+    return this.eventRepo.getEventsSince(sessionId, lastSeq);
+  }
+
   replayMissedEvents(sessionId: string, lastSeq: number, emit: (event: LearningEvent) => void): void {
     const missed = this.eventRepo.getEventsSince(sessionId, lastSeq);
     for (const evt of missed) {

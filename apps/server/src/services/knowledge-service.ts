@@ -1,6 +1,6 @@
 import type { AssessmentCompletedEventData, AssessmentResult, KnowledgeUpdatedEventData, UserKnowledgeState } from '@opentutor/protocol';
 import type { KnowledgeRepository } from '@opentutor/database';
-import type { SearchService, KnowledgeSearchResultItem, KnowledgeArtifactContent, NeighborResult, SourceChunk } from '@opentutor/knowledge-core';
+import type { SearchService, KnowledgeSearchResultItem, KnowledgeArtifact, NeighborResult, SourceChunk } from '@opentutor/knowledge-core';
 import type { EventBus } from '../events/event-bus.ts';
 
 export class KnowledgeService {
@@ -51,7 +51,7 @@ export class KnowledgeService {
     return this.searchService.knowledgeSearch(query, limit);
   }
 
-  readArtifact(knowledgeNodeId: string): KnowledgeArtifactContent | null {
+  readArtifact(knowledgeNodeId: string): KnowledgeArtifact | null {
     return this.searchService.artifactRead(knowledgeNodeId);
   }
 

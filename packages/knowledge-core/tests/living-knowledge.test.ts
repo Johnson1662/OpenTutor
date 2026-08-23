@@ -6,6 +6,8 @@ import {
   EntityResolver,
   ClaimService,
   EvidenceService,
+  ClaimReconciler,
+  ModelKnowledgeAnalyzer,
   RetrievalTracker,
   RetrievalBudgetLevel,
   parseMarkdown,
@@ -83,7 +85,7 @@ test('packages/knowledge-core - Living Knowledge Compiler & Agentic Retrieval', 
     const claim = claims.recordClaim('self-attention', 'Self attention weights tokens across sequence.');
     assert.ok(claim.id);
 
-    const link = evidence.linkEvidence(claim.id, chunkId, 'Self attention weights tokens');
+    const link = evidence.linkEvidence(claim.id, chunkId, 'supports', 1.0, true, 'Self attention weights tokens');
     assert.equal(link.claimId, claim.id);
     assert.equal(link.documentChunkId, chunkId);
 
@@ -91,15 +93,15 @@ test('packages/knowledge-core - Living Knowledge Compiler & Agentic Retrieval', 
     assert.ok(nodeEvidence.some((e) => e.documentChunkId === chunkId));
   });
 
-  await t.test('5. Versioned ArtifactCompiler compiles and updates canonical schema', () => {
+  await t.test('5. Versioned ArtifactCompiler compiles and updates canonical schema', async () => {
     const artifacts = livingCompiler.artifacts;
-    const initial = artifacts.compile('self-attention', 'Self Attention');
+    const initial = await artifacts.compile('self-attention', 'Self Attention');
     assert.equal(initial.version, 1);
     assert.equal(initial.content.nodeId, 'self-attention');
     assert.ok(initial.content.definition);
 
     // Recompiling with same evidence/claims -> NOOP (isNewVersion: false)
-    const recompiled = artifacts.compile('self-attention', 'Self Attention');
+    const recompiled = await artifacts.compile('self-attention', 'Self Attention');
     assert.equal(recompiled.version, 1);
     assert.equal(recompiled.isNewVersion, false);
   });
@@ -136,5 +138,117 @@ test('packages/knowledge-core - Living Knowledge Compiler & Agentic Retrieval', 
     assert.throws(() => {
       tracker.consumeStep('source_search', 'logits');
     }, /Retrieval budget exceeded/);
+  });
+
+  await t.test('8. EntityResolver maintains distinct nodes for different concepts and links with related edge', () => {
+    const resolver = new EntityResolver(db);
+    const selfAttn = resolver.resolve('Self-Attention', 'Intra-sequence attention mechanism');
+    const crossAttn = resolver.resolve('Cross-Attention', 'Inter-sequence attention between encoder and decoder');
+
+    assert.notEqual(selfAttn.id, crossAttn.id);
+    assert.equal(crossAttn.decision, 'RELATED_ENTITY');
+
+    // Confirm alias merge still works for exact aliases
+    const aliasMatch = resolver.resolve('self attention');
+    assert.equal(aliasMatch.id, selfAttn.id);
+    assert.equal(aliasMatch.decision, 'SAME_ENTITY');
+  });
+
+  await t.test('9. ClaimReconciler handles conflicting claims gracefully without failing compiler', () => {
+    const claims = new ClaimService(db);
+    const evidence = new EvidenceService(db);
+    const resolver = new EntityResolver(db);
+    const reconciler = new ClaimReconciler(claims, evidence);
+
+    const node = resolver.resolve('Optimization', 'Optimization techniques in deep learning');
+
+    const doc = livingCompiler.ingestion.ingest({
+      id: 'doc-conflict',
+      title: 'Conflict Test',
+      content: '# Optimization\n\nAdam always improves training convergence.',
+    });
+    const chunkId = doc.chunks[0]?.id ?? 'chk-1';
+
+    // 1. Initial supported claim
+    reconciler.reconcileClaims(node.id, [
+      { statement: 'Adam always improves training convergence.', evidenceChunkIds: [chunkId] },
+    ]);
+    const initialClaims = claims.getClaimsForNode(node.id);
+    assert.equal(initialClaims[0]?.status, 'supported');
+
+    // 2. Contradictory claim arrives
+    reconciler.reconcileClaims(node.id, [
+      { statement: 'Adam decreases training convergence in certain noisy regimes.', evidenceChunkIds: [chunkId] },
+    ]);
+    const updatedClaims = claims.getClaimsForNode(node.id);
+    assert.equal(updatedClaims.length, 2);
+    assert.ok(updatedClaims.every((c) => c.status === 'conflicting'));
+  });
+
+  await t.test('10. DocumentLifecycleService deactivates evidence and invalidates claims on source supersede/delete', () => {
+    const claims = new ClaimService(db);
+    const evidence = new EvidenceService(db);
+    const resolver = new EntityResolver(db);
+    const lifecycle = livingCompiler.lifecycle;
+
+    const node = resolver.resolve('Lifecycle Node', 'Temporary concept for lifecycle tracking');
+
+    const doc = livingCompiler.ingestion.ingest({
+      id: 'doc-lifecycle',
+      title: 'Lifecycle Test v1',
+      content: '# Lifecycle Node\n\nTemporary fact that will be superseded.',
+    });
+    const chunkId = doc.chunks[0]?.id ?? 'chk-life';
+
+    const claim = claims.recordClaim(node.id, 'Temporary fact that will be superseded.');
+    evidence.linkEvidence(claim.id, chunkId, 'supports', 1.0, true);
+
+    assert.equal(claims.getClaimById(claim.id)?.status, 'supported');
+
+    // Delete source document
+    const result = lifecycle.deleteDocument('doc-lifecycle');
+    assert.ok(result.deactivatedChunkIds.includes(chunkId));
+    assert.ok(result.affectedNodeIds.includes(node.id));
+
+    // Claim without active evidence is now deprecated
+    assert.equal(claims.getClaimById(claim.id)?.status, 'deprecated');
+  });
+
+  await t.test('11. ModelKnowledgeAnalyzer filters out hallucinated chunk IDs', async () => {
+    const mockExecution = {
+      completeText: async () => '',
+      completeStructured: async () => ({
+        candidates: [
+          {
+            canonicalName: 'Feed Forward Network',
+            aliases: ['FFN'],
+            definition: 'Applied to each position separately and identically.',
+            claims: [
+              {
+                statement: 'FFN consists of two linear transformations with a ReLU activation in between.',
+                evidenceChunkIds: ['real-chunk-1', 'fake-hallucinated-chunk-999'],
+              },
+            ],
+            relations: [{ targetName: 'Self-Attention', relation: 'part_of' }],
+          },
+        ],
+      }),
+    } as any;
+
+    const analyzer = new ModelKnowledgeAnalyzer(mockExecution);
+    const candidates = await analyzer.analyzeChunks([
+      {
+        id: 'real-chunk-1',
+        ordinal: 0,
+        level: 1,
+        content: 'FFN consists of two linear transformations.',
+        contentHash: 'hash-1',
+      },
+    ]);
+
+    assert.equal(candidates.length, 1);
+    const extractedClaims = candidates[0]?.claims;
+    assert.equal(extractedClaims?.[0]?.evidenceChunkIds.length, 1);
+    assert.equal(extractedClaims?.[0]?.evidenceChunkIds[0], 'real-chunk-1');
   });
 });

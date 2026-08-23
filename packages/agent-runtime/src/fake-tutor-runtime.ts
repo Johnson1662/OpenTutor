@@ -54,7 +54,7 @@ export class FakeTutorRuntime implements TutorRuntime {
   private async runTurnWithRequest(input: TutorTurnInput, requestId: string, signal: AbortSignal): Promise<TutorTurnResult> {
     if (signal.aborted) throw new Error('Turn cancelled');
     const runId = `run-${randomUUID()}`;
-    const lower = input.message.toLowerCase();
+    const lower = (input.message ?? input.action ?? '').toLowerCase();
     const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> = [];
 
     this.traceRepo?.startRun({
@@ -67,8 +67,16 @@ export class FakeTutorRuntime implements TutorRuntime {
     let reply = '';
 
     try {
+      const sessionSnap = await this.toolsExecutor.executeTool(input.sessionId, 'session_get', {
+        sessionId: input.sessionId,
+      });
+      const activeLessonId =
+        sessionSnap && typeof sessionSnap === 'object' && 'data' in sessionSnap && sessionSnap.data && typeof sessionSnap.data === 'object' && 'lesson' in sessionSnap.data && typeof (sessionSnap.data as any).lesson === 'object' && 'id' in (sessionSnap.data as any).lesson
+          ? (sessionSnap.data as any).lesson.id
+          : 'lesson-self-attention';
+
       const snap = await this.toolsExecutor.executeTool(input.sessionId, 'lesson_get', {
-        lessonId: 'lesson-self-attention',
+        lessonId: activeLessonId,
       });
       const currentLessonVersion =
         snap && typeof snap === 'object' && 'data' in snap && snap.data && typeof snap.data === 'object' && 'version' in snap.data && typeof snap.data.version === 'number'
@@ -99,22 +107,25 @@ export class FakeTutorRuntime implements TutorRuntime {
         const toolCallId = `tc-${randomUUID()}`;
         input.onToolStart?.(toolCallId, 'lesson_patch');
         const toolRes = await this.toolsExecutor.executeTool(input.sessionId, 'lesson_patch', {
-          lessonId: 'lesson-self-attention',
+          lessonId: activeLessonId,
           baseVersion: currentLessonVersion,
           patches: [patch],
         });
+        if (!toolRes.success) {
+          console.error('[FakeTutorRuntime] lesson_patch failed:', toolRes.error);
+        }
         input.onToolEnd?.(toolCallId, 'lesson_patch', toolRes.success);
 
         this.traceRepo?.recordToolCall({
           id: toolCallId,
           runId,
           toolName: 'lesson_patch',
-          arguments: { lessonId: 'lesson-self-attention', baseVersion: currentLessonVersion },
+          arguments: { lessonId: activeLessonId, baseVersion: currentLessonVersion },
           result: toolRes,
           status: toolRes.success ? 'success' : 'error',
         });
 
-        executedToolCalls.push({ tool: 'lesson_patch', args: { lessonId: 'lesson-self-attention' }, result: toolRes });
+        executedToolCalls.push({ tool: 'lesson_patch', args: { lessonId: activeLessonId }, result: toolRes });
         reply = 'Injected a working PyTorch code implementation into the lesson canvas.';
       } else if (lower.includes('simple') || lower.includes('简单') || lower.includes('simpler')) {
         const patch: LessonPatch = {
@@ -131,7 +142,7 @@ export class FakeTutorRuntime implements TutorRuntime {
         const toolCallId = `tc-${randomUUID()}`;
         input.onToolStart?.(toolCallId, 'lesson_patch');
         const toolRes = await this.toolsExecutor.executeTool(input.sessionId, 'lesson_patch', {
-          lessonId: 'lesson-self-attention',
+          lessonId: activeLessonId,
           baseVersion: currentLessonVersion,
           patches: [patch],
         });
@@ -141,12 +152,12 @@ export class FakeTutorRuntime implements TutorRuntime {
           id: toolCallId,
           runId,
           toolName: 'lesson_patch',
-          arguments: { lessonId: 'lesson-self-attention', baseVersion: currentLessonVersion },
+          arguments: { lessonId: activeLessonId, baseVersion: currentLessonVersion },
           result: toolRes,
           status: toolRes.success ? 'success' : 'error',
         });
 
-        executedToolCalls.push({ tool: 'lesson_patch', args: { lessonId: 'lesson-self-attention' }, result: toolRes });
+        executedToolCalls.push({ tool: 'lesson_patch', args: { lessonId: activeLessonId }, result: toolRes });
         reply = 'Simplified the explanation with an intuitive callout analogy.';
       } else if (lower.includes('softmax') || lower.includes('detour') || lower.includes('softmax_unknown')) {
         const toolCallId = `tc-${randomUUID()}`;

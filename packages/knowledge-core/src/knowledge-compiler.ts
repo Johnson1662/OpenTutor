@@ -6,6 +6,8 @@ import { EntityResolver } from './resolution/entity-resolver.ts';
 import { RelationResolver } from './resolution/relation-resolver.ts';
 import { ClaimService } from './claims/claim-service.ts';
 import { EvidenceService } from './claims/evidence-service.ts';
+import { ClaimReconciler } from './claims/claim-reconciler.ts';
+import { DocumentLifecycleService } from './source/document-lifecycle.ts';
 import { ArtifactCompiler, type CompiledArtifact } from './artifacts/artifact-compiler.ts';
 import { SearchService } from './retrieval/search-service.ts';
 
@@ -17,6 +19,8 @@ export class LivingKnowledgeCompiler {
   readonly relations: RelationResolver;
   readonly claims: ClaimService;
   readonly evidence: EvidenceService;
+  readonly reconciler: ClaimReconciler;
+  readonly lifecycle: DocumentLifecycleService;
   readonly artifacts: ArtifactCompiler;
   readonly retrieval: SearchService;
 
@@ -28,6 +32,8 @@ export class LivingKnowledgeCompiler {
     this.relations = new RelationResolver(db);
     this.claims = new ClaimService(db);
     this.evidence = new EvidenceService(db);
+    this.reconciler = new ClaimReconciler(this.claims, this.evidence);
+    this.lifecycle = new DocumentLifecycleService(db, this.claims, this.evidence);
     this.artifacts = new ArtifactCompiler(db, this.claims, this.evidence, this.relations);
     this.retrieval = new SearchService(db, this.artifacts);
   }
@@ -37,28 +43,34 @@ export class LivingKnowledgeCompiler {
     compiledArtifacts: CompiledArtifact[];
   }> {
     const document = this.ingestion.ingest(input);
+
+    // Handle document superseding if a previous version existed
+    this.lifecycle.supersedeDocument(document.id, String(document.version));
+
     const candidates = await this.analyzer.analyzeChunks(document.chunks);
     const compiledArtifacts: CompiledArtifact[] = [];
 
     for (const candidate of candidates) {
-      const entity = this.resolver.resolve(candidate.canonicalName, candidate.definition);
-      for (const alias of candidate.aliases) {
-        this.resolver.addAlias(entity.id, alias);
-      }
+      const entity = this.resolver.resolve(
+        candidate.canonicalName,
+        candidate.definition,
+        candidate.aliases
+      );
 
-      for (const claimCand of candidate.claims) {
-        const claim = this.claims.recordClaim(entity.id, claimCand.statement);
-        for (const chunkId of claimCand.sourceChunkIds) {
-          this.evidence.linkEvidence(claim.id, chunkId, claimCand.statement);
-        }
-      }
+      // Reconcile claims using ClaimReconciler
+      this.reconciler.reconcileClaims(entity.id, candidate.claims);
 
+      // Add conceptual relations
       for (const rel of candidate.relations) {
         const targetEntity = this.resolver.resolve(rel.targetName);
-        this.relations.addRelation(targetEntity.id, entity.id, rel.type);
+        const relType =
+          rel.relation === 'prerequisite' || rel.relation === 'part_of' || rel.relation === 'related'
+            ? rel.relation
+            : 'related';
+        this.relations.addRelation(targetEntity.id, entity.id, relType);
       }
 
-      const artifact = this.artifacts.compile(entity.id, entity.title);
+      const artifact = await this.artifacts.compile(entity.id, entity.title);
       compiledArtifacts.push(artifact);
     }
 

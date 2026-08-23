@@ -14,16 +14,16 @@ export class FakeKnowledgeAnalyzer implements KnowledgeAnalyzer {
 
       const claims = sentences.map((sentence) => ({
         statement: sentence,
-        sourceChunkIds: [chunk.id],
+        evidenceChunkIds: [chunk.id],
       }));
 
       const relations: KnowledgeCandidate['relations'] = [];
       const lower = chunk.content.toLowerCase();
       if (lower.includes('softmax') && !heading.toLowerCase().includes('softmax')) {
-        relations.push({ targetName: 'Softmax Function', type: 'prerequisite' });
+        relations.push({ targetName: 'Softmax Function', relation: 'prerequisite' });
       }
       if (lower.includes('embedding') && !heading.toLowerCase().includes('embedding')) {
-        relations.push({ targetName: 'Embedding', type: 'prerequisite' });
+        relations.push({ targetName: 'Embedding', relation: 'prerequisite' });
       }
 
       candidates.push({

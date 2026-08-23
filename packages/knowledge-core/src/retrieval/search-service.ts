@@ -1,5 +1,6 @@
 import type { Database } from '@opentutor/database';
-import { ArtifactCompiler, type KnowledgeArtifactContent } from '../artifacts/artifact-compiler.ts';
+import { ArtifactCompiler } from '../artifacts/artifact-compiler.ts';
+import type { KnowledgeArtifact } from '../artifacts/artifact-schema.ts';
 import { ClaimService } from '../claims/claim-service.ts';
 import { EvidenceService } from '../claims/evidence-service.ts';
 import { RelationResolver } from '../resolution/relation-resolver.ts';
@@ -103,7 +104,7 @@ export class SearchService {
    results.push({
     nodeId: node.id,
     title: node.title,
-    summary: artifact?.intuition ?? node.description ?? node.title,
+    summary: artifact?.intuition.text ?? node.description ?? node.title,
     matchedClaims: claimsRows.map((c) => c.statement),
     evidenceCount,
    });
@@ -113,7 +114,7 @@ export class SearchService {
  }
 
  // 2. artifact_read
- artifactRead(nodeId: string): KnowledgeArtifactContent | null {
+ artifactRead(nodeId: string): KnowledgeArtifact | null {
   return this.artifactCompiler.getLatestArtifact(nodeId);
  }
 

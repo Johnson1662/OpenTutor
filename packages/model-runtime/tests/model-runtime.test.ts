@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Type } from 'typebox';
 import { createDatabase, seedDatabase, AgentSessionRepository } from '@opentutor/database';
 import {
  createOpenTutorModelRuntime,
@@ -9,6 +10,9 @@ import {
  ModelPreferencesRepository,
  ModelSelectionService,
  SessionModelResolver,
+ RoleModelResolver,
+ DefaultModelExecutionService,
+ ModelExecutionError,
 } from '../src/index.ts';
 
 test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t) => {
@@ -171,6 +175,104 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
   assert.equal(newSessionResolution.providerId, 'openai-codex');
   assert.equal(newSessionResolution.modelId, 'gpt-4o');
   assert.equal(newSessionResolution.thinkingLevel, 'low');
+ });
+
+ await t.test('7. RoleModelResolver resolves role-specific model over global preference', async () => {
+  const selectionService = new ModelSelectionService(runtime, prefsRepo);
+  const roleResolver = new RoleModelResolver(selectionService, runtime, prefsRepo);
+
+  // Global preference is currently openai-codex / gpt-4o
+  const tutorModel = await roleResolver.resolveRoleModel('default-user', 'tutor');
+  assert.equal(tutorModel.providerId, 'openai-codex');
+  assert.equal(tutorModel.modelId, 'gpt-4o');
+  assert.equal(tutorModel.isRoleSpecific, false);
+
+  // Set role-specific preference for knowledge_compiler to claude-3-7-sonnet-20250219
+  prefsRepo.setRolePreference('default-user', 'knowledge_compiler', {
+   providerId: 'anthropic',
+   modelId: 'claude-3-7-sonnet-20250219',
+   thinkingLevel: 'high',
+  });
+
+  const compilerModel = await roleResolver.resolveRoleModel('default-user', 'knowledge_compiler');
+  assert.equal(compilerModel.providerId, 'anthropic');
+  assert.equal(compilerModel.modelId, 'claude-3-7-sonnet-20250219');
+  assert.equal(compilerModel.thinkingLevel, 'high');
+  assert.equal(compilerModel.isRoleSpecific, true);
+
+  // Other roles still inherit the global default
+  const lessonModel = await roleResolver.resolveRoleModel('default-user', 'lesson_generator');
+  assert.equal(lessonModel.providerId, 'openai-codex');
+  assert.equal(lessonModel.isRoleSpecific, false);
+ });
+
+ await t.test('8. ModelExecutionService validates structured output and repairs once on invalid schema', async () => {
+  const selectionService = new ModelSelectionService(runtime, prefsRepo);
+  const roleResolver = new RoleModelResolver(selectionService, runtime, prefsRepo);
+
+  const CandidateSchema = Type.Object({
+   name: Type.String(),
+   aliases: Type.Array(Type.String()),
+   confidence: Type.Number(),
+  });
+
+  // 1. Success on valid JSON
+  const validService = new DefaultModelExecutionService(roleResolver, async (_model, _prompt) => {
+   return JSON.stringify({
+    name: 'Transformer',
+    aliases: ['Self-Attention Network'],
+    confidence: 0.95,
+   });
+  });
+
+  const validResult = await validService.completeStructured<{ name: string; aliases: string[]; confidence: number }>({
+   role: 'knowledge_compiler',
+   prompt: 'Extract candidate',
+   schema: CandidateSchema,
+  });
+  assert.equal(validResult.name, 'Transformer');
+  assert.equal(validResult.aliases.length, 1);
+
+  // 2. Successful repair on initial malformed JSON
+  let callCount = 0;
+  const repairingService = new DefaultModelExecutionService(roleResolver, async (_model, prompt) => {
+   callCount++;
+   if (callCount === 1) {
+    // Initial invalid output missing 'aliases'
+    return JSON.stringify({ name: 'Attention Mechanism', confidence: 0.8 });
+   }
+   // Repaired output responding to error prompt
+   return JSON.stringify({ name: 'Attention Mechanism', aliases: ['Cross-Attention'], confidence: 0.8 });
+  });
+
+  const repairedResult = await repairingService.completeStructured<{ name: string; aliases: string[] }>({
+   role: 'knowledge_compiler',
+   prompt: 'Extract candidate',
+   schema: CandidateSchema,
+  });
+  assert.equal(callCount, 2);
+  assert.equal(repairedResult.name, 'Attention Mechanism');
+  assert.equal(repairedResult.aliases[0], 'Cross-Attention');
+
+  // 3. Fails with MODEL_OUTPUT_INVALID when repair attempt also fails
+  const failingService = new DefaultModelExecutionService(roleResolver, async () => {
+   return 'not a json at all';
+  });
+
+  await assert.rejects(
+   async () => {
+    await failingService.completeStructured({
+     role: 'knowledge_compiler',
+     prompt: 'Extract candidate',
+     schema: CandidateSchema,
+    });
+   },
+   (err: any) => {
+    assert.equal(err instanceof ModelExecutionError, true);
+    assert.equal(err.code, 'MODEL_OUTPUT_INVALID');
+    return true;
+   }
+  );
  });
 
  t.after(() => {

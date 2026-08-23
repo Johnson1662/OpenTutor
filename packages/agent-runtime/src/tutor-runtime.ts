@@ -1,6 +1,9 @@
+import type { TutorAction } from '@opentutor/protocol';
+
 export interface TutorTurnInput {
   sessionId: string;
-  message: string;
+  message?: string;
+  action?: TutorAction;
   requestId?: string;
   onTextDelta?: (delta: string) => void;
   onToolStart?: (toolCallId: string, toolName: string) => void;

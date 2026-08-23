@@ -16,7 +16,7 @@ export interface DomainServicesContext {
     ): { lesson: Lesson; newVersion: number };
   };
   sessionService: {
-    getSnapshot(sessionId: string): { path: LearningPathNode[]; pathVersion: number } | null;
+    getSnapshot(sessionId: string): { lesson?: Lesson; path: LearningPathNode[]; pathVersion: number } | null;
     applyPathPatches(
       sessionId: string,
       baseVersion: number,
@@ -55,6 +55,13 @@ export class DomainToolsExecutor {
   ): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       switch (toolName) {
+        case 'session_get': {
+          const sid = String(args.sessionId || sessionId);
+          const snapshot = this.services.sessionService.getSnapshot(sid);
+          if (!snapshot) return { success: false, error: `Session not found: ${sid}` };
+          return { success: true, data: snapshot };
+        }
+
         case 'lesson_get': {
           const lessonId = String(args.lessonId);
           const lesson = this.services.lessonService.getLesson(lessonId);

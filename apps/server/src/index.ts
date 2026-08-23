@@ -8,6 +8,7 @@ import {
   EventRepository,
   TraceRepository,
   AgentSessionRepository,
+  CourseRepository,
   type Database,
 } from '@opentutor/database';
 import { EventBus } from './events/event-bus.ts';
@@ -16,7 +17,9 @@ import { LessonService } from './services/lesson-service.ts';
 import { KnowledgeService } from './services/knowledge-service.ts';
 import { AssessmentService } from './services/assessment-service.ts';
 import { LearningProgressService } from './services/learning-progress-service.ts';
-import { SearchService } from '@opentutor/knowledge-core';
+import { CourseService } from './services/course-service.ts';
+import { SearchService, LivingKnowledgeCompiler } from '@opentutor/knowledge-core';
+import { CourseCompiler } from '@opentutor/course-core';
 import {
   createOpenTutorModelRuntime,
   ProviderService,
@@ -27,7 +30,7 @@ import {
 } from '@opentutor/model-runtime';
 import { DomainToolsExecutor } from '@opentutor/agent-tools';
 import { PiTutorRuntime, type TutorRuntime } from '@opentutor/agent-runtime';
-import { handleRequest, type RouteContext } from './api/routes.ts';
+import { handleRequest, type RouteContext } from './api/router.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -43,6 +46,8 @@ export async function createServerContext(
   sessionRepo: SessionRepository;
   lessonRepo: LessonRepository;
   knowledgeRepo: KnowledgeRepository;
+  courseRepo: CourseRepository;
+  courseService: CourseService;
   preferencesRepo: ModelPreferencesRepository;
   close: () => Promise<void>;
 }> {
@@ -52,6 +57,7 @@ export async function createServerContext(
   const lessonRepo = new LessonRepository(db);
   const sessionRepo = new SessionRepository(db);
   const knowledgeRepo = new KnowledgeRepository(db);
+  const courseRepo = new CourseRepository(db);
   const eventRepo = new EventRepository(db);
   const traceRepo = new TraceRepository(db);
   const agentSessionRepo = new AgentSessionRepository(db);
@@ -76,6 +82,17 @@ export async function createServerContext(
   const learningProgressService = new LearningProgressService(sessionService, eventBus);
   const assessmentService = new AssessmentService(lessonService, knowledgeService, learningProgressService);
 
+  const knowledgeCompiler = new LivingKnowledgeCompiler(db);
+  const courseCompiler = new CourseCompiler(db);
+  const courseService = new CourseService(
+    courseRepo,
+    sessionRepo,
+    lessonRepo,
+    knowledgeCompiler,
+    courseCompiler,
+    eventBus
+  );
+
   const toolsExecutor = new DomainToolsExecutor({
     lessonService,
     sessionService,
@@ -95,11 +112,13 @@ export async function createServerContext(
     knowledgeService,
     assessmentService,
     learningProgressService,
+    courseService,
     providerService,
     authService,
     preferencesRepo,
     tutorRuntime,
     eventBus,
+    traceRepo,
   };
 
   const server = http.createServer(async (req, res) => {
@@ -119,17 +138,14 @@ export async function createServerContext(
     sessionRepo,
     lessonRepo,
     knowledgeRepo,
+    courseRepo,
+    courseService,
     preferencesRepo,
-    close: () => {
-      const { promise, resolve } = Promise.withResolvers<void>();
-      if (typeof server.closeAllConnections === 'function') {
-        server.closeAllConnections();
-      }
-      server.close(() => {
-        db.close();
-        resolve();
+    close: async () => {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
       });
-      return promise;
+      db.close();
     },
   };
 }
@@ -138,7 +154,7 @@ export async function createServerContext(
 if (process.argv[1] && process.argv[1].endsWith('index.ts')) {
   createServerContext().then(({ server }) => {
     server.listen(PORT, HOST, () => {
-      console.log(`OpenTutor SQLite Server listening on http://${HOST}:${PORT}`);
+      console.log(`OpenTutor server listening on http://${HOST}:${PORT}`);
     });
   });
 }

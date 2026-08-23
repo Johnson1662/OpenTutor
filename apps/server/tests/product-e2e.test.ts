@@ -1,0 +1,177 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createServerContext } from '../src/index.ts';
+import type {
+  AcceptedResponse,
+  LearningPathNode,
+  LearningSessionSnapshot,
+  Lesson,
+} from '@opentutor/protocol';
+
+test('Product E2E Golden Path v0.6: Usable AI Tutor MVP Full Lifecycle', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  // 1. Start fresh server with in-memory SQLite database
+  const context = await createServerContext(':memory:');
+  const server = context.server;
+  const baseUrl = await new Promise<string>((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 8787;
+      resolve(`http://127.0.0.1:${port}`);
+    });
+  });
+
+  t.after(async () => {
+    await context.close();
+  });
+
+  // 2. Configure AI Provider Preferences (HTTP PUT /api/ai/preferences)
+  const prefRes = await fetch(`${baseUrl}/api/ai/preferences`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      defaultProviderId: 'anthropic',
+      defaultModelId: 'claude-3-7-sonnet-20250219',
+      thinkingLevel: 'high',
+    }),
+  });
+  assert.equal(prefRes.status, 200);
+  const prefBody = (await prefRes.json()) as { defaultProviderId: string; defaultModelId: string };
+  assert.equal(prefBody.defaultProviderId, 'anthropic');
+  assert.equal(prefBody.defaultModelId, 'claude-3-7-sonnet-20250219');
+
+  // 3. Create Course (HTTP POST /api/courses)
+  const createCourseRes = await fetch(`${baseUrl}/api/courses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Mastering Transformer Architecture',
+      description: 'From self-attention to multi-head layers and embeddings',
+    }),
+  });
+  assert.equal(createCourseRes.status, 201);
+  const { course } = (await createCourseRes.json()) as { course: { id: string; title: string } };
+  assert.ok(course.id);
+
+  // 4. Upload Course Materials (HTTP POST /api/courses/:id/sources)
+  const source1Res = await fetch(`${baseUrl}/api/courses/${course.id}/sources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Attention Fundamentals.md',
+      content: `# Self Attention
+Self attention dynamically weights token representations across sequence context.
+Softmax function converts unnormalized logits into valid probability distributions.
+
+# Multi-Head Attention
+Multi-head attention applies multiple self-attention projections in parallel.`,
+    }),
+  });
+  assert.equal(source1Res.status, 201);
+
+  // 5. Compile Course & Living Knowledge (HTTP POST /api/courses/:id/compile)
+  const compileRes = await fetch(`${baseUrl}/api/courses/${course.id}/compile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      learningGoal: 'I want to learn Transformer from scratch and master self-attention.',
+    }),
+  });
+  if (compileRes.status !== 200) {
+    console.error('Compile error body:', await compileRes.text());
+  }
+  assert.equal(compileRes.status, 200);
+  const compileData = (await compileRes.json()) as {
+    course: { compileStatus: string };
+    snapshot: LearningSessionSnapshot;
+  };
+  assert.equal(compileData.course.compileStatus, 'ready');
+  assert.ok(compileData.snapshot.sessionId);
+  assert.ok(compileData.snapshot.path.length >= 2);
+
+  const sessionId = compileData.snapshot.sessionId;
+
+  // 6. Inspect Course Map (HTTP GET /api/courses/:id/map)
+  const mapRes = await fetch(`${baseUrl}/api/courses/${course.id}/map`);
+  assert.equal(mapRes.status, 200);
+  const mapData = (await mapRes.json()) as { map: { nodes: Array<{ title: string; position: number }> } };
+  assert.ok(mapData.map.nodes.length >= 2);
+
+  // 7. Verify Initial Generated Lesson
+  const sessionRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
+  assert.equal(sessionRes.status, 200);
+  const sessionSnap = (await sessionRes.json()) as LearningSessionSnapshot;
+  console.log('Session initial lesson ID:', sessionSnap.lesson.id);
+  assert.ok(sessionSnap.lesson.blocks.length >= 2);
+  const quizBlock = sessionSnap.lesson.blocks.find((b) => b.type === 'quiz') as any;
+  assert.ok(quizBlock);
+  assert.ok(quizBlock.answerSpec);
+
+  // 8. Socratic Tutor Interaction: Request Code Example (HTTP POST /api/sessions/:id/messages)
+  const { promise: msgCompleted, resolve: resolveMsg } = Promise.withResolvers<void>();
+  const unMsg = context.context.eventBus.subscribe(sessionId, (evt) => {
+    if (evt.type === 'agent.completed') resolveMsg();
+  });
+
+  const msgRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'Can you show me clean PyTorch code for attention?' }),
+  });
+  assert.equal(msgRes.status, 202);
+  await msgCompleted;
+  unMsg();
+
+  // Verify code block injected on Lesson Canvas
+  const updatedSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
+  const updatedSnap = (await updatedSnapRes.json()) as LearningSessionSnapshot;
+  assert.ok(updatedSnap.lesson.blocks.some((b) => b.type === 'code'));
+
+  // 9. Socratic Tutor Action: Prerequisite Detour Insertion (HTTP POST /api/sessions/:id/actions)
+  const { promise: actCompleted, resolve: resolveAct } = Promise.withResolvers<void>();
+  const unAct = context.context.eventBus.subscribe(sessionId, (evt) => {
+    if (evt.type === 'agent.completed') resolveAct();
+  });
+
+  const actRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/actions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'softmax_unknown' }),
+  });
+  assert.equal(actRes.status, 202);
+  await actCompleted;
+  unAct();
+
+  // 10. Verify Detour Active in Learning Path
+  const detourSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
+  const detourSnap = (await detourSnapRes.json()) as LearningSessionSnapshot;
+  const detourNode = detourSnap.path.find((n) => n.type === 'detour' && n.knowledgeNodeId === 'softmax');
+  assert.ok(detourNode);
+  assert.equal(detourNode.status, 'current');
+
+  // 11. Diagnostic Assessment Quiz Submission (HTTP POST /api/lessons/:id/blocks/:id/answer)
+  const quizAnswerRes = await fetch(
+    `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer?sessionId=${sessionId}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        answer: 'Softmax ensures that probability outputs across tokens sum up to exactly 1.',
+      }),
+    }
+  );
+  assert.equal(quizAnswerRes.status, 200);
+  const quizBody = (await quizAnswerRes.json()) as { assessment: { result: string; confidence: number } };
+  assert.equal(quizBody.assessment.result, 'correct');
+  assert.ok(quizBody.assessment.confidence >= 0.25);
+
+  // 12. Verify Detour Completed and Automatic Resume to Main Track
+  const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
+  const resumedSnap = (await resumedSnapRes.json()) as LearningSessionSnapshot;
+  const completedDetour = resumedSnap.path.find((n) => n.knowledgeNodeId === 'softmax');
+  const activeNode = resumedSnap.path.find((n) => n.status === 'current');
+
+  assert.equal(completedDetour?.status, 'completed');
+  assert.ok(activeNode);
+  assert.equal(activeNode?.type, 'main');
+});

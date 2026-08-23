@@ -4,26 +4,14 @@ import type { ClaimService } from '../claims/claim-service.ts';
 import type { EvidenceService } from '../claims/evidence-service.ts';
 import type { RelationResolver } from '../resolution/relation-resolver.ts';
 import { computeSha256 } from '../source/source-hash.ts';
-
-export interface KnowledgeArtifactContent {
- nodeId: string;
- title: string;
- definition: string;
- intuition: string;
- mechanism: string;
- prerequisites: string[];
- formula?: string;
- examples: string[];
- misconceptions: string[];
- related: string[];
- sources: string[];
-}
+import type { KnowledgeArtifact } from './artifact-schema.ts';
+import { FakeArtifactSynthesizer, type ArtifactSynthesizer } from './artifact-synthesizer.ts';
 
 export interface CompiledArtifact {
  artifactId: string;
  nodeId: string;
  version: number;
- content: KnowledgeArtifactContent;
+ content: KnowledgeArtifact;
  isNewVersion: boolean;
 }
 
@@ -32,145 +20,125 @@ export class ArtifactCompiler {
  private readonly claimService: ClaimService;
  private readonly evidenceService: EvidenceService;
  private readonly relationResolver: RelationResolver;
+ private readonly synthesizer: ArtifactSynthesizer;
 
  constructor(
   db: Database,
   claimService: ClaimService,
   evidenceService: EvidenceService,
-  relationResolver: RelationResolver
+  relationResolver: RelationResolver,
+  synthesizer: ArtifactSynthesizer = new FakeArtifactSynthesizer()
  ) {
   this.db = db;
   this.claimService = claimService;
   this.evidenceService = evidenceService;
   this.relationResolver = relationResolver;
+  this.synthesizer = synthesizer;
  }
 
- compile(nodeId: string, title: string): CompiledArtifact {
-  const claims = this.claimService.getClaimsForNode(nodeId);
-  const evidence = this.evidenceService.getEvidenceForNode(nodeId);
-  const prerequisites = this.relationResolver.getPrerequisites(nodeId);
+ async compile(nodeId: string, title: string): Promise<CompiledArtifact> {
+  const claims = this.claimService.getClaimsForNode(nodeId, true);
+  const validClaimIds = new Set(claims.map((c) => c.id));
+  const edges = this.relationResolver.getEdgesForNode(nodeId);
+  const relatedNodeTitles = edges.map((e) => e.toNodeId);
 
-  const definition = claims[0]?.statement ?? `Core foundational concept for ${title}.`;
-  const intuition = claims[1]?.statement ?? `Intuitive mental model for ${title}.`;
-  const mechanism = claims.slice(2).map((c) => c.statement).join(' ') || `Operational mechanics and behavior of ${title}.`;
-
-  const sources = Array.from(new Set(evidence.map((e) => e.documentChunkId)));
-
-  const content: KnowledgeArtifactContent = {
+  // 1. Synthesize candidate artifact
+  const candidateArtifact = await this.synthesizer.synthesize(
    nodeId,
    title,
-   definition,
-   intuition,
-   mechanism,
-   prerequisites,
-   examples: [`Canonical application of ${title}`],
-   misconceptions: [`Common point of confusion regarding ${title}`],
-   related: [],
-   sources,
+   claims,
+   relatedNodeTitles
+  );
+
+  // 2. Validate section claim IDs against the database
+  const validatedArtifact: KnowledgeArtifact = {
+   ...candidateArtifact,
+   nodeId,
+   title,
+   definition: {
+    text: candidateArtifact.definition.text,
+    claimIds: candidateArtifact.definition.claimIds.filter((id) => validClaimIds.has(id)),
+   },
+   intuition: {
+    text: candidateArtifact.intuition.text,
+    claimIds: candidateArtifact.intuition.claimIds.filter((id) => validClaimIds.has(id)),
+   },
+   mechanism: {
+    text: candidateArtifact.mechanism.text,
+    claimIds: candidateArtifact.mechanism.claimIds.filter((id) => validClaimIds.has(id)),
+   },
+   formula: candidateArtifact.formula
+    ? {
+     text: candidateArtifact.formula.text,
+     claimIds: candidateArtifact.formula.claimIds.filter((id) => validClaimIds.has(id)),
+    }
+    : undefined,
+   examples: (candidateArtifact.examples || []).map((ex) => ({
+    text: ex.text,
+    claimIds: ex.claimIds.filter((id) => validClaimIds.has(id)),
+   })),
+   misconceptions: (candidateArtifact.misconceptions || []).map((m) => ({
+    text: m.text,
+    claimIds: m.claimIds.filter((id) => validClaimIds.has(id)),
+   })),
   };
 
-  const serializedContent = JSON.stringify(content);
-  const artifactId = `artifact-${nodeId}`;
-
-  const existingArtifact = this.db
-   .prepare('SELECT id FROM knowledge_artifacts WHERE id = ?')
-   .get(artifactId) as { id: string } | undefined;
-
-  if (!existingArtifact) {
-   this.db
-    .prepare(
-     `INSERT INTO knowledge_artifacts (id, name, artifact_type, created_at, updated_at)
-           VALUES (?, ?, 'knowledge', datetime('now'), datetime('now'))`
-    )
-    .run(artifactId, title);
-  }
-
-  const latestVersion = this.db
+  // 3. Check against existing latest artifact version
+  const latestRow = this.db
    .prepare(
-    `SELECT version, content
-         FROM knowledge_artifact_versions
-         WHERE artifact_id = ?
+    `SELECT id, version, content_hash, content_json
+         FROM knowledge_artifacts
+         WHERE knowledge_node_id = ?
          ORDER BY version DESC
          LIMIT 1`
    )
-   .get(artifactId) as { version: number; content: string } | undefined;
+   .get(nodeId) as { id: string; version: number; content_hash: string; content_json: string } | undefined;
 
-  if (latestVersion && computeSha256(latestVersion.content) === computeSha256(serializedContent)) {
+  const contentJson = JSON.stringify(validatedArtifact);
+  const contentHash = computeSha256(contentJson);
+
+  if (latestRow && latestRow.content_hash === contentHash) {
    return {
-    artifactId,
+    artifactId: latestRow.id,
     nodeId,
-    version: latestVersion.version,
-    content,
+    version: latestRow.version,
+    content: JSON.parse(latestRow.content_json) as KnowledgeArtifact,
     isNewVersion: false,
    };
   }
 
-  const newVersion = (latestVersion?.version ?? 0) + 1;
-  const versionId = randomUUID();
+  const nextVersion = (latestRow?.version ?? 0) + 1;
+  const artifactId = `art-${randomUUID()}`;
+  const now = new Date().toISOString();
 
-  this.db.transaction(() => {
-   this.db
-    .prepare(
-     `INSERT INTO knowledge_artifact_versions (id, artifact_id, version, content, created_at)
-           VALUES (?, ?, ?, ?, datetime('now'))`
-    )
-    .run(versionId, artifactId, newVersion, serializedContent);
-
-   this.db
-    .prepare('UPDATE knowledge_artifacts SET updated_at = datetime(\'now\') WHERE id = ?')
-    .run(artifactId);
-
-   // Sync into FTS5 virtual table
-   const claimsText = claims.map((c) => c.statement).join(' ');
-   const contentText = `${definition} ${intuition} ${mechanism}`;
-
-   const aliasRows = this.db
-    .prepare('SELECT alias FROM knowledge_node_aliases WHERE knowledge_node_id = ?')
-    .all(nodeId) as Array<{ alias: string }>;
-   const aliasesText = [title.toLowerCase(), ...aliasRows.map((a) => a.alias.toLowerCase())].join(' ');
-
-   try {
-    this.db
-     .prepare('DELETE FROM knowledge_fts WHERE node_id = ?')
-     .run(nodeId);
-
-    this.db
-     .prepare(
-      `INSERT INTO knowledge_fts (node_id, title, aliases, claims, content)
-             VALUES (?, ?, ?, ?, ?)`
-     )
-     .run(nodeId, title, aliasesText, claimsText, contentText);
-   } catch {
-    // Table might not exist in early tests
-   }
-  })();
+  this.db
+   .prepare(
+    `INSERT INTO knowledge_artifacts (id, name, knowledge_node_id, version, content_hash, content_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+   )
+   .run(artifactId, title, nodeId, nextVersion, contentHash, contentJson, now, now);
 
   return {
    artifactId,
    nodeId,
-   version: newVersion,
-   content,
+   version: nextVersion,
+   content: validatedArtifact,
    isNewVersion: true,
   };
  }
 
- getLatestArtifact(nodeId: string): KnowledgeArtifactContent | null {
-  const artifactId = `artifact-${nodeId}`;
+ getLatestArtifact(nodeId: string): KnowledgeArtifact | null {
   const row = this.db
    .prepare(
-    `SELECT content
-         FROM knowledge_artifact_versions
-         WHERE artifact_id = ?
+    `SELECT content_json
+         FROM knowledge_artifacts
+         WHERE knowledge_node_id = ?
          ORDER BY version DESC
          LIMIT 1`
    )
-   .get(artifactId) as { content: string } | undefined;
+   .get(nodeId) as { content_json: string } | undefined;
 
   if (!row) return null;
-  try {
-   return JSON.parse(row.content) as KnowledgeArtifactContent;
-  } catch {
-   return null;
-  }
+  return JSON.parse(row.content_json) as KnowledgeArtifact;
  }
 }

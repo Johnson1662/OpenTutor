@@ -7,6 +7,9 @@ import { migration004 } from './migrations/004_knowledge_core.ts';
 import { migration005 } from './migrations/005_ai_preferences.ts';
 import { migration006 } from './migrations/006_fts5_retrieval.ts';
 import { migration007 } from './migrations/007_agent_session_model_binding.ts';
+import { migration008 } from './migrations/008_ai_role_preferences.ts';
+import { migration009 } from './migrations/009_claims_and_evidence.ts';
+import { migration010 } from './migrations/010_course_pipeline.ts';
 
 export const ALL_MIGRATIONS: Migration[] = [
   migration001,
@@ -16,6 +19,9 @@ export const ALL_MIGRATIONS: Migration[] = [
   migration005,
   migration006,
   migration007,
+  migration008,
+  migration009,
+  migration010,
 ];
 
 export function runMigrations(db: Database, migrations: Migration[] = ALL_MIGRATIONS): number {

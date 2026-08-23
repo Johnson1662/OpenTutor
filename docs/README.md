@@ -33,7 +33,10 @@ docs/
 
 ## 核心文档导读
 
-1. **[系统架构与协议规范 (OPENTUTOR_ARCHITECTURE.md)](OPENTUTOR_ARCHITECTURE.md)**  
+1. **[产品需求文档 (PRD.md)](PRD.md)**  
+   分模块详细定义了 OpenTutor 的目标分析、Alvar 教学引擎、Lesson Schema 协议、控制台动态干预机制与 MVP 验收标准。
+
+2. **[系统架构与协议规范 (OPENTUTOR_ARCHITECTURE.md)](OPENTUTOR_ARCHITECTURE.md)**  
    规定了 OpenTutor 的整体分层、`LessonSchema` 协议、Alvar 教学循环和跨端适配路线。
 
 2. **[MVP 架构讨论记录 (architecture/MVP_ARCHITECTURE_DISCUSSION.md)](architecture/MVP_ARCHITECTURE_DISCUSSION.md)**  

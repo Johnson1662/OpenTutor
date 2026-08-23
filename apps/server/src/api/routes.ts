@@ -9,6 +9,8 @@ import type {
 import type { SessionService } from '../services/session-service.ts';
 import type { LessonService } from '../services/lesson-service.ts';
 import type { KnowledgeService } from '../services/knowledge-service.ts';
+import type { AssessmentService } from '../services/assessment-service.ts';
+import type { LearningProgressService } from '../services/learning-progress-service.ts';
 import type { TutorRuntime } from '@opentutor/agent-runtime';
 import type { EventBus } from '../events/event-bus.ts';
 import { randomUUID } from 'node:crypto';
@@ -17,6 +19,8 @@ export interface RouteContext {
   sessionService: SessionService;
   lessonService: LessonService;
   knowledgeService: KnowledgeService;
+  assessmentService: AssessmentService;
+  learningProgressService: LearningProgressService;
   tutorRuntime: TutorRuntime;
   eventBus: EventBus;
 }
@@ -210,18 +214,17 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, c
       return;
     }
 
-    const assessment: AssessmentResult = {
-      id: `asmt-${randomUUID()}`,
-      knowledgeNodeId: lesson.knowledgeNodeId,
-      lessonId,
-      blockId,
-      result: 'correct',
-      confidence: 0.92,
-      feedback: `Diagnostic evaluation: "${body.answer}" correctly addresses the core concept.`,
-    };
-
-    ctx.knowledgeService.recordAssessment('prototype', assessment);
-    json(res, 200, { assessment });
+    try {
+      const { assessment } = ctx.assessmentService.submitAnswer({
+        sessionId: 'prototype',
+        lessonId,
+        blockId,
+        answer: body.answer ?? '',
+      });
+      json(res, 200, { assessment });
+    } catch (err) {
+      json(res, 400, { error: err instanceof Error ? err.message : 'ASSESSMENT_FAILED' });
+    }
     return;
   }
 

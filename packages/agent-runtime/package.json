@@ -12,7 +12,10 @@
   "dependencies": {
     "@opentutor/protocol": "workspace:*",
     "@opentutor/database": "workspace:*",
-    "@opentutor/agent-tools": "workspace:*"
+    "@opentutor/agent-tools": "workspace:*",
+    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-agent-core": "^0.84.2",
+    "@earendil-works/pi-ai": "^0.84.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -13,6 +13,8 @@ import { EventBus } from './events/event-bus.ts';
 import { SessionService } from './services/session-service.ts';
 import { LessonService } from './services/lesson-service.ts';
 import { KnowledgeService } from './services/knowledge-service.ts';
+import { AssessmentService } from './services/assessment-service.ts';
+import { LearningProgressService } from './services/learning-progress-service.ts';
 import { DomainToolsExecutor } from '@opentutor/agent-tools';
 import { PiTutorRuntime, type TutorRuntime } from '@opentutor/agent-runtime';
 import { handleRequest, type RouteContext } from './api/routes.ts';
@@ -42,6 +44,8 @@ export function createServerContext(dbPath: string = DB_PATH, customRuntime?: Tu
   const sessionService = new SessionService(sessionRepo, eventBus);
   const lessonService = new LessonService(lessonRepo, eventBus);
   const knowledgeService = new KnowledgeService(knowledgeRepo, eventBus);
+  const learningProgressService = new LearningProgressService(sessionService, eventBus);
+  const assessmentService = new AssessmentService(lessonService, knowledgeService, learningProgressService);
 
   const toolsExecutor = new DomainToolsExecutor({
     lessonService,
@@ -55,6 +59,8 @@ export function createServerContext(dbPath: string = DB_PATH, customRuntime?: Tu
     sessionService,
     lessonService,
     knowledgeService,
+    assessmentService,
+    learningProgressService,
     tutorRuntime,
     eventBus,
   };

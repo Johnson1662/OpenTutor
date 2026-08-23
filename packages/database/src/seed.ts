@@ -52,6 +52,32 @@ export const INITIAL_LESSON: Lesson = {
   ],
 };
 
+export const SOFTMAX_LESSON: Lesson = {
+  schemaVersion: '1.0',
+  id: 'lesson-softmax',
+  courseId: 'transformer',
+  knowledgeNodeId: 'softmax',
+  title: 'Softmax Normalization',
+  objective: 'Understand how exponentiation and normalization convert scores to probabilities.',
+  version: 1,
+  status: 'active',
+  blocks: [
+    {
+      id: 'softmax-intro',
+      type: 'text',
+      variant: 'paragraph',
+      content:
+        'Softmax converts raw logits into a valid probability distribution where all values are positive and sum to 1.',
+    },
+    {
+      id: 'softmax-quiz',
+      type: 'quiz',
+      answerType: 'text',
+      question: 'What does softmax ensure regarding the sum of output values?',
+    },
+  ],
+};
+
 export const INITIAL_PATH_NODES: LearningPathNode[] = [
   { id: 'embedding', knowledgeNodeId: 'embedding', title: 'Embedding', type: 'main', status: 'completed', position: 0 },
   { id: 'self-attention', knowledgeNodeId: 'self-attention', title: 'Self Attention', type: 'main', status: 'current', position: 1 },
@@ -128,6 +154,19 @@ export function seedDatabase(db: Database.Database): void {
       INITIAL_LESSON.version,
       INITIAL_LESSON.status,
       JSON.stringify(INITIAL_LESSON.blocks),
+      now,
+      now
+    );
+
+    insertLesson.run(
+      SOFTMAX_LESSON.id,
+      SOFTMAX_LESSON.courseId,
+      SOFTMAX_LESSON.knowledgeNodeId,
+      SOFTMAX_LESSON.title,
+      SOFTMAX_LESSON.objective ?? null,
+      SOFTMAX_LESSON.version,
+      SOFTMAX_LESSON.status,
+      JSON.stringify(SOFTMAX_LESSON.blocks),
       now,
       now
     );

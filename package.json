@@ -2,6 +2,11 @@
   "name": "opentutor",
   "private": true,
   "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
+  },
   "scripts": {
     "dev": "pnpm --parallel --filter @opentutor/server --filter @opentutor/web dev",
     "dev:web": "pnpm --filter @opentutor/web dev",

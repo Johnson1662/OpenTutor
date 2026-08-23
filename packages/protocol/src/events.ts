@@ -1,6 +1,6 @@
-import type { LearningPathNode, LearningPathPatch } from './learning';
-import type { Lesson } from './lesson';
-import type { LessonPatch } from './patch';
+import type { LearningPathNode, LearningPathPatch } from './learning.ts';
+import type { Lesson } from './lesson.ts';
+import type { LessonPatch } from './patch.ts';
 
 export type TutorAction = 'simpler' | 'show_code' | 'visualize' | 'softmax_unknown';
 

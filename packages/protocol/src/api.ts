@@ -1,4 +1,4 @@
-import type { TutorAction } from './events';
+import type { TutorAction } from './events.ts';
 
 export interface RunTutorActionRequest {
   action: TutorAction;

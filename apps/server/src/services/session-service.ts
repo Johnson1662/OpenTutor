@@ -1,24 +1,35 @@
-import type { LearningPathNode, Lesson } from '@opentutor/protocol';
-
-export interface SessionState {
-  lesson: Lesson;
-  path: LearningPathNode[];
-  pathVersion: number;
-  seq: number;
-}
+import type { LearningPathNode, LearningPathPatch, LearningSessionSnapshot, PathPatchEventData } from '@opentutor/protocol';
+import type { SessionRepository } from '@opentutor/database';
+import type { EventBus } from '../events/event-bus.ts';
 
 export class SessionService {
-  constructor(private readonly state: SessionState) {}
+  private readonly sessionRepo: SessionRepository;
+  private readonly eventBus: EventBus;
 
-  snapshot() {
-    return {
-      lesson: this.state.lesson,
-      path: this.state.path,
-      pathVersion: this.state.pathVersion,
-    };
+  constructor(sessionRepo: SessionRepository, eventBus: EventBus) {
+    this.sessionRepo = sessionRepo;
+    this.eventBus = eventBus;
   }
 
-  getState() {
-    return this.state;
+  getSnapshot(sessionId: string): LearningSessionSnapshot | null {
+    return this.sessionRepo.getSessionSnapshot(sessionId);
+  }
+
+  applyPathPatches(
+    sessionId: string,
+    baseVersion: number,
+    patches: LearningPathPatch[]
+  ): { path: LearningPathNode[]; newVersion: number } {
+    const result = this.sessionRepo.applyPathPatches(sessionId, baseVersion, patches);
+
+    const eventData: PathPatchEventData = {
+      baseVersion,
+      version: result.newVersion,
+      patches,
+    };
+
+    this.eventBus.publish(sessionId, 'path.patch', eventData);
+
+    return result;
   }
 }

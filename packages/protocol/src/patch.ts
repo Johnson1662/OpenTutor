@@ -1,4 +1,4 @@
-import type { LessonBlock } from './lesson';
+import type { LessonBlock } from './lesson.ts';
 
 export type PatchPosition = { before: string } | { after: string } | { index: number };
 

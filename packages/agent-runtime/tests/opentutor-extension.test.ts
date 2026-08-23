@@ -289,4 +289,127 @@ test('packages/agent-runtime - OpenTutor Pi Extension & Tool Registration', asyn
       assert.ok(blockedRes.reason.includes('Security Violation'));
     }
   });
+
+  await t.test(
+    '6. lesson_get and path_get never consume retrieval budget; knowledge_search consumes and obeys budget limit',
+    async () => {
+      const registeredTools = new Map<
+        string,
+        {
+          name: string;
+          execute: (
+            id: string,
+            params: unknown,
+            signal?: AbortSignal
+          ) => Promise<{
+            content: Array<{ type: string; text: string }>;
+            details: {
+              success: boolean;
+              data?: unknown;
+              error?: { code: string; message: string };
+            };
+          }>;
+        }
+      >();
+
+      const fakePi = {
+        registerTool: (toolDef: {
+          name: string;
+          execute: (
+            id: string,
+            params: unknown,
+            signal?: AbortSignal
+          ) => Promise<{
+            content: Array<{ type: string; text: string }>;
+            details: {
+              success: boolean;
+              data?: unknown;
+              error?: { code: string; message: string };
+            };
+          }>;
+        }) => {
+          registeredTools.set(toolDef.name, toolDef);
+        },
+        on: () => { },
+      };
+
+      let retrievalBudgetStepsRemaining = 0;
+      let stepsConsumed = 0;
+
+      const extensionFactory = createOpenTutorExtension({
+        sessionId: 'session-budget-test',
+        executor,
+        getTurnContext: () => ({
+          requestId: 'req-budget-1',
+          retrieval: {
+            consumeStep: (tool: string, _query?: string) => {
+              if (retrievalBudgetStepsRemaining <= 0) {
+                throw new Error(`RETRIEVAL_BUDGET_EXCEEDED: step limit reached for ${tool}`);
+              }
+              retrievalBudgetStepsRemaining--;
+              stepsConsumed++;
+            },
+          },
+        }),
+      });
+
+      extensionFactory(fakePi as unknown as Parameters<typeof extensionFactory>[0]);
+
+      const lessonGetTool = registeredTools.get('lesson_get');
+      const pathGetTool = registeredTools.get('path_get');
+      const knowledgeSearchTool = registeredTools.get('knowledge_search');
+
+      assert.ok(lessonGetTool);
+      assert.ok(pathGetTool);
+      assert.ok(knowledgeSearchTool);
+
+      // 1. lesson_get repeatedly called with budget 0 never consumes or throws
+      for (let i = 0; i < 3; i++) {
+        const res: any = await lessonGetTool.execute(`call-lg-${i}`, { lessonId: 'l1' }, undefined as any);
+        assert.equal(res.details.success, true);
+        const parsed = JSON.parse(res.content[0].text);
+        assert.equal(parsed.id, 'l1');
+      }
+
+      // 2. path_get repeatedly called with budget 0 never consumes or throws
+      for (let i = 0; i < 3; i++) {
+        const res: any = await pathGetTool.execute(`call-pg-${i}`, {}, undefined as any);
+        assert.equal(res.details.success, true);
+        const parsed = JSON.parse(res.content[0].text);
+        assert.ok(Array.isArray(parsed.path));
+      }
+
+      // Retrieval budget was never touched by lesson_get or path_get
+      assert.equal(stepsConsumed, 0);
+
+      // 3. knowledge_search fails with 0 budget remaining
+      const failedSearchRes = await knowledgeSearchTool.execute(
+        'call-ks-0',
+        { query: 'test query' },
+        undefined
+      );
+      assert.equal(failedSearchRes.details.success, false);
+      assert.equal(failedSearchRes.details.error?.code, 'RETRIEVAL_BUDGET_EXCEEDED');
+
+      // 4. replenish 1 budget step and verify knowledge_search consumes it successfully
+      retrievalBudgetStepsRemaining = 1;
+      const okSearchRes = await knowledgeSearchTool.execute(
+        'call-ks-1',
+        { query: 'test query 2' },
+        undefined
+      );
+      assert.equal(okSearchRes.details.success, true);
+      assert.equal(stepsConsumed, 1);
+      assert.equal(retrievalBudgetStepsRemaining, 0);
+
+      // 5. Subsequent knowledge_search fails once budget is exhausted
+      const exhaustedSearchRes = await knowledgeSearchTool.execute(
+        'call-ks-2',
+        { query: 'test query 3' },
+        undefined
+      );
+      assert.equal(exhaustedSearchRes.details.success, false);
+      assert.equal(exhaustedSearchRes.details.error?.code, 'RETRIEVAL_BUDGET_EXCEEDED');
+    }
+  );
 });

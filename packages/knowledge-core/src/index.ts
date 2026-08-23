@@ -21,8 +21,10 @@ export * from './claims/evidence-service.ts';
 export * from './artifacts/artifact-schema.ts';
 export * from './artifacts/artifact-synthesizer.ts';
 export * from './artifacts/artifact-compiler.ts';
+export * from './artifacts/artifact-support-evaluator.ts';
 
 export * from './retrieval/retrieval-budget.ts';
+export * from './retrieval/knowledge-visibility-policy.ts';
 export * from './retrieval/search-service.ts';
 
 export * from './knowledge-compiler.ts';

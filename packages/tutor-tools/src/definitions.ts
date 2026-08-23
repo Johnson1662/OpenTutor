@@ -5,12 +5,166 @@ export const LessonGetParamsSchema = Type.Object({
 });
 export type LessonGetParams = Static<typeof LessonGetParamsSchema>;
 
+export const TextBlockSchema = Type.Object({
+  id: Type.String(),
+  type: Type.Literal('text'),
+  variant: Type.Optional(
+    Type.Union([
+      Type.Literal('paragraph'),
+      Type.Literal('definition'),
+      Type.Literal('example'),
+      Type.Literal('callout'),
+      Type.Literal('summary'),
+    ])
+  ),
+  content: Type.String(),
+  knowledgeNodeIds: Type.Optional(Type.Array(Type.String())),
+  state: Type.Optional(
+    Type.Union([
+      Type.Literal('normal'),
+      Type.Literal('loading'),
+      Type.Literal('error'),
+    ])
+  ),
+});
+
+export const CodeBlockSchema = Type.Object({
+  id: Type.String(),
+  type: Type.Literal('code'),
+  language: Type.String(),
+  code: Type.String(),
+  explanation: Type.Optional(Type.String()),
+  knowledgeNodeIds: Type.Optional(Type.Array(Type.String())),
+  state: Type.Optional(
+    Type.Union([
+      Type.Literal('normal'),
+      Type.Literal('loading'),
+      Type.Literal('error'),
+    ])
+  ),
+});
+
+export const DiagramBlockSchema = Type.Object({
+  id: Type.String(),
+  type: Type.Literal('diagram'),
+  diagramType: Type.Union([
+    Type.Literal('flow'),
+    Type.Literal('relationship'),
+    Type.Literal('sequence'),
+  ]),
+  nodes: Type.Array(Type.Object({ id: Type.String(), label: Type.String() })),
+  edges: Type.Array(
+    Type.Object({
+      from: Type.String(),
+      to: Type.String(),
+      label: Type.Optional(Type.String()),
+    })
+  ),
+  knowledgeNodeIds: Type.Optional(Type.Array(Type.String())),
+  state: Type.Optional(
+    Type.Union([
+      Type.Literal('normal'),
+      Type.Literal('loading'),
+      Type.Literal('error'),
+    ])
+  ),
+});
+
+export const QuizOptionSchema = Type.Object({
+  id: Type.String(),
+  text: Type.String(),
+});
+
+export const QuizBlockSchema = Type.Object({
+  id: Type.String(),
+  type: Type.Literal('quiz'),
+  question: Type.String(),
+  answerType: Type.Optional(
+    Type.Union([
+      Type.Literal('text'),
+      Type.Literal('single_choice'),
+      Type.Literal('multiple_choice'),
+    ])
+  ),
+  options: Type.Optional(Type.Array(QuizOptionSchema)),
+  answerSpec: Type.Optional(
+    Type.Union([
+      Type.Object({
+        type: Type.Literal('single_choice'),
+        correctOptionId: Type.String(),
+      }),
+      Type.Object({
+        type: Type.Literal('multiple_choice'),
+        correctOptionIds: Type.Array(Type.String()),
+      }),
+      Type.Object({
+        type: Type.Literal('open'),
+        rubric: Type.Object({
+          concepts: Type.Array(Type.String()),
+          referenceAnswer: Type.Optional(Type.String()),
+        }),
+      }),
+    ])
+  ),
+  knowledgeNodeIds: Type.Optional(Type.Array(Type.String())),
+  state: Type.Optional(
+    Type.Union([
+      Type.Literal('normal'),
+      Type.Literal('loading'),
+      Type.Literal('error'),
+    ])
+  ),
+});
+
+export const LessonBlockSchema = Type.Union([
+  TextBlockSchema,
+  CodeBlockSchema,
+  DiagramBlockSchema,
+  QuizBlockSchema,
+]);
+
+export const PatchPositionSchema = Type.Union([
+  Type.Object({ before: Type.String() }),
+  Type.Object({ after: Type.String() }),
+  Type.Object({ index: Type.Number() }),
+]);
+
+export const LessonPatchSchema = Type.Union([
+  Type.Object({
+    op: Type.Literal('insert'),
+    block: LessonBlockSchema,
+    position: PatchPositionSchema,
+  }),
+  Type.Object({
+    op: Type.Literal('replace'),
+    blockId: Type.String(),
+    block: LessonBlockSchema,
+  }),
+  Type.Object({
+    op: Type.Literal('update'),
+    blockId: Type.String(),
+    changes: Type.Record(Type.String(), Type.Any()),
+  }),
+  Type.Object({
+    op: Type.Literal('remove'),
+    blockId: Type.String(),
+  }),
+  Type.Object({
+    op: Type.Literal('move'),
+    blockId: Type.String(),
+    position: PatchPositionSchema,
+  }),
+]);
+
 export const LessonPatchParamsSchema = Type.Object({
   lessonId: Type.String({ description: 'ID of the lesson to patch' }),
   baseVersion: Type.Number({ description: 'Current version of the lesson for optimistic concurrency check' }),
-  patches: Type.Array(Type.Any(), { description: 'List of atomic patch operations to apply' }),
+  patches: Type.Array(LessonPatchSchema, { description: 'List of atomic patch operations to apply' }),
 });
 export type LessonPatchParams = Static<typeof LessonPatchParamsSchema>;
+export type LessonPatch = Static<typeof LessonPatchSchema>;
+export type LessonBlock = Static<typeof LessonBlockSchema>;
+export type PatchPosition = Static<typeof PatchPositionSchema>;
 
 export const PathGetParamsSchema = Type.Object({
   sessionId: Type.Optional(Type.String({ description: 'ID of the learning session (defaults to active session)' })),
@@ -67,6 +221,7 @@ export interface TutorToolDefinition<TParams extends TSchema = TSchema> {
   parameters: TParams;
   category: 'lesson' | 'path' | 'knowledge' | 'source';
   retrieval: boolean;
+  retrievalCost: number;
   mutation: boolean;
 }
 
@@ -76,7 +231,8 @@ export const TUTOR_TOOL_DEFINITIONS = [
     description: 'Retrieve the active Lesson and its blocks by lesson ID.',
     parameters: LessonGetParamsSchema,
     category: 'lesson',
-    retrieval: true,
+    retrieval: false,
+    retrievalCost: 0,
     mutation: false,
   },
   {
@@ -85,6 +241,7 @@ export const TUTOR_TOOL_DEFINITIONS = [
     parameters: LessonPatchParamsSchema,
     category: 'lesson',
     retrieval: false,
+    retrievalCost: 0,
     mutation: true,
   },
   {
@@ -92,7 +249,8 @@ export const TUTOR_TOOL_DEFINITIONS = [
     description: 'Retrieve the active Learning Path nodes, current position, and path version.',
     parameters: PathGetParamsSchema,
     category: 'path',
-    retrieval: true,
+    retrieval: false,
+    retrievalCost: 0,
     mutation: false,
   },
   {
@@ -101,6 +259,7 @@ export const TUTOR_TOOL_DEFINITIONS = [
     parameters: PathInsertDetourParamsSchema,
     category: 'path',
     retrieval: false,
+    retrievalCost: 0,
     mutation: true,
   },
   {
@@ -109,6 +268,7 @@ export const TUTOR_TOOL_DEFINITIONS = [
     parameters: PathAdvanceParamsSchema,
     category: 'path',
     retrieval: false,
+    retrievalCost: 0,
     mutation: true,
   },
   {
@@ -117,6 +277,7 @@ export const TUTOR_TOOL_DEFINITIONS = [
     parameters: KnowledgeSearchParamsSchema,
     category: 'knowledge',
     retrieval: true,
+    retrievalCost: 1,
     mutation: false,
   },
   {
@@ -125,6 +286,7 @@ export const TUTOR_TOOL_DEFINITIONS = [
     parameters: ArtifactReadParamsSchema,
     category: 'knowledge',
     retrieval: true,
+    retrievalCost: 1,
     mutation: false,
   },
   {
@@ -133,6 +295,7 @@ export const TUTOR_TOOL_DEFINITIONS = [
     parameters: SourceSearchParamsSchema,
     category: 'source',
     retrieval: true,
+    retrievalCost: 1,
     mutation: false,
   },
   {
@@ -141,6 +304,7 @@ export const TUTOR_TOOL_DEFINITIONS = [
     parameters: SourceReadParamsSchema,
     category: 'source',
     retrieval: true,
+    retrievalCost: 1,
     mutation: false,
   },
   {
@@ -149,6 +313,7 @@ export const TUTOR_TOOL_DEFINITIONS = [
     parameters: GraphNeighborsParamsSchema,
     category: 'knowledge',
     retrieval: true,
+    retrievalCost: 1,
     mutation: false,
   },
 ] as const;

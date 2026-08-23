@@ -6,6 +6,7 @@ import { EvidenceService } from '../claims/evidence-service.ts';
 import { RelationResolver } from '../resolution/relation-resolver.ts';
 import type { SourceChunk } from '../source/markdown-parser.ts';
 import { normalizeText } from '../source/source-hash.ts';
+import { KnowledgeVisibilityPolicy } from './knowledge-visibility-policy.ts';
 
 export interface KnowledgeSearchResultItem {
  nodeId: string;
@@ -24,8 +25,13 @@ export interface NeighborResult {
 export class SearchService {
  private readonly db: Database;
  private readonly artifactCompiler: ArtifactCompiler;
+ private readonly visibilityPolicy: KnowledgeVisibilityPolicy;
 
- constructor(db: Database, artifactCompiler?: ArtifactCompiler) {
+ constructor(
+  db: Database,
+  artifactCompiler?: ArtifactCompiler,
+  visibilityPolicy?: KnowledgeVisibilityPolicy
+ ) {
   this.db = db;
   this.artifactCompiler =
    artifactCompiler ??
@@ -35,6 +41,7 @@ export class SearchService {
     new EvidenceService(db),
     new RelationResolver(db)
    );
+  this.visibilityPolicy = visibilityPolicy ?? new KnowledgeVisibilityPolicy(db);
  }
 
  // 1. knowledge_search
@@ -80,6 +87,10 @@ export class SearchService {
   const results: KnowledgeSearchResultItem[] = [];
 
   for (const nodeId of nodeIds) {
+   if (!this.visibilityPolicy.isNodeVisible(nodeId)) {
+    continue;
+   }
+
    const node = this.db
     .prepare('SELECT id, title, description FROM knowledge_nodes WHERE id = ?')
     .get(nodeId) as { id: string; title: string; description: string | null } | undefined;
@@ -102,11 +113,6 @@ export class SearchService {
      .get(nodeId) as { total: number }
    ).total;
 
-   // If all claims are deprecated and no active evidence exists, skip from knowledge search
-   if (claimsRows.length === 0 && evidenceCount === 0) {
-    continue;
-   }
-
    const artifact = this.artifactRead(nodeId);
 
    results.push({
@@ -123,32 +129,12 @@ export class SearchService {
 
  // 2. artifact_read
  artifactRead(nodeId: string): KnowledgeArtifact | null {
-  const artifact = this.artifactCompiler.getLatestArtifact(nodeId);
-  if (!artifact) return null;
-
-  // Check if the node has at least one active piece of evidence or active claim
-  const activeEvidence = (
-   this.db
-    .prepare(
-     `SELECT count(*) AS total FROM claim_evidence ce
-           JOIN claims c ON c.id = ce.claim_id
-           WHERE c.knowledge_node_id = ? AND ce.is_active = 1`
-    )
-    .get(nodeId) as { total: number }
-  ).total;
-
-  const activeClaims = (
-   this.db
-    .prepare(
-     `SELECT count(*) AS total FROM claims
-           WHERE knowledge_node_id = ? AND status != 'deprecated'`
-    )
-    .get(nodeId) as { total: number }
-  ).total;
-
-  if (activeEvidence === 0 && activeClaims === 0) {
+  if (!this.visibilityPolicy.isNodeVisible(nodeId)) {
    return null;
   }
+
+  const artifact = this.artifactCompiler.getLatestArtifact(nodeId);
+  if (!artifact) return null;
 
   return artifact;
  }
@@ -248,7 +234,9 @@ export class SearchService {
     .all(nodeId) as Array<{ id: string; title: string; relation_type: string }>;
 
    for (const p of prereqs) {
-    results.push({ nodeId: p.id, title: p.title, relation: p.relation_type });
+    if (this.visibilityPolicy.isNodeVisible(p.id)) {
+     results.push({ nodeId: p.id, title: p.title, relation: p.relation_type });
+    }
    }
   }
 
@@ -263,7 +251,9 @@ export class SearchService {
     .all(nodeId) as Array<{ id: string; title: string; relation_type: string }>;
 
    for (const s of successors) {
-    results.push({ nodeId: s.id, title: s.title, relation: s.relation_type });
+    if (this.visibilityPolicy.isNodeVisible(s.id)) {
+     results.push({ nodeId: s.id, title: s.title, relation: s.relation_type });
+    }
    }
   }
 

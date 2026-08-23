@@ -40,15 +40,45 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
     assert.equal(TUTOR_TOOL_NAMES.has('assessment_record'), false);
 
     // Metadata checks
+    const lessonGetDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'lesson_get')!;
+    assert.equal(lessonGetDef.category, 'lesson');
+    assert.equal(lessonGetDef.retrieval, false);
+    assert.equal(lessonGetDef.retrievalCost, 0);
+    assert.equal(lessonGetDef.mutation, false);
+
+    const pathGetDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'path_get')!;
+    assert.equal(pathGetDef.category, 'path');
+    assert.equal(pathGetDef.retrieval, false);
+    assert.equal(pathGetDef.retrievalCost, 0);
+    assert.equal(pathGetDef.mutation, false);
+
     const lessonPatchDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'lesson_patch')!;
     assert.equal(lessonPatchDef.category, 'lesson');
     assert.equal(lessonPatchDef.retrieval, false);
+    assert.equal(lessonPatchDef.retrievalCost, 0);
     assert.equal(lessonPatchDef.mutation, true);
 
     const knowledgeSearchDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'knowledge_search')!;
     assert.equal(knowledgeSearchDef.category, 'knowledge');
     assert.equal(knowledgeSearchDef.retrieval, true);
+    assert.equal(knowledgeSearchDef.retrievalCost, 1);
     assert.equal(knowledgeSearchDef.mutation, false);
+
+    const artifactReadDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'artifact_read')!;
+    assert.equal(artifactReadDef.retrieval, true);
+    assert.equal(artifactReadDef.retrievalCost, 1);
+
+    const sourceSearchDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'source_search')!;
+    assert.equal(sourceSearchDef.retrieval, true);
+    assert.equal(sourceSearchDef.retrievalCost, 1);
+
+    const sourceReadDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'source_read')!;
+    assert.equal(sourceReadDef.retrieval, true);
+    assert.equal(sourceReadDef.retrievalCost, 1);
+
+    const graphNeighborsDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'graph_neighbors')!;
+    assert.equal(graphNeighborsDef.retrieval, true);
+    assert.equal(graphNeighborsDef.retrievalCost, 1);
   });
 
   const mockLesson: Lesson = {
@@ -173,6 +203,17 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
     if (!missingNodeId.success) {
       assert.equal(missingNodeId.error.code, 'INVALID_ARGUMENT');
     }
+
+    // Invalid patch operation in lesson_patch
+    const invalidPatch = await executor.executeTool('s1', 'lesson_patch', {
+      lessonId: 'lesson-1',
+      baseVersion: 1,
+      patches: [{ op: 'unknown_op', blockId: 'b1' }],
+    });
+    assert.equal(invalidPatch.success, false);
+    if (!invalidPatch.success) {
+      assert.equal(invalidPatch.error.code, 'INVALID_ARGUMENT');
+    }
   });
 
   await t.test('3. Successful execution across all 10 tools', async () => {
@@ -194,7 +235,13 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
     const patchRes = await executor.executeTool('s1', 'lesson_patch', {
       lessonId: 'lesson-1',
       baseVersion: 1,
-      patches: [{ op: 'insert', block: { id: 'b1' } }],
+      patches: [
+        {
+          op: 'insert',
+          block: { id: 'b1', type: 'text', content: 'Attention is a mechanism.' },
+          position: { index: 0 },
+        },
+      ],
     });
     assert.equal(patchRes.success, true);
     if (patchRes.success) {

@@ -41,7 +41,12 @@ export function createOpenTutorExtension(
             throw new Error('Tool execution aborted');
           }
 
-          if (definition.retrieval) {
+          const retrievalCost =
+            'retrievalCost' in definition && typeof definition.retrievalCost === 'number'
+              ? definition.retrievalCost
+              : 0;
+
+          if (definition.retrieval && retrievalCost > 0) {
             const turnContext = options.getTurnContext?.();
             if (turnContext?.retrieval) {
               try {

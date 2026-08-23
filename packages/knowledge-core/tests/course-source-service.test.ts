@@ -4,6 +4,8 @@ import { createDatabase, CourseRepository } from '@opentutor/database';
 import {
   LivingKnowledgeCompiler,
   CourseSourceService,
+  ArtifactSupportEvaluator,
+  KnowledgeVisibilityPolicy,
   computeSha256,
 } from '../src/index.ts';
 
@@ -151,7 +153,7 @@ test('packages/knowledge-core - CourseSourceService & Ref-Counted Deletion', asy
     assert.equal(livingCompiler.claims.getClaimById(claim.id)?.status, 'deprecated');
   });
 
-  await t.test('5. Zero Deleted Knowledge Retrieval: sourceSearch, sourceRead, knowledgeSearch, artifactRead completely hide deleted knowledge', () => {
+  await t.test('5. Zero Deleted Knowledge Retrieval: sourceSearch, sourceRead, knowledgeSearch, artifactRead, graphNeighbors completely hide deleted knowledge', () => {
     const searchService = livingCompiler.retrieval;
 
     // 1. sourceSearch on deleted content returns 0 results
@@ -177,5 +179,81 @@ test('packages/knowledge-core - CourseSourceService & Ref-Counted Deletion', asy
     // 4. artifactRead for deleted knowledge returns null
     const artifact = searchService.artifactRead(node.id);
     assert.equal(artifact, null, 'Artifact for deleted knowledge must return null');
+
+    // 5. graphNeighbors hides deleted nodes from neighbor results (prerequisites, successors, all)
+    const otherNode = livingCompiler.resolver.resolve('Transformer Architecture');
+    livingCompiler.relations.addRelation(node.id, otherNode.id, 'prerequisite');
+    livingCompiler.relations.addRelation(otherNode.id, node.id, 'prerequisite');
+
+    const prereqs = searchService.graphNeighbors(otherNode.id, 'prerequisites');
+    assert.equal(prereqs.filter((n) => n.nodeId === node.id).length, 0, 'Deleted node must not appear as prerequisite');
+
+    const successors = searchService.graphNeighbors(otherNode.id, 'successors');
+    assert.equal(successors.filter((n) => n.nodeId === node.id).length, 0, 'Deleted node must not appear as successor');
+
+    const allNeighbors = searchService.graphNeighbors(otherNode.id, 'all');
+    assert.equal(allNeighbors.filter((n) => n.nodeId === node.id).length, 0, 'Deleted node must not appear in all graphNeighbors');
+  });
+
+  await t.test('6. ArtifactSupportEvaluator and KnowledgeVisibilityPolicy verify section-level artifact grounding and node visibility', () => {
+    const policy = new KnowledgeVisibilityPolicy(db);
+    const evaluator = new ArtifactSupportEvaluator(db);
+
+    const activeNode = livingCompiler.resolver.resolve('Active Concept');
+    const doc = livingCompiler.ingestion.ingest({
+      id: 'doc-active',
+      title: 'Active Document',
+      content: '# Active Concept\n\nActive concept content.',
+    });
+    const chunkId = doc.chunks[0]?.id ?? '';
+    const claim = livingCompiler.claims.recordClaim(activeNode.id, 'Active statement.');
+    livingCompiler.evidence.linkEvidence(claim.id, chunkId, 'supports', 1.0, true);
+
+    // Active node is visible
+    assert.equal(policy.isNodeVisible(activeNode.id), true);
+
+    // Fully supported artifact
+    const supportedArtifact = {
+      nodeId: activeNode.id,
+      title: 'Active Concept',
+      definition: { text: 'Definition text', claimIds: [claim.id] },
+      intuition: { text: 'Intuition text', claimIds: [claim.id] },
+      mechanism: { text: 'Mechanism text', claimIds: [claim.id] },
+      prerequisites: [],
+      examples: [{ text: 'Example text', claimIds: [claim.id] }],
+      misconceptions: [],
+      related: [],
+    };
+    const evalSupported = evaluator.evaluate(activeNode.id, supportedArtifact);
+    assert.equal(evalSupported.status, 'supported');
+    assert.equal(evalSupported.unsupportedSectionIds.length, 0);
+
+    // Partially supported artifact (missing valid claim in intuition)
+    const partiallySupportedArtifact = {
+      ...supportedArtifact,
+      intuition: { text: 'Intuition without active claims', claimIds: ['non-existent-claim'] },
+    };
+    const evalPartial = evaluator.evaluate(activeNode.id, partiallySupportedArtifact);
+    assert.equal(evalPartial.status, 'partially_supported');
+    assert.ok(evalPartial.unsupportedSectionIds.includes('intuition'));
+
+    // Stale artifact on deleted node
+    const deletedNode = livingCompiler.resolver.resolve('Self Attention');
+    assert.equal(policy.isNodeVisible(deletedNode.id), false);
+
+    const staleArtifact = {
+      nodeId: deletedNode.id,
+      title: 'Self Attention',
+      definition: { text: 'Def', claimIds: ['old-deprecated-claim'] },
+      intuition: { text: 'Int', claimIds: ['old-deprecated-claim'] },
+      mechanism: { text: 'Mech', claimIds: [] },
+      prerequisites: [],
+      examples: [],
+      misconceptions: [],
+      related: [],
+    };
+    const evalStale = evaluator.evaluate(deletedNode.id, staleArtifact);
+    assert.equal(evalStale.status, 'stale');
+    assert.ok(evalStale.unsupportedSectionIds.length > 0);
   });
 });

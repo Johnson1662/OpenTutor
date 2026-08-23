@@ -29,6 +29,22 @@ export interface RouteContext {
   eventBus: EventBus;
 }
 
+export function resolveCorsOrigin(req?: IncomingMessage): string {
+  const origin = req?.headers.origin;
+  if (origin && typeof origin === 'string') {
+    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:') || origin.startsWith('https://localhost:')) {
+      return origin;
+    }
+  }
+
+  const customAllowed = process.env.OPENTUTOR_ALLOWED_ORIGINS;
+  if (customAllowed && origin && customAllowed.split(',').map((s) => s.trim()).includes(origin)) {
+    return origin;
+  }
+
+  return 'http://localhost:5173';
+}
+
 export async function readJson<T>(req: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
@@ -38,26 +54,28 @@ export async function readJson<T>(req: IncomingMessage): Promise<T> {
   return body ? (JSON.parse(body) as T) : ({} as T);
 }
 
-export function json(res: ServerResponse, status: number, body: unknown) {
+export function json(res: ServerResponse, status: number, body: unknown, req?: IncomingMessage) {
+  const allowOrigin = resolveCorsOrigin(req);
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Last-Event-ID',
   });
   res.end(JSON.stringify(body));
 }
 
-export function notFound(res: ServerResponse) {
-  json(res, 404, { error: 'NOT_FOUND' });
+export function notFound(res: ServerResponse, req?: IncomingMessage) {
+  json(res, 404, { error: 'NOT_FOUND' }, req);
 }
 
-export function writeSseHeaders(res: ServerResponse) {
+export function writeSseHeaders(res: ServerResponse, req?: IncomingMessage) {
+  const allowOrigin = resolveCorsOrigin(req);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Headers': 'Content-Type, Last-Event-ID',
   });
 }
@@ -74,7 +92,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, c
   // Handle CORS Preflight
   if (method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': resolveCorsOrigin(req),
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Last-Event-ID',
     });

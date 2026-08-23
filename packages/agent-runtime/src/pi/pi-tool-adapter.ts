@@ -36,11 +36,24 @@ export interface PiTool {
   ) => Promise<{ content: Array<{ type: 'text'; text: string }>; details?: unknown }>;
 }
 
+export const RETRIEVAL_TOOL_NAMES = new Set([
+  'knowledge_search',
+  'artifact_read',
+  'source_search',
+  'source_read',
+  'graph_neighbors',
+]);
+
+export interface RetrievalStepTracker {
+  consumeStep(tool: string, query?: string, resultCount?: number): void;
+}
+
 export function createTutorTools(
   sessionId: string,
   toolsExecutor: DomainToolsExecutor,
   onToolStart?: (toolCallId: string, toolName: string) => void,
-  onToolEnd?: (toolCallId: string, toolName: string, success: boolean) => void
+  onToolEnd?: (toolCallId: string, toolName: string, success: boolean) => void,
+  getRetrievalTracker?: () => RetrievalStepTracker | undefined
 ): PiTool[] {
   const tools: PiTool[] = [];
 
@@ -59,6 +72,28 @@ export function createTutorTools(
       execute: async (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => {
         if (signal?.aborted) {
           throw new Error('Tool execution aborted');
+        }
+
+        if (RETRIEVAL_TOOL_NAMES.has(name)) {
+          const tracker = getRetrievalTracker?.();
+          if (tracker) {
+            try {
+              tracker.consumeStep(name, typeof params.query === 'string' ? (params.query as string) : undefined);
+            } catch (budgetErr) {
+              const errorMsg = budgetErr instanceof Error ? budgetErr.message : 'RETRIEVAL_BUDGET_EXCEEDED';
+              onToolStart?.(toolCallId, name);
+              onToolEnd?.(toolCallId, name, false);
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify({ success: false, error: errorMsg }),
+                  },
+                ],
+                details: { success: false, error: errorMsg },
+              };
+            }
+          }
         }
 
         onToolStart?.(toolCallId, name);

@@ -60,7 +60,7 @@ test('packages/agent-runtime - Real Pi SDK Smoke Test Suite', async (t) => {
   });
 
   await t.test('2. PiTutorRuntime manages multi-turn fallback and session lifecycle safely', async () => {
-    const runtime = new PiTutorRuntime(executor);
+    const runtime = new PiTutorRuntime(executor, undefined, { runtimeMode: 'fake' });
     const turn1 = await runtime.runTurn({
       sessionId: 'smoke-turn-session',
       message: 'Show me code for self attention',

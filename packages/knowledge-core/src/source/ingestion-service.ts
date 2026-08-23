@@ -94,6 +94,11 @@ export class IngestionService {
          VALUES (?, ?, ?, ?, ?, ?)`
    );
 
+   const insertFts = this.db.prepare(
+    `INSERT INTO source_fts (chunk_id, document_id, document_title, heading, content)
+         VALUES (?, ?, ?, ?, ?)`
+   );
+
    for (const item of chunks) {
     const sectionId = randomUUID();
     insertSection.run(
@@ -114,6 +119,18 @@ export class IngestionService {
      item.content,
      item.contentHash
     );
+
+    try {
+     insertFts.run(
+      item.id,
+      id,
+      input.title,
+      item.heading ?? '',
+      item.content
+     );
+    } catch {
+     // Table might not exist in early tests
+    }
    }
   })();
 

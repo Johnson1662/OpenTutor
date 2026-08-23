@@ -1,13 +1,20 @@
 import type { AssessmentCompletedEventData, AssessmentResult, KnowledgeUpdatedEventData, UserKnowledgeState } from '@opentutor/protocol';
 import type { KnowledgeRepository } from '@opentutor/database';
+import type { SearchService, KnowledgeSearchResultItem, KnowledgeArtifactContent, NeighborResult, SourceChunk } from '@opentutor/knowledge-core';
 import type { EventBus } from '../events/event-bus.ts';
 
 export class KnowledgeService {
   private readonly knowledgeRepo: KnowledgeRepository;
+  private readonly searchService: SearchService;
   private readonly eventBus: EventBus;
 
-  constructor(knowledgeRepo: KnowledgeRepository, eventBus: EventBus) {
+  constructor(
+    knowledgeRepo: KnowledgeRepository,
+    searchService: SearchService,
+    eventBus: EventBus
+  ) {
     this.knowledgeRepo = knowledgeRepo;
+    this.searchService = searchService;
     this.eventBus = eventBus;
   }
 
@@ -23,7 +30,15 @@ export class KnowledgeService {
     };
     this.eventBus.publish(sessionId, 'assessment.completed', asmtEvent);
 
-    const nextStatus = assessment.result === 'correct' ? 'mastered' : assessment.result === 'partial' ? 'learning' : 'weak';
+    const nextStatus =
+      assessment.confidence >= 0.80
+        ? 'mastered'
+        : assessment.confidence >= 0.50
+          ? 'learning'
+          : assessment.confidence >= 0.20
+            ? 'weak'
+            : 'unknown';
+
     const knEvent: KnowledgeUpdatedEventData = {
       knowledgeNodeId: assessment.knowledgeNodeId,
       status: nextStatus,
@@ -32,25 +47,23 @@ export class KnowledgeService {
     this.eventBus.publish(sessionId, 'knowledge.updated', knEvent);
   }
 
-  searchKnowledge(query: string, limit: number = 5): Array<{ id: string; title: string; summary: string }> {
-    return [
-      { id: 'self-attention', title: 'Self Attention', summary: 'Core attention weighting mechanism in sequence modeling' },
-      { id: 'softmax', title: 'Softmax Function', summary: 'Exponent normalized probability function' },
-    ].slice(0, limit);
+  searchKnowledge(query: string, limit: number = 5): KnowledgeSearchResultItem[] {
+    return this.searchService.knowledgeSearch(query, limit);
   }
 
-  readArtifact(knowledgeNodeId: string): Record<string, unknown> | null {
-    return {
-      id: knowledgeNodeId,
-      definition: `Canonical living knowledge compiled artifact for ${knowledgeNodeId}`,
-      intuition: 'Weighted information retrieval across sequence embeddings',
-    };
+  readArtifact(knowledgeNodeId: string): KnowledgeArtifactContent | null {
+    return this.searchService.artifactRead(knowledgeNodeId);
   }
 
-  getNeighbors(knowledgeNodeId: string, _direction?: string): Array<{ nodeId: string; relation: string }> {
-    return [
-      { nodeId: 'embedding', relation: 'prerequisite' },
-      { nodeId: 'softmax', relation: 'prerequisite' },
-    ];
+  sourceSearch(query: string, limit: number = 5): Array<{ chunkId: string; documentTitle: string; heading?: string; snippet: string }> {
+    return this.searchService.sourceSearch(query, limit);
+  }
+
+  sourceRead(chunkId: string): SourceChunk | null {
+    return this.searchService.sourceRead(chunkId);
+  }
+
+  getNeighbors(knowledgeNodeId: string, direction?: 'prerequisites' | 'successors' | 'all'): NeighborResult[] {
+    return this.searchService.graphNeighbors(knowledgeNodeId, direction ?? 'all');
   }
 }

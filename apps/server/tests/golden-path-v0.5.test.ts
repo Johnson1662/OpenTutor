@@ -5,7 +5,7 @@ import { LivingKnowledgeCompiler } from '@opentutor/knowledge-core';
 import type { LearningPathNode, LearningSessionSnapshot } from '@opentutor/protocol';
 
 test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptive Tutor Loop', async (t) => {
-  const { server, db, preferencesRepo, close } = await createServerContext(':memory:');
+  const { server, db, context, preferencesRepo, close } = await createServerContext(':memory:');
   const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
   server.listen(0, () => resolveListen());
   await listenPromise;
@@ -72,12 +72,22 @@ test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptiv
   assert.equal(initialSnapshot.lesson.knowledgeNodeId, 'self-attention');
 
   // 4. Tutor Agent Interaction & Prerequisite Detour Insertion (HTTP POST /actions)
+  const { promise: completedPromise, resolve: resolveCompleted } = Promise.withResolvers<void>();
+  const unsubscribe = context.eventBus.subscribe('prototype', (evt) => {
+    if (evt.type === 'agent.completed') {
+      resolveCompleted();
+    }
+  });
+
   const detourRes = await fetch(`${baseUrl}/api/sessions/prototype/actions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'softmax_unknown' }),
   });
   assert.equal(detourRes.status, 202);
+
+  await completedPromise;
+  unsubscribe();
 
   // Verify detour is active
   const detourSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);

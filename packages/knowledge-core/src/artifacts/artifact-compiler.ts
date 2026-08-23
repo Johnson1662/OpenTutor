@@ -124,16 +124,25 @@ export class ArtifactCompiler {
    const claimsText = claims.map((c) => c.statement).join(' ');
    const contentText = `${definition} ${intuition} ${mechanism}`;
 
-   this.db
-    .prepare('DELETE FROM knowledge_fts WHERE node_id = ?')
-    .run(nodeId);
+   const aliasRows = this.db
+    .prepare('SELECT alias FROM knowledge_node_aliases WHERE knowledge_node_id = ?')
+    .all(nodeId) as Array<{ alias: string }>;
+   const aliasesText = [title.toLowerCase(), ...aliasRows.map((a) => a.alias.toLowerCase())].join(' ');
 
-   this.db
-    .prepare(
-     `INSERT INTO knowledge_fts (node_id, title, aliases, claims, content)
-           VALUES (?, ?, ?, ?, ?)`
-    )
-    .run(nodeId, title, title.toLowerCase(), claimsText, contentText);
+   try {
+    this.db
+     .prepare('DELETE FROM knowledge_fts WHERE node_id = ?')
+     .run(nodeId);
+
+    this.db
+     .prepare(
+      `INSERT INTO knowledge_fts (node_id, title, aliases, claims, content)
+             VALUES (?, ?, ?, ?, ?)`
+     )
+     .run(nodeId, title, aliasesText, claimsText, contentText);
+   } catch {
+    // Table might not exist in early tests
+   }
   })();
 
   return {

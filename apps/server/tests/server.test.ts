@@ -30,6 +30,13 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
   });
 
   await t.test('2. POST /api/sessions/prototype/actions triggers patch & persists in SQLite', async () => {
+    const { promise: completedPromise, resolve: resolveCompleted } = Promise.withResolvers<void>();
+    const unsubscribe = context.eventBus.subscribe('prototype', (evt) => {
+      if (evt.type === 'agent.completed') {
+        resolveCompleted();
+      }
+    });
+
     const res = await fetch(`${baseUrl}/api/sessions/prototype/actions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -41,6 +48,9 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     assert.equal(body.accepted, true);
     assert.ok(body.requestId);
 
+    await completedPromise;
+    unsubscribe();
+
     // Verify snapshot reflects incremented version and new block
     const snapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
     const snapshot = (await snapRes.json()) as LearningSessionSnapshot;
@@ -49,6 +59,13 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
   });
 
   await t.test('3. POST /api/sessions/prototype/actions (softmax_unknown) inserts detour path', async () => {
+    const { promise: completedPromise, resolve: resolveCompleted } = Promise.withResolvers<void>();
+    const unsubscribe = context.eventBus.subscribe('prototype', (evt) => {
+      if (evt.type === 'agent.completed') {
+        resolveCompleted();
+      }
+    });
+
     const res = await fetch(`${baseUrl}/api/sessions/prototype/actions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -56,6 +73,9 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     });
 
     assert.equal(res.status, 202);
+
+    await completedPromise;
+    unsubscribe();
 
     const snapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
     const snapshot = (await snapRes.json()) as LearningSessionSnapshot;

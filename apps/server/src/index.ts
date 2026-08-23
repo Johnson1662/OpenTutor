@@ -15,6 +15,7 @@ import { LessonService } from './services/lesson-service.ts';
 import { KnowledgeService } from './services/knowledge-service.ts';
 import { AssessmentService } from './services/assessment-service.ts';
 import { LearningProgressService } from './services/learning-progress-service.ts';
+import { SearchService } from '@opentutor/knowledge-core';
 import {
   createOpenTutorModelRuntime,
   ProviderService,
@@ -26,6 +27,7 @@ import { PiTutorRuntime, type TutorRuntime } from '@opentutor/agent-runtime';
 import { handleRequest, type RouteContext } from './api/routes.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
+const HOST = process.env.HOST ?? '127.0.0.1';
 const DB_PATH = process.env.OPENTUTOR_DB_PATH ?? 'opentutor.sqlite';
 
 export async function createServerContext(
@@ -63,7 +65,8 @@ export async function createServerContext(
   const eventBus = new EventBus(eventRepo);
   const sessionService = new SessionService(sessionRepo, eventBus);
   const lessonService = new LessonService(lessonRepo, eventBus);
-  const knowledgeService = new KnowledgeService(knowledgeRepo, eventBus);
+  const searchService = new SearchService(db);
+  const knowledgeService = new KnowledgeService(knowledgeRepo, searchService, eventBus);
   const learningProgressService = new LearningProgressService(sessionService, eventBus);
   const assessmentService = new AssessmentService(lessonService, knowledgeService, learningProgressService);
 
@@ -127,8 +130,8 @@ export async function createServerContext(
 // Start server if run directly
 if (process.argv[1] && process.argv[1].endsWith('index.ts')) {
   createServerContext().then(({ server }) => {
-    server.listen(PORT, () => {
-      console.log(`OpenTutor SQLite Server listening on http://localhost:${PORT}`);
+    server.listen(PORT, HOST, () => {
+      console.log(`OpenTutor SQLite Server listening on http://${HOST}:${PORT}`);
     });
   });
 }

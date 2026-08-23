@@ -106,6 +106,31 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
     assert.equal(retrieved?.thinkingLevel, 'high');
   });
 
+  await t.test('5. AuthFlowSession terminal state is immutable and AuthService performs GC', () => {
+    const session = new AuthFlowSession('anthropic', 'api_key');
+    session.cancel();
+    assert.equal(session.status, 'cancelled');
+
+    // Attempting to fail or complete an already cancelled session must NOOP
+    session.fail('late error');
+    assert.equal(session.status, 'cancelled');
+    session.complete();
+    assert.equal(session.status, 'cancelled');
+
+    // Complete session clears pending prompts
+    const activeSession = new AuthFlowSession('anthropic', 'api_key');
+    const pendingPrompt = activeSession.prompt({ type: 'text', message: 'Test' });
+    activeSession.complete();
+    assert.equal(activeSession.status, 'completed');
+
+    // Test GC in AuthService
+    const shortTtlAuth = new AuthService(runtime, { sessionTtlMs: 1 });
+    const s1 = shortTtlAuth.startAuthSession('anthropic', 'api_key');
+    assert.equal(shortTtlAuth.getActiveSessionCount(), 1);
+    shortTtlAuth.cancel(s1.id);
+    assert.equal(shortTtlAuth.getActiveSessionCount(), 0);
+  });
+
   t.after(() => {
     setImmediate(() => {
       process.exit(0);

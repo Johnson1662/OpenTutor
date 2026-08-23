@@ -119,23 +119,44 @@ export class SearchService {
 
  // 3. source_search
  sourceSearch(query: string, limit: number = 5): Array<{ chunkId: string; documentTitle: string; heading?: string; snippet: string }> {
-  const clean = `%${normalizeText(query)}%`;
-  const rows = this.db
-   .prepare(
-    `SELECT c.id AS chunk_id, d.title AS document_title, s.heading, c.content
-         FROM document_chunks c
-         JOIN document_sections s ON s.id = c.document_section_id
-         JOIN document_versions dv ON dv.id = c.document_version_id
-         JOIN documents d ON d.id = dv.document_id
-         WHERE lower(c.content) LIKE ? OR lower(COALESCE(s.heading, '')) LIKE ?
-         LIMIT ?`
-   )
-   .all(clean, clean, limit) as Array<{
-    chunk_id: string;
-    document_title: string;
-    heading: string | null;
-    content: string;
-   }>;
+  const cleanQuery = query.trim();
+  if (!cleanQuery) return [];
+
+  let rows: Array<{ chunk_id: string; document_title: string; heading: string | null; content: string }> = [];
+
+  // 1. Try FTS5 MATCH
+  try {
+   const ftsWords = cleanQuery.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+   if (ftsWords.length > 0) {
+    const matchExpr = ftsWords.join(' OR ');
+    rows = this.db
+     .prepare(
+      `SELECT chunk_id, document_title, heading, content
+             FROM source_fts
+             WHERE source_fts MATCH ?
+             LIMIT ?`
+     )
+     .all(matchExpr, limit) as typeof rows;
+   }
+  } catch {
+   rows = [];
+  }
+
+  // 2. Fallback to LIKE if FTS5 yielded no results
+  if (rows.length === 0) {
+   const clean = `%${normalizeText(cleanQuery)}%`;
+   rows = this.db
+    .prepare(
+     `SELECT c.id AS chunk_id, d.title AS document_title, s.heading, c.content
+           FROM document_chunks c
+           JOIN document_sections s ON s.id = c.document_section_id
+           JOIN document_versions dv ON dv.id = c.document_version_id
+           JOIN documents d ON d.id = dv.document_id
+           WHERE lower(c.content) LIKE ? OR lower(COALESCE(s.heading, '')) LIKE ?
+           LIMIT ?`
+    )
+    .all(clean, clean, limit) as typeof rows;
+  }
 
   return rows.map((r) => ({
    chunkId: r.chunk_id,

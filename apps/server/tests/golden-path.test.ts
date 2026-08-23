@@ -6,7 +6,7 @@ import { CourseCompiler } from '@opentutor/assessment-core';
 import type { LearningPathNode, LearningSessionSnapshot } from '@opentutor/protocol';
 
 test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Application/HTTP Boundary)', async (t) => {
-  const { server, db, close } = await createServerContext(':memory:');
+  const { server, db, context, close } = await createServerContext(':memory:');
   const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
   server.listen(0, () => resolveListen());
   await listenPromise;
@@ -53,24 +53,36 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
   assert.equal(initialSnapshot.lesson.knowledgeNodeId, 'self-attention');
 
   // 4. Tutor Agent Interaction (HTTP POST /messages)
+  const { promise: msgPromise, resolve: resolveMsg } = Promise.withResolvers<void>();
+  const unMsg = context.eventBus.subscribe('prototype', (evt) => {
+    if (evt.type === 'agent.completed') resolveMsg();
+  });
   const msgRes = await fetch(`${baseUrl}/api/sessions/prototype/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: 'show me code' }),
   });
   assert.equal(msgRes.status, 202);
+  await msgPromise;
+  unMsg();
 
   const postMsgSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
   const postMsgSnapshot = (await postMsgSnapRes.json()) as LearningSessionSnapshot;
   assert.ok(postMsgSnapshot.lesson.blocks.some((b) => b.type === 'code'));
 
   // 5. Prerequisite Detour Insertion (HTTP POST /actions)
+  const { promise: actPromise, resolve: resolveAct } = Promise.withResolvers<void>();
+  const unAct = context.eventBus.subscribe('prototype', (evt) => {
+    if (evt.type === 'agent.completed') resolveAct();
+  });
   const detourRes = await fetch(`${baseUrl}/api/sessions/prototype/actions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'softmax_unknown' }),
   });
   assert.equal(detourRes.status, 202);
+  await actPromise;
+  unAct();
 
   const detourSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
   const detourSnapshot = (await detourSnapRes.json()) as LearningSessionSnapshot;

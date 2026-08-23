@@ -14,6 +14,15 @@ export const migration006: Migration = {
         content,
         tokenize='unicode61'
       );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS source_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        document_title,
+        heading,
+        content,
+        tokenize='unicode61'
+      );
     `);
   },
 };

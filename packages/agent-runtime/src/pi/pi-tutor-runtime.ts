@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { AgentSession } from '@earendil-works/pi-coding-agent';
 import type { DomainToolsExecutor } from '@opentutor/agent-tools';
 import type { TraceRepository } from '@opentutor/database';
 import type { TutorRuntime, TutorTurnInput, TutorTurnResult } from '../tutor-runtime.ts';
@@ -7,6 +8,7 @@ import { PiSessionRegistry, type PiSessionRegistryOptions } from './pi-session-r
 import { PiEventAdapter } from './pi-event-adapter.ts';
 
 export interface PiTutorRuntimeOptions extends PiSessionRegistryOptions {
+  runtimeMode?: 'pi' | 'fake';
   fallbackToFake?: boolean;
 }
 
@@ -16,8 +18,11 @@ export class PiTutorRuntime implements TutorRuntime {
   private readonly registry: PiSessionRegistry;
   private readonly options: PiTutorRuntimeOptions;
   private readonly sessionLocks = new Map<string, Promise<void>>();
-  private readonly activeRequests = new Map<string, AbortController>();
-  private readonly fallbackToFake: boolean;
+  private readonly activeTurns = new Map<
+    string,
+    { session?: AgentSession; controller: AbortController }
+  >();
+  private readonly runtimeMode: 'pi' | 'fake';
 
   constructor(
     toolsExecutor: DomainToolsExecutor,
@@ -27,7 +32,23 @@ export class PiTutorRuntime implements TutorRuntime {
     this.toolsExecutor = toolsExecutor;
     this.traceRepo = traceRepo;
     this.options = options;
-    this.fallbackToFake = options.fallbackToFake ?? true;
+    const envMode = process.env.OPENTUTOR_RUNTIME_MODE;
+    if (options.runtimeMode) {
+      this.runtimeMode = options.runtimeMode;
+    } else if (envMode === 'pi' || envMode === 'fake') {
+      this.runtimeMode = envMode;
+    } else if (process.env.NODE_ENV === 'test') {
+      this.runtimeMode = 'fake';
+    } else {
+      // If a model or auth credentials exist, default to pi; otherwise fake
+      const hasAuth = Boolean(
+        options.apiKey ??
+        process.env.LLM_API_KEY ??
+        process.env.OPENAI_API_KEY ??
+        options.modelRuntime?.hasConfiguredAuth(options.model?.provider ?? 'anthropic')
+      );
+      this.runtimeMode = hasAuth ? 'pi' : 'fake';
+    }
     this.registry = new PiSessionRegistry(toolsExecutor, options);
   }
 
@@ -50,7 +71,18 @@ export class PiTutorRuntime implements TutorRuntime {
   }
 
   async cancel(requestId: string): Promise<void> {
-    this.activeRequests.get(requestId)?.abort();
+    const activeTurn = this.activeTurns.get(requestId);
+    if (activeTurn) {
+      if (activeTurn.session) {
+        try {
+          await activeTurn.session.abort();
+        } catch {
+          // Suppress abort errors
+        }
+      }
+      activeTurn.controller.abort();
+      this.activeTurns.delete(requestId);
+    }
   }
 
   async disposeSession(sessionId: string): Promise<void> {
@@ -59,46 +91,37 @@ export class PiTutorRuntime implements TutorRuntime {
   }
 
   private async runTurnUnlocked(input: TutorTurnInput): Promise<TutorTurnResult> {
-    const hasApiKey = Boolean(this.options.apiKey ?? process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY);
-    if (!hasApiKey && this.fallbackToFake) {
+    if (this.runtimeMode === 'fake') {
       const fake = new FakeTutorRuntime(this.toolsExecutor, this.traceRepo);
       return await fake.runTurn(input);
     }
 
     const requestId = input.requestId ?? `req-${randomUUID()}`;
     const controller = new AbortController();
-    this.activeRequests.set(requestId, controller);
     const runId = `run-${randomUUID()}`;
 
     this.traceRepo?.startRun({
       id: runId,
       sessionId: input.sessionId,
       requestId,
-      model: 'pi-agent-session',
+      model: this.options.model?.id ?? 'pi-agent-session',
     });
 
     const toolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> = [];
 
     try {
-      let session;
-      try {
-        session = await this.registry.getOrCreateSession(
-          input.sessionId,
-          (tcId, name) => {
-            input.onToolStart?.(tcId, name);
-          },
-          (tcId, name, success) => {
-            input.onToolEnd?.(tcId, name, success);
-            toolCalls.push({ tool: name, args: {}, result: { success } });
-          }
-        );
-      } catch (registryErr) {
-        if (this.fallbackToFake) {
-          const fake = new FakeTutorRuntime(this.toolsExecutor, this.traceRepo);
-          return await fake.runTurn(input);
+      const session = await this.registry.getOrCreateSession(
+        input.sessionId,
+        (tcId, name) => {
+          input.onToolStart?.(tcId, name);
+        },
+        (tcId, name, success) => {
+          input.onToolEnd?.(tcId, name, success);
+          toolCalls.push({ tool: name, args: {}, result: { success } });
         }
-        throw registryErr;
-      }
+      );
+
+      this.activeTurns.set(requestId, { session, controller });
 
       const eventAdapter = new PiEventAdapter(input);
       let assistantReply = '';
@@ -130,13 +153,9 @@ export class PiTutorRuntime implements TutorRuntime {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.traceRepo?.completeRun(runId, 'failed', errorMsg);
-      if (this.fallbackToFake) {
-        const fake = new FakeTutorRuntime(this.toolsExecutor, this.traceRepo);
-        return await fake.runTurn(input);
-      }
       throw err;
     } finally {
-      this.activeRequests.delete(requestId);
+      this.activeTurns.delete(requestId);
     }
   }
 }

@@ -118,11 +118,17 @@ export class AuthFlowSession {
   }
 
   complete(): void {
+    if (this.sessionStatus !== 'active') return;
     this.sessionStatus = 'completed';
     this.emit('auth.completed');
+    for (const [, p] of this.pendingPrompts) {
+      p.reject(new Error('Auth completed without answering prompt'));
+    }
+    this.pendingPrompts.clear();
   }
 
   fail(error: string): void {
+    if (this.sessionStatus !== 'active') return;
     this.sessionStatus = 'failed';
     this.emit('auth.failed', { error });
     for (const [, p] of this.pendingPrompts) {

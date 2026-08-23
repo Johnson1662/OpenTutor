@@ -137,6 +137,20 @@ export const TUTOR_AGENT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'source_read',
+      description: 'Read the full verbatim text and metadata of a specific source document chunk by chunk ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          chunkId: { type: 'string', description: 'ID of the document chunk to read' },
+        },
+        required: ['chunkId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'graph_neighbors',
       description: 'Query knowledge graph edges (prerequisites, extensions, contrasts) around a node.',
       parameters: {

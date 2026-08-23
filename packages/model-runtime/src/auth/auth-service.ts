@@ -1,15 +1,24 @@
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { AuthFlowSession } from './auth-flow-session.ts';
 
+export interface AuthServiceOptions {
+  sessionTtlMs?: number;
+}
+
 export class AuthService {
   private readonly runtime: ModelRuntime;
+  private readonly sessionTtlMs: number;
   private readonly activeSessions = new Map<string, AuthFlowSession>();
+  private readonly terminalSessions = new Map<string, { session: AuthFlowSession; expiresAt: number }>();
 
-  constructor(runtime: ModelRuntime) {
+  constructor(runtime: ModelRuntime, options: AuthServiceOptions = {}) {
     this.runtime = runtime;
+    this.sessionTtlMs = options.sessionTtlMs ?? 60_000;
   }
 
   startAuthSession(providerId: string, authType: 'api_key' | 'oauth'): AuthFlowSession {
+    this.cleanupExpiredSessions();
+
     const session = new AuthFlowSession(providerId, authType);
     this.activeSessions.set(session.id, session);
 
@@ -41,10 +50,12 @@ export class AuthService {
       .login(providerId, authType, interaction)
       .then(() => {
         session.complete();
+        this.markSessionTerminal(session);
       })
       .catch((err: unknown) => {
         const errorMsg = err instanceof Error ? err.message : String(err);
         session.fail(errorMsg);
+        this.markSessionTerminal(session);
       });
 
     return session;
@@ -61,11 +72,19 @@ export class AuthService {
   }
 
   getSession(sessionId: string): AuthFlowSession | undefined {
-    return this.activeSessions.get(sessionId);
+    this.cleanupExpiredSessions();
+    const active = this.activeSessions.get(sessionId);
+    if (active) return active;
+
+    const terminal = this.terminalSessions.get(sessionId);
+    if (terminal && terminal.expiresAt > Date.now()) {
+      return terminal.session;
+    }
+    return undefined;
   }
 
   respond(sessionId: string, promptId: string, value: string): boolean {
-    const session = this.activeSessions.get(sessionId);
+    const session = this.getSession(sessionId);
     if (!session) {
       return false;
     }
@@ -75,10 +94,42 @@ export class AuthService {
   cancel(sessionId: string): boolean {
     const session = this.activeSessions.get(sessionId);
     if (!session) {
+      const term = this.terminalSessions.get(sessionId);
+      if (term) {
+        term.session.cancel();
+        return true;
+      }
       return false;
     }
+
     session.cancel();
-    this.activeSessions.delete(sessionId);
+    this.markSessionTerminal(session);
     return true;
+  }
+
+  getActiveSessionCount(): number {
+    return this.activeSessions.size;
+  }
+
+  getTerminalSessionCount(): number {
+    this.cleanupExpiredSessions();
+    return this.terminalSessions.size;
+  }
+
+  private markSessionTerminal(session: AuthFlowSession): void {
+    this.activeSessions.delete(session.id);
+    this.terminalSessions.set(session.id, {
+      session,
+      expiresAt: Date.now() + this.sessionTtlMs,
+    });
+  }
+
+  private cleanupExpiredSessions(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.terminalSessions) {
+      if (entry.expiresAt <= now) {
+        this.terminalSessions.delete(id);
+      }
+    }
   }
 }

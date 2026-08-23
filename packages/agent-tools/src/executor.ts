@@ -8,18 +8,36 @@ import type {
 export interface DomainServicesContext {
   lessonService: {
     getLesson(lessonId: string): Lesson | null;
-    applyPatches(sessionId: string, lessonId: string, baseVersion: number, patches: LessonPatch[]): { lesson: Lesson; newVersion: number };
+    applyPatches(
+      sessionId: string,
+      lessonId: string,
+      baseVersion: number,
+      patches: LessonPatch[]
+    ): { lesson: Lesson; newVersion: number };
   };
   sessionService: {
     getSnapshot(sessionId: string): { path: LearningPathNode[]; pathVersion: number } | null;
-    applyPathPatches(sessionId: string, baseVersion: number, patches: LearningPathPatch[]): { path: LearningPathNode[]; newVersion: number };
-    insertDetour?(sessionId: string, baseVersion: number, detour: { id: string; knowledgeNodeId: string; title: string; note?: string }): { path: LearningPathNode[]; newVersion: number };
-    completeCurrentNode?(sessionId: string, baseVersion: number): { path: LearningPathNode[]; newVersion: number };
+    applyPathPatches(
+      sessionId: string,
+      baseVersion: number,
+      patches: LearningPathPatch[]
+    ): { path: LearningPathNode[]; newVersion: number };
+    insertDetour?(
+      sessionId: string,
+      baseVersion: number,
+      detour: { id: string; knowledgeNodeId: string; title: string; note?: string }
+    ): { path: LearningPathNode[]; newVersion: number };
+    completeCurrentNode?(
+      sessionId: string,
+      baseVersion: number
+    ): { path: LearningPathNode[]; newVersion: number };
   };
   knowledgeService?: {
-    searchKnowledge?(query: string, limit?: number): Array<{ id: string; title: string; summary: string }>;
-    readArtifact?(knowledgeNodeId: string): Record<string, unknown> | null;
-    getNeighbors?(knowledgeNodeId: string, direction?: string): Array<{ nodeId: string; relation: string }>;
+    searchKnowledge?(query: string, limit?: number): unknown[];
+    readArtifact?(knowledgeNodeId: string): unknown;
+    sourceSearch?(query: string, limit?: number): unknown[];
+    sourceRead?(chunkId: string): unknown;
+    getNeighbors?(knowledgeNodeId: string, direction?: string): unknown[];
   };
 }
 
@@ -89,7 +107,15 @@ export class DomainToolsExecutor {
             patches.push({
               op: 'insert_node',
               before: activeNode.id,
-              node: { id: detourId, knowledgeNodeId, title, type: 'detour', status: 'current', position: activeNode.position, note },
+              node: {
+                id: detourId,
+                knowledgeNodeId,
+                title,
+                type: 'detour',
+                status: 'current',
+                position: activeNode.position,
+                note,
+              },
             });
           }
           const result = this.services.sessionService.applyPathPatches(sid, baseVersion, patches);
@@ -109,58 +135,55 @@ export class DomainToolsExecutor {
         case 'knowledge_search': {
           const query = String(args.query);
           const limit = Number(args.limit ?? 5);
-          if (this.services.knowledgeService?.searchKnowledge) {
-            const results = this.services.knowledgeService.searchKnowledge(query, limit);
-            return { success: true, data: results };
+          if (!this.services.knowledgeService?.searchKnowledge) {
+            return { success: false, error: 'Knowledge service not available' };
           }
-          return {
-            success: true,
-            data: [
-              { id: 'self-attention', title: 'Self Attention', summary: 'Core attention mechanism in Transformers' },
-              { id: 'softmax', title: 'Softmax Function', summary: 'Normalization exponent distribution' },
-            ],
-          };
+          const results = this.services.knowledgeService.searchKnowledge(query, limit);
+          return { success: true, data: results };
         }
 
         case 'artifact_read': {
           const nodeId = String(args.knowledgeNodeId);
-          if (this.services.knowledgeService?.readArtifact) {
-            const artifact = this.services.knowledgeService.readArtifact(nodeId);
-            return { success: true, data: artifact };
+          if (!this.services.knowledgeService?.readArtifact) {
+            return { success: false, error: 'Knowledge service not available' };
           }
-          return {
-            success: true,
-            data: {
-              id: nodeId,
-              definition: `Compiled living knowledge artifact for ${nodeId}`,
-              intuition: 'Normalized context projection',
-            },
-          };
+          const artifact = this.services.knowledgeService.readArtifact(nodeId);
+          if (!artifact) {
+            return { success: false, error: `Artifact not found for node: ${nodeId}` };
+          }
+          return { success: true, data: artifact };
         }
 
         case 'source_search': {
           const query = String(args.query);
-          return {
-            success: true,
-            data: [
-              { chunkId: 'c1', text: `Verbatim source match for: ${query}` },
-            ],
-          };
+          const limit = Number(args.limit ?? 3);
+          if (!this.services.knowledgeService?.sourceSearch) {
+            return { success: false, error: 'Source search service not available' };
+          }
+          const results = this.services.knowledgeService.sourceSearch(query, limit);
+          return { success: true, data: results };
+        }
+
+        case 'source_read': {
+          const chunkId = String(args.chunkId);
+          if (!this.services.knowledgeService?.sourceRead) {
+            return { success: false, error: 'Source read service not available' };
+          }
+          const chunk = this.services.knowledgeService.sourceRead(chunkId);
+          if (!chunk) {
+            return { success: false, error: `Document chunk not found: ${chunkId}` };
+          }
+          return { success: true, data: chunk };
         }
 
         case 'graph_neighbors': {
           const nodeId = String(args.knowledgeNodeId);
-          if (this.services.knowledgeService?.getNeighbors) {
-            const edges = this.services.knowledgeService.getNeighbors(nodeId, String(args.direction ?? 'all'));
-            return { success: true, data: edges };
+          const direction = String(args.direction ?? 'all');
+          if (!this.services.knowledgeService?.getNeighbors) {
+            return { success: false, error: 'Graph neighbors service not available' };
           }
-          return {
-            success: true,
-            data: [
-              { nodeId: 'embedding', relation: 'prerequisite' },
-              { nodeId: 'softmax', relation: 'prerequisite' },
-            ],
-          };
+          const edges = this.services.knowledgeService.getNeighbors(nodeId, direction);
+          return { success: true, data: edges };
         }
 
         default:

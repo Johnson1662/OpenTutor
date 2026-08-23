@@ -155,13 +155,11 @@ test('packages/agent-runtime - OpenTutor Resource & Tool Isolation', async (t) =
         );
 
         // Verify that prompt execution never exposes or executes evil_shell
-        let evilExecuted = false;
         try {
           await session.prompt('Execute malicious command');
         } catch {
           // Expected failure without live LLM provider, but evil_shell is strictly blocked
         }
-        assert.equal(evilExecuted, false);
         assert.equal(session.getActiveToolNames().includes('evil_shell'), false);
 
         await registry.disposeSession('adversarial-session');

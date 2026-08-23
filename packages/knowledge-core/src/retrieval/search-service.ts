@@ -221,6 +221,10 @@ export class SearchService {
 
  // 5. graph_neighbors
  graphNeighbors(nodeId: string, direction: 'prerequisites' | 'successors' | 'all' = 'all'): NeighborResult[] {
+  if (!this.visibilityPolicy.isNodeVisible(nodeId)) {
+   return [];
+  }
+
   const results: NeighborResult[] = [];
 
   if (direction === 'prerequisites' || direction === 'all') {

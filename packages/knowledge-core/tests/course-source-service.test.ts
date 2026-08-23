@@ -193,6 +193,10 @@ test('packages/knowledge-core - CourseSourceService & Ref-Counted Deletion', asy
 
     const allNeighbors = searchService.graphNeighbors(otherNode.id, 'all');
     assert.equal(allNeighbors.filter((n) => n.nodeId === node.id).length, 0, 'Deleted node must not appear in all graphNeighbors');
+
+    // 6. Querying graphNeighbors with a deleted node as origin returns empty list immediately
+    const originDeletedNeighbors = searchService.graphNeighbors(node.id, 'all');
+    assert.deepEqual(originDeletedNeighbors, [], 'Deleted origin node must return empty list on graphNeighbors');
   });
 
   await t.test('6. ArtifactSupportEvaluator and KnowledgeVisibilityPolicy verify section-level artifact grounding and node visibility', () => {

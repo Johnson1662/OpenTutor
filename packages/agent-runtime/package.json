@@ -1,19 +1,17 @@
 {
-  "name": "@opentutor/server",
+  "name": "@opentutor/agent-runtime",
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
-    "dev": "node --experimental-strip-types --watch src/index.ts",
-    "start": "node --experimental-strip-types src/index.ts",
     "test": "node --test --experimental-strip-types tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@opentutor/protocol": "workspace:*",
-    "@opentutor/database": "workspace:*",
-    "@opentutor/agent-tools": "workspace:*",
-    "@opentutor/agent-runtime": "workspace:*"
+    "@opentutor/agent-tools": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -12,7 +12,7 @@ import type {
   TutorAction,
 } from '@opentutor/protocol';
 import { applyLessonPatches, applyPathPatches } from './runtime/patch';
-import { getPrototypeSession, runTutorAction, submitQuizAnswer, subscribeToLearningEvents } from './runtime/api';
+import { getPrototypeSession, runTutorAction, sendTutorMessage, submitQuizAnswer, subscribeToLearningEvents } from './runtime/api';
 import { LearningPathPanel } from './components/LearningPathPanel';
 import { LessonCanvas } from './components/LessonCanvas';
 import { TutorPanel } from './components/TutorPanel';
@@ -118,6 +118,18 @@ export function App() {
     }
   }
 
+  async function handleSendMessage(message: string) {
+    if (busy) return;
+    setBusy(true);
+    setMessages((current) => [...current, `Learner: ${message}`]);
+    try {
+      await sendTutorMessage(message);
+    } catch (reason) {
+      setBusy(false);
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
   async function handleQuiz(blockId: string, answer: string) {
     if (!lesson || busy) return;
     try {
@@ -147,7 +159,7 @@ export function App() {
       <div className="room-grid">
         <LearningPathPanel path={path} />
         <LessonCanvas lesson={lesson} assessment={assessment} busy={busy} onQuizSubmit={handleQuiz} nextNodeTitle={nextNode?.title} />
-        <TutorPanel busy={busy} connected={connected} messages={messages} onAction={runAction} />
+        <TutorPanel busy={busy} connected={connected} messages={messages} onAction={runAction} onSendMessage={handleSendMessage} />
       </div>
 
       {toast && <div className="toast">{toast}</div>}

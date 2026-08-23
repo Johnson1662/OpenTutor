@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { TutorAction } from '@opentutor/protocol';
 
 export function TutorPanel({
@@ -5,12 +6,24 @@ export function TutorPanel({
   connected,
   messages,
   onAction,
+  onSendMessage,
 }: {
   busy: boolean;
   connected: boolean;
   messages: string[];
   onAction: (action: TutorAction) => void;
+  onSendMessage: (message: string) => void;
 }) {
+  const [input, setInput] = useState('');
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = input.trim();
+    if (!trimmed || busy) return;
+    onSendMessage(trimmed);
+    setInput('');
+  }
+
   return (
     <aside className="tutor-panel">
       <div>
@@ -26,12 +39,18 @@ export function TutorPanel({
 
       <div className="tutor-thread">
         {messages.map((message, i) => <div className="tutor-message" key={`${i}-${message}`}>{message}</div>)}
-        {busy && <div className="tutor-message muted">Server is updating the lesson…</div>}
+        {busy && <div className="tutor-message muted">AI Tutor is reasoning and updating lesson…</div>}
       </div>
 
-      <div className="composer">
-        <input placeholder="Natural-language Tutor comes with Pi integration…" disabled />
-      </div>
+      <form className="composer" onSubmit={handleSubmit}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Ask a question or request adjustments (e.g. 'Show me code', 'Explain simpler')..."
+          disabled={busy}
+        />
+        <button type="submit" disabled={busy || !input.trim()}>Send</button>
+      </form>
     </aside>
   );
 }

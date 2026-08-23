@@ -12,6 +12,8 @@ import { SessionService } from './services/session-service.ts';
 import { LessonService } from './services/lesson-service.ts';
 import { KnowledgeService } from './services/knowledge-service.ts';
 import { TutorService } from './services/tutor-service.ts';
+import { DomainToolsExecutor } from '@opentutor/agent-tools';
+import { TutorAgent } from '@opentutor/agent-runtime';
 import { handleRequest, type RouteContext } from './api/routes.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -36,11 +38,19 @@ export function createServerContext(dbPath: string = DB_PATH): {
   const knowledgeService = new KnowledgeService(knowledgeRepo, eventBus);
   const tutorService = new TutorService(lessonService, sessionService, eventBus);
 
+  const toolsExecutor = new DomainToolsExecutor({
+    lessonService,
+    sessionService,
+    knowledgeService,
+  });
+  const tutorAgent = new TutorAgent(toolsExecutor);
+
   const context: RouteContext = {
     sessionService,
     lessonService,
     knowledgeService,
     tutorService,
+    tutorAgent,
     eventBus,
   };
 

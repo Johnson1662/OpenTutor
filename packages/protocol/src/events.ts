@@ -16,6 +16,7 @@ export interface AssessmentResult {
 
 export type LearningEventType =
   | 'agent.started'
+  | 'agent.text.delta'
   | 'agent.completed'
   | 'lesson.patch'
   | 'lesson.updated'
@@ -36,6 +37,11 @@ export interface LearningEvent<T = unknown> {
 export interface AgentStartedEventData {
   requestId: string;
   action?: TutorAction;
+}
+
+export interface AgentTextDeltaEventData {
+  requestId: string;
+  delta: string;
 }
 
 export interface AgentCompletedEventData {

@@ -37,6 +37,16 @@ export async function submitQuizAnswer(lessonId: string, blockId: string, answer
   return response.json();
 }
 
+export async function sendTutorMessage(message: string): Promise<AcceptedResponse> {
+  const response = await fetch(`/api/sessions/${PROTOTYPE_SESSION_ID}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  if (!response.ok) throw new Error(`Message failed: ${response.status}`);
+  return response.json();
+}
+
 export function subscribeToLearningEvents(
   afterSeq: number,
   onEvent: (event: LearningEvent) => void,
@@ -48,6 +58,7 @@ export function subscribeToLearningEvents(
 
   const types = [
     'agent.started',
+    'agent.text.delta',
     'agent.completed',
     'lesson.patch',
     'lesson.updated',

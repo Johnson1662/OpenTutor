@@ -10,6 +10,7 @@ import type { SessionService } from '../services/session-service.ts';
 import type { LessonService } from '../services/lesson-service.ts';
 import type { KnowledgeService } from '../services/knowledge-service.ts';
 import type { TutorService } from '../services/tutor-service.ts';
+import type { TutorAgent } from '@opentutor/agent-runtime';
 import type { EventBus } from '../events/event-bus.ts';
 import { randomUUID } from 'node:crypto';
 
@@ -18,6 +19,7 @@ export interface RouteContext {
   lessonService: LessonService;
   knowledgeService: KnowledgeService;
   tutorService: TutorService;
+  tutorAgent: TutorAgent;
   eventBus: EventBus;
 }
 
@@ -117,7 +119,32 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, c
     return;
   }
 
-  // 3. POST /api/sessions/:sessionId/actions
+  // 3. POST /api/sessions/:sessionId/messages
+  const messageMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/messages$/);
+  if (method === 'POST' && messageMatch) {
+    const sessionId = messageMatch[1];
+    const body = await readJson<{ message: string }>(req);
+    const requestId = `req-${randomUUID()}`;
+
+    ctx.eventBus.publish(sessionId, 'agent.started', { requestId });
+
+    // Run agent in background or async and stream
+    ctx.tutorAgent
+      .run(sessionId, body.message, (delta) => {
+        ctx.eventBus.publish(sessionId, 'agent.text.delta', { requestId, delta });
+      })
+      .then((res) => {
+        ctx.eventBus.publish(sessionId, 'agent.completed', { requestId, message: res.reply });
+      })
+      .catch((err: Error) => {
+        ctx.eventBus.publish(sessionId, 'error', { message: err.message });
+      });
+
+    json(res, 202, { accepted: true, requestId });
+    return;
+  }
+
+  // 4. POST /api/sessions/:sessionId/actions
   const actionMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/actions$/);
   if (method === 'POST' && actionMatch) {
     const sessionId = actionMatch[1];

@@ -98,4 +98,30 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     await reader.cancel();
     controller.abort();
   });
+
+  await t.test('6. POST /api/sessions/prototype/messages runs TutorAgent and patches lesson', async () => {
+    const { promise: completedPromise, resolve: resolveCompleted } = Promise.withResolvers<void>();
+    const unsubscribe = context.eventBus.subscribe('prototype', (evt) => {
+      if (evt.type === 'agent.completed') {
+        resolveCompleted();
+      }
+    });
+
+    const res = await fetch(`${baseUrl}/api/sessions/prototype/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'Can you show me python code for self attention?' }),
+    });
+
+    assert.equal(res.status, 202);
+    const body = (await res.json()) as AcceptedResponse;
+    assert.equal(body.accepted, true);
+
+    await completedPromise;
+    unsubscribe();
+
+    const snapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
+    const snapshot = (await snapRes.json()) as LearningSessionSnapshot;
+    assert.ok(snapshot.lesson.blocks.some((b) => b.type === 'code'));
+  });
 });

@@ -9,11 +9,20 @@ import type {
 
 export const PROTOTYPE_SESSION_ID = 'prototype';
 
+export interface ProviderAuthMethod {
+  available: boolean;
+  label?: string;
+}
+
 export interface ProviderInfo {
   id: string;
   name: string;
   configured: boolean;
   modelCount?: number;
+  auth?: {
+    apiKey?: ProviderAuthMethod;
+    oauth?: ProviderAuthMethod;
+  };
 }
 
 export interface UserAiPreferences {
@@ -112,6 +121,88 @@ export async function startAuthSession(providerId: string, type: string = 'api_k
 
 export async function cancelAuthSession(sessionId: string): Promise<void> {
   await fetch(`/api/ai/auth/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+export async function respondAuthSession(
+  sessionId: string,
+  promptId: string,
+  response: string
+): Promise<void> {
+  const res = await fetch(`/api/ai/auth/sessions/${sessionId}/respond`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ promptId, response }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? 'Failed to respond to auth session');
+  }
+}
+
+export interface AuthUrlEventData {
+  url: string;
+}
+
+export interface AuthDeviceCodeEventData {
+  userCode: string;
+  verificationUri?: string;
+}
+
+export interface AuthPromptEventData {
+  promptId: string;
+  promptType?: string;
+  message: string;
+  placeholder?: string;
+}
+
+export interface AuthProgressEventData {
+  message: string;
+}
+
+export interface AuthFailedEventData {
+  error: string;
+}
+
+export interface AuthEventPayload {
+  type: string;
+  data: unknown;
+}
+
+export function subscribeToAuthEvents(
+  sessionId: string,
+  onEvent: (event: AuthEventPayload) => void,
+  onError?: (err: Event) => void
+): () => void {
+  const eventSource = new EventSource(`/api/ai/auth/sessions/${sessionId}/events`);
+
+  const eventTypes = [
+    'auth.url',
+    'auth.device_code',
+    'auth.prompt',
+    'auth.progress',
+    'auth.completed',
+    'auth.failed',
+    'auth.cancelled',
+  ];
+
+  for (const type of eventTypes) {
+    eventSource.addEventListener(type, (e: MessageEvent) => {
+      try {
+        const data = e.data ? (JSON.parse(e.data) as unknown) : {};
+        onEvent({ type, data });
+      } catch {
+        onEvent({ type, data: e.data });
+      }
+    });
+  }
+
+  eventSource.onerror = (err) => {
+    onError?.(err);
+  };
+
+  return () => {
+    eventSource.close();
+  };
 }
 
 // 2. Course APIs

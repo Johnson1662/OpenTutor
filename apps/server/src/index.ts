@@ -45,6 +45,8 @@ import {
   SessionModelResolver,
   RoleModelResolver,
   DefaultModelExecutionService,
+  PiModelDriver,
+  FakeModelDriver,
 } from '@opentutor/model-runtime';
 import { DomainToolsExecutor } from '@opentutor/agent-tools';
 import { PiTutorRuntime, type TutorRuntime } from '@opentutor/agent-runtime';
@@ -92,9 +94,9 @@ export async function createServerContext(
   const modelSelectionService = new ModelSelectionService(modelRuntime, preferencesRepo);
   const sessionModelResolver = new SessionModelResolver(modelSelectionService, modelRuntime, agentSessionRepo);
   const roleModelResolver = new RoleModelResolver(modelSelectionService, modelRuntime, preferencesRepo);
-  const modelExecutionService = new DefaultModelExecutionService(roleModelResolver);
-
   const isTestOrFake = process.env.OPENTUTOR_RUNTIME_MODE === 'fake' || process.env.NODE_ENV === 'test';
+  const modelDriver = isTestOrFake ? new FakeModelDriver() : new PiModelDriver(modelRuntime);
+  const modelExecutionService = new DefaultModelExecutionService(roleModelResolver, modelDriver);
 
   const knowledgeAnalyzer = isTestOrFake
     ? new FakeKnowledgeAnalyzer()

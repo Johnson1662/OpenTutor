@@ -5,6 +5,7 @@ import {
   createOpenTutorModelRuntime,
   ModelSelectionService,
   RoleModelResolver,
+  PiModelDriver,
   DefaultModelExecutionService,
   ModelPreferencesRepository,
 } from '@opentutor/model-runtime';
@@ -15,23 +16,29 @@ import {
 } from '../src/index.ts';
 
 test('packages/knowledge-core - Live Knowledge Compiler Integration Test', async (t) => {
-  const hasRealKey = Boolean(
-    process.env.ANTHROPIC_API_KEY ??
-    process.env.OPENAI_API_KEY ??
-    process.env.LLM_API_KEY
-  );
+  const runtime = await createOpenTutorModelRuntime();
+  const available = await runtime.getAvailable();
 
-  if (!hasRealKey) {
-    t.skip('No live API credentials provided in environment. Cleanly skipped.');
+  if (available.length === 0) {
+    t.skip('No live AI credentials or models available');
     return;
   }
 
   const db = createDatabase(':memory:');
   const prefsRepo = new ModelPreferencesRepository(db);
-  const runtime = await createOpenTutorModelRuntime({ dataDir: ':memory:' });
+  const first = available[0];
+  if (first) {
+    prefsRepo.setPreferences('default-user', {
+      defaultProviderId: first.provider,
+      defaultModelId: first.id,
+      thinkingLevel: 'off',
+    });
+  }
+
   const selectionService = new ModelSelectionService(runtime, prefsRepo);
   const roleResolver = new RoleModelResolver(selectionService, runtime, prefsRepo);
-  const executionService = new DefaultModelExecutionService(roleResolver);
+  const driver = new PiModelDriver(runtime);
+  const executionService = new DefaultModelExecutionService(roleResolver, driver);
 
   const analyzer = new ModelKnowledgeAnalyzer(executionService);
   const synthesizer = new ModelArtifactSynthesizer(executionService);
@@ -48,5 +55,11 @@ test('packages/knowledge-core - Live Knowledge Compiler Integration Test', async
     const firstArt = result.compiledArtifacts[0];
     assert.ok(firstArt?.content.definition.text);
     assert.ok(firstArt?.content.definition.claimIds.length > 0);
+  });
+
+  t.after(() => {
+    setImmediate(() => {
+      process.exit(0);
+    });
   });
 });

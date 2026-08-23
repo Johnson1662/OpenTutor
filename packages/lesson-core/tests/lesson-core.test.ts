@@ -138,4 +138,56 @@ test('packages/lesson-core - Dynamic Lesson Core & Lifecycle Coordinator', async
     assert.equal(decision.patches.length, 1);
     assert.equal(decision.patches[0]?.op, 'update_node');
   });
+
+  await t.test('5. LearningSessionCoordinator persists nested detour frames across instances (simulating server restart)', async () => {
+    // Instance 1
+    const coordinator1 = new LearningSessionCoordinator(db, artifactCompiler);
+
+    const lessonMain = await coordinator1.ensureLessonForNode(
+      'session-coord-restart',
+      'transformer',
+      'self-attention',
+      'Self Attention'
+    );
+
+    // Detour 1 (Softmax)
+    const detour1 = await coordinator1.handleDetour(
+      'session-coord-restart',
+      'transformer',
+      'softmax',
+      'Softmax Function',
+      'path-node-self-attention',
+      lessonMain.id
+    );
+
+    // Detour 2 (Nested: Multi-Head while in Softmax)
+    const detour2 = await coordinator1.handleDetour(
+      'session-coord-restart',
+      'transformer',
+      'multi-head',
+      'Multi-Head Attention',
+      detour1.detourPathNode.id,
+      detour1.detourLesson.id
+    );
+
+    // Simulate server restart: create brand new coordinator instance with empty in-memory state
+    const coordinator2 = new LearningSessionCoordinator(db, artifactCompiler);
+
+    // Resume from Detour 2 should restore Detour 1 (Softmax)
+    const resume1 = await coordinator2.handleResume('session-coord-restart', 'transformer');
+    assert.ok(resume1.resumedLesson);
+    assert.equal(resume1.resumedLesson?.id, detour1.detourLesson.id);
+    assert.equal(resume1.resumedNodeId, detour1.detourPathNode.id);
+
+    // Resume from Detour 1 should restore Main lesson (Self Attention)
+    const resume2 = await coordinator2.handleResume('session-coord-restart', 'transformer');
+    assert.ok(resume2.resumedLesson);
+    assert.equal(resume2.resumedLesson?.id, lessonMain.id);
+    assert.equal(resume2.resumedNodeId, 'path-node-self-attention');
+
+    // No more detours
+    const resume3 = await coordinator2.handleResume('session-coord-restart', 'transformer');
+    assert.equal(resume3.resumedLesson, null);
+    assert.equal(resume3.resumedNodeId, null);
+  });
 });

@@ -13,6 +13,7 @@ import type { LessonGenerator } from '@opentutor/lesson-core';
 import { FakeLessonGenerator } from '@opentutor/lesson-core';
 import type { EventBus } from '../events/event-bus.ts';
 import type { LearningSessionSnapshot } from '@opentutor/protocol';
+import { CourseSourceService } from './course-source-service.ts';
 
 export class CourseService {
   private readonly courseRepo: CourseRepository;
@@ -22,6 +23,7 @@ export class CourseService {
   private readonly courseCompiler: CourseCompiler;
   private readonly lessonGenerator: LessonGenerator;
   private readonly eventBus: EventBus;
+  readonly courseSourceService: CourseSourceService;
 
   constructor(
     courseRepo: CourseRepository,
@@ -30,7 +32,8 @@ export class CourseService {
     knowledgeCompiler: LivingKnowledgeCompiler,
     courseCompiler: CourseCompiler,
     lessonGenerator?: LessonGenerator,
-    eventBus?: EventBus
+    eventBus?: EventBus,
+    courseSourceService?: CourseSourceService
   ) {
     this.courseRepo = courseRepo;
     this.sessionRepo = sessionRepo;
@@ -39,6 +42,13 @@ export class CourseService {
     this.courseCompiler = courseCompiler;
     this.lessonGenerator = lessonGenerator ?? new FakeLessonGenerator();
     this.eventBus = eventBus!;
+    this.courseSourceService =
+      courseSourceService ??
+      new CourseSourceService(
+        courseRepo,
+        knowledgeCompiler.ingestion,
+        knowledgeCompiler.lifecycle
+      );
   }
 
   createCourse(params: { id?: string; title: string; description?: string }): CourseRecord {
@@ -64,17 +74,16 @@ export class CourseService {
   }
 
   addSource(courseId: string, title: string, content: string): CourseSourceRecord {
-    return this.courseRepo.addCourseSource(courseId, title, content);
+    return this.courseSourceService.addSource(courseId, title, content);
   }
 
   listSources(courseId: string): CourseSourceRecord[] {
-    return this.courseRepo.listCourseSources(courseId);
+    return this.courseSourceService.listSources(courseId);
   }
 
   deleteSource(courseId: string, sourceId: string): boolean {
-    this.courseRepo.deleteCourseSource(courseId, sourceId);
-    this.knowledgeCompiler.lifecycle.deleteDocument(sourceId);
-    return true;
+    const result = this.courseSourceService.deleteSource(courseId, sourceId);
+    return result.detached;
   }
 
   getCourseMap(courseId: string): CourseMapData {

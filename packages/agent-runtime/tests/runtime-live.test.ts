@@ -1,18 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { createDatabase, seedDatabase } from '@opentutor/database';
 import { DomainToolsExecutor } from '@opentutor/agent-tools';
 import { PiTutorRuntime } from '../src/index.ts';
 
 test('packages/agent-runtime - Live Model Integration Test', async (t) => {
-  const hasRealKey = Boolean(
-    process.env.ANTHROPIC_API_KEY ??
-    process.env.OPENAI_API_KEY ??
-    process.env.LLM_API_KEY
-  );
+  const modelRuntime = await ModelRuntime.create();
+  const available = await modelRuntime.getAvailable();
 
-  if (!hasRealKey) {
-    t.skip('No live API credentials provided in environment (ANTHROPIC_API_KEY, OPENAI_API_KEY). Cleanly skipped.');
+  if (available.length === 0) {
+    t.skip('No live AI credentials or models available');
     return;
   }
 
@@ -54,11 +52,13 @@ test('packages/agent-runtime - Live Model Integration Test', async (t) => {
   };
 
   const toolsExecutor = new DomainToolsExecutor({
-    lessonService: mockLessonService as any,
-    sessionService: mockSessionService as any,
+    lessonService: mockLessonService,
+    sessionService: mockSessionService,
   });
 
   const runtime = new PiTutorRuntime(toolsExecutor, undefined, {
+    modelRuntime,
+    model: available[0],
     runtimeMode: 'pi',
   });
 
@@ -70,5 +70,11 @@ test('packages/agent-runtime - Live Model Integration Test', async (t) => {
 
     assert.ok(result.reply);
     assert.ok(result.reply.length > 10);
+  });
+
+  t.after(() => {
+    setImmediate(() => {
+      process.exit(0);
+    });
   });
 });

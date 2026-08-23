@@ -12,6 +12,7 @@ import {
  SessionModelResolver,
  RoleModelResolver,
  DefaultModelExecutionService,
+ FakeModelDriver,
  ModelExecutionError,
 } from '../src/index.ts';
 
@@ -217,13 +218,16 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
   });
 
   // 1. Success on valid JSON
-  const validService = new DefaultModelExecutionService(roleResolver, async (_model, _prompt) => {
-   return JSON.stringify({
-    name: 'Transformer',
-    aliases: ['Self-Attention Network'],
-    confidence: 0.95,
-   });
-  });
+  const validService = new DefaultModelExecutionService(
+   roleResolver,
+   new FakeModelDriver(async (_model, _prompt) => {
+    return JSON.stringify({
+     name: 'Transformer',
+     aliases: ['Self-Attention Network'],
+     confidence: 0.95,
+    });
+   })
+  );
 
   const validResult = await validService.completeStructured<{ name: string; aliases: string[]; confidence: number }>({
    role: 'knowledge_compiler',
@@ -235,15 +239,18 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
 
   // 2. Successful repair on initial malformed JSON
   let callCount = 0;
-  const repairingService = new DefaultModelExecutionService(roleResolver, async (_model, prompt) => {
-   callCount++;
-   if (callCount === 1) {
-    // Initial invalid output missing 'aliases'
-    return JSON.stringify({ name: 'Attention Mechanism', confidence: 0.8 });
-   }
-   // Repaired output responding to error prompt
-   return JSON.stringify({ name: 'Attention Mechanism', aliases: ['Cross-Attention'], confidence: 0.8 });
-  });
+  const repairingService = new DefaultModelExecutionService(
+   roleResolver,
+   new FakeModelDriver(async (_model, prompt) => {
+    callCount++;
+    if (callCount === 1) {
+     // Initial invalid output missing 'aliases'
+     return JSON.stringify({ name: 'Attention Mechanism', confidence: 0.8 });
+    }
+    // Repaired output responding to error prompt
+    return JSON.stringify({ name: 'Attention Mechanism', aliases: ['Cross-Attention'], confidence: 0.8 });
+   })
+  );
 
   const repairedResult = await repairingService.completeStructured<{ name: string; aliases: string[] }>({
    role: 'knowledge_compiler',
@@ -255,9 +262,12 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
   assert.equal(repairedResult.aliases[0], 'Cross-Attention');
 
   // 3. Fails with MODEL_OUTPUT_INVALID when repair attempt also fails
-  const failingService = new DefaultModelExecutionService(roleResolver, async () => {
-   return 'not a json at all';
-  });
+  const failingService = new DefaultModelExecutionService(
+   roleResolver,
+   new FakeModelDriver(async () => {
+    return 'not a json at all';
+   })
+  );
 
   await assert.rejects(
    async () => {

@@ -56,7 +56,9 @@ export class LivingKnowledgeCompiler {
     const document = this.ingestion.ingest(input);
 
     // Handle document superseding if a previous version existed
-    this.lifecycle.supersedeDocument(document.id, document.documentVersionId);
+    if (document.isNewVersion) {
+      this.lifecycle.supersedeDocument(document.id, document.documentVersionId);
+    }
 
     const candidates = await this.analyzer.analyzeChunks(document.chunks);
     const compiledArtifacts: CompiledArtifact[] = [];

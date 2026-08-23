@@ -44,7 +44,7 @@ export class DocumentLifecycleService {
   deleteDocument(documentId: string): DocumentLifecycleResult {
     const activeVersions = this.db
       .prepare(
-        `SELECT id FROM document_versions WHERE document_id = ? AND status = 'active'`
+        `SELECT id FROM document_versions WHERE document_id = ? AND status != 'deleted'`
       )
       .all(documentId) as Array<{ id: string }>;
 

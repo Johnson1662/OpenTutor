@@ -1,7 +1,9 @@
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
+import { parseJsonWithRepair } from '@earendil-works/pi-ai';
 import type { RoleModelResolver, ResolvedRoleModel } from './role-model-resolver.ts';
 import type { AiRole } from './preferences/model-preferences-repository.ts';
+import type { ModelDriver } from './drivers/model-driver.ts';
 
 export type ModelExecutionErrorCode =
   | 'MODEL_SETUP_REQUIRED'
@@ -38,12 +40,6 @@ export interface ModelExecutionRequest<T = unknown> {
   schema?: TSchema;
 }
 
-export type ModelDriver = (
-  resolved: ResolvedRoleModel,
-  prompt: string,
-  system?: string
-) => Promise<string>;
-
 export interface ModelExecutionService {
   completeText(input: {
     role: AiRole;
@@ -62,15 +58,12 @@ export interface ModelExecutionService {
 }
 
 export class DefaultModelExecutionService implements ModelExecutionService {
-  private readonly roleResolver: RoleModelResolver;
-  private readonly customDriver?: ModelDriver;
+  private readonly resolver: RoleModelResolver;
+  private readonly driver: ModelDriver;
 
-  constructor(
-    roleResolver: RoleModelResolver,
-    customDriver?: ModelDriver
-  ) {
-    this.roleResolver = roleResolver;
-    this.customDriver = customDriver;
+  constructor(resolver: RoleModelResolver, driver: ModelDriver) {
+    this.resolver = resolver;
+    this.driver = driver;
   }
 
   async completeText(input: {
@@ -83,24 +76,19 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     let resolved: ResolvedRoleModel;
 
     try {
-      resolved = await this.roleResolver.resolveRoleModel(userId, input.role);
-    } catch (err: any) {
-      if (err.message && err.message.includes('MODEL_SETUP_REQUIRED')) {
-        throw new ModelExecutionError('MODEL_SETUP_REQUIRED', err.message, err);
+      resolved = await this.resolver.resolveRoleModel(userId, input.role);
+    } catch (err: unknown) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      if (errorObj.message.includes('MODEL_SETUP_REQUIRED')) {
+        throw new ModelExecutionError('MODEL_SETUP_REQUIRED', errorObj.message, err);
       }
-      throw new ModelExecutionError('MODEL_PROVIDER_ERROR', err.message ?? String(err), err);
+      throw new ModelExecutionError('MODEL_PROVIDER_ERROR', errorObj.message, err);
     }
 
     try {
-      if (this.customDriver) {
-        return await this.customDriver(resolved, input.prompt, input.system);
-      }
-
-      // Default simulator / test driver
-      return `[Model ${resolved.providerId}/${resolved.modelId} response for ${input.role}]: ${input.prompt.slice(0, 100)}`;
-    } catch (err: any) {
+      return await this.driver.complete(resolved, input.prompt, input.system);
+    } catch (err: unknown) {
       this.handleExecutionError(err);
-      throw err;
     }
   }
 
@@ -115,30 +103,25 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     let resolved: ResolvedRoleModel;
 
     try {
-      resolved = await this.roleResolver.resolveRoleModel(userId, input.role);
-    } catch (err: any) {
-      if (err.message && err.message.includes('MODEL_SETUP_REQUIRED')) {
-        throw new ModelExecutionError('MODEL_SETUP_REQUIRED', err.message, err);
+      resolved = await this.resolver.resolveRoleModel(userId, input.role);
+    } catch (err: unknown) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      if (errorObj.message.includes('MODEL_SETUP_REQUIRED')) {
+        throw new ModelExecutionError('MODEL_SETUP_REQUIRED', errorObj.message, err);
       }
-      throw new ModelExecutionError('MODEL_PROVIDER_ERROR', err.message ?? String(err), err);
+      throw new ModelExecutionError('MODEL_PROVIDER_ERROR', errorObj.message, err);
     }
 
     const structuredPrompt = `${input.prompt}\n\nIMPORTANT: Respond ONLY with a valid JSON object matching the required schema. Do not enclose in markdown code fences.`;
 
     let rawOutput: string;
     try {
-      if (this.customDriver) {
-        rawOutput = await this.customDriver(resolved, structuredPrompt, input.system);
-      } else {
-        // Fallback default mock object or minimal valid json
-        rawOutput = '{}';
-      }
-    } catch (err: any) {
+      rawOutput = await this.driver.complete(resolved, structuredPrompt, input.system);
+    } catch (err: unknown) {
       this.handleExecutionError(err);
-      throw err;
     }
 
-    // 1. Try initial JSON parse and TypeBox validation
+    // 1. Try initial parse and TypeBox validation
     const parsed = this.tryParseAndValidate<T>(rawOutput, input.schema);
     if (parsed.success) {
       return parsed.value;
@@ -149,14 +132,9 @@ export class DefaultModelExecutionService implements ModelExecutionService {
 
     let repairedOutput: string;
     try {
-      if (this.customDriver) {
-        repairedOutput = await this.customDriver(resolved, repairPrompt, input.system);
-      } else {
-        repairedOutput = rawOutput;
-      }
-    } catch (err: any) {
+      repairedOutput = await this.driver.complete(resolved, repairPrompt, input.system);
+    } catch (err: unknown) {
       this.handleExecutionError(err);
-      throw err;
     }
 
     const repairedParsed = this.tryParseAndValidate<T>(repairedOutput, input.schema);
@@ -175,7 +153,6 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     schema: TSchema
   ): { success: true; value: T } | { success: false; error: string } {
     let clean = raw.trim();
-    // Strip markdown code fences if model returned them
     if (clean.startsWith('```json')) {
       clean = clean.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     } else if (clean.startsWith('```')) {
@@ -185,8 +162,13 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     let parsedJson: unknown;
     try {
       parsedJson = JSON.parse(clean);
-    } catch (e: any) {
-      return { success: false, error: `JSON parse error: ${e.message}` };
+    } catch {
+      try {
+        parsedJson = parseJsonWithRepair(clean);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { success: false, error: `JSON parse error: ${msg}` };
+      }
     }
 
     const isValid = Value.Check(schema, parsedJson);
@@ -200,9 +182,13 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     return { success: false, error: errors.join('; ') };
   }
 
-  private handleExecutionError(err: any): never {
-    const msg = err.message ?? String(err);
-    if (err.name === 'AbortError' || msg.includes('cancelled') || msg.includes('abort')) {
+  private handleExecutionError(err: unknown): never {
+    if (err instanceof ModelExecutionError) {
+      throw err;
+    }
+    const errorObj = err instanceof Error ? err : new Error(String(err));
+    const msg = errorObj.message;
+    if (errorObj.name === 'AbortError' || msg.includes('cancelled') || msg.includes('abort')) {
       throw new ModelExecutionError('MODEL_CANCELLED', msg, err);
     }
     if (msg.includes('rate limit') || msg.includes('429')) {
@@ -211,10 +197,10 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     if (msg.includes('timeout') || msg.includes('timed out')) {
       throw new ModelExecutionError('MODEL_TIMEOUT', msg, err);
     }
-    if (msg.includes('context') || msg.includes('token limit')) {
+    if (msg.includes('context') || msg.includes('token limit') || msg.includes('maximum context length')) {
       throw new ModelExecutionError('MODEL_CONTEXT_EXCEEDED', msg, err);
     }
-    if (msg.includes('auth') || msg.includes('unauthorized') || msg.includes('401')) {
+    if (msg.includes('auth') || msg.includes('unauthorized') || msg.includes('401') || msg.includes('API key')) {
       throw new ModelExecutionError('MODEL_AUTH_REQUIRED', msg, err);
     }
     if (msg.includes('not found') || msg.includes('404')) {

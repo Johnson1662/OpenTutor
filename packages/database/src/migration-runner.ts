@@ -11,6 +11,7 @@ import { migration008 } from './migrations/008_ai_role_preferences.ts';
 import { migration009 } from './migrations/009_claims_and_evidence.ts';
 import { migration010 } from './migrations/010_course_pipeline.ts';
 import { migration011 } from './migrations/011_course_sources.ts';
+import { migration012 } from './migrations/012_learning_session_frames.ts';
 
 export const ALL_MIGRATIONS: Migration[] = [
   migration001,
@@ -24,6 +25,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   migration009,
   migration010,
   migration011,
+  migration012,
 ];
 
 export function runMigrations(db: Database, migrations: Migration[] = ALL_MIGRATIONS): number {

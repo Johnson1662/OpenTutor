@@ -1,5 +1,5 @@
-import type { Database } from '@opentutor/database';
-import type { LearningPathNode, Lesson, LessonPatch } from '@opentutor/protocol';
+import { SessionRepository, type Database } from '@opentutor/database';
+import type { LearningPathNode, Lesson } from '@opentutor/protocol';
 import type { ArtifactCompiler } from '@opentutor/knowledge-core';
 import type { LessonGenerator } from '../generator/lesson-generator-types.ts';
 import { FakeLessonGenerator } from '../generator/fake-lesson-generator.ts';
@@ -16,20 +16,33 @@ export interface CoordinatorState {
  }>;
 }
 
+interface LessonDbRow {
+ id: string;
+ course_id: string;
+ knowledge_node_id: string;
+ title: string;
+ objective: string | null;
+ version: number;
+ blocks: string;
+ status: Lesson['status'];
+}
+
 export class LearningSessionCoordinator {
  private readonly db: Database;
  private readonly artifactCompiler: ArtifactCompiler;
  private readonly lessonGenerator: LessonGenerator;
- private readonly sessionDetourStacks = new Map<string, Array<{ detourNodeId: string; parentPathNodeId: string; savedLessonId: string }>>();
+ private readonly sessionRepo: SessionRepository;
 
  constructor(
   db: Database,
   artifactCompiler: ArtifactCompiler,
-  lessonGenerator?: LessonGenerator
+  lessonGenerator?: LessonGenerator,
+  sessionRepo?: SessionRepository
  ) {
   this.db = db;
   this.artifactCompiler = artifactCompiler;
   this.lessonGenerator = lessonGenerator ?? new FakeLessonGenerator();
+  this.sessionRepo = sessionRepo ?? new SessionRepository(db);
  }
 
  async ensureLessonForNode(
@@ -40,8 +53,10 @@ export class LearningSessionCoordinator {
  ): Promise<Lesson> {
   // 1. Check if lesson already exists in database
   const row = this.db
-   .prepare('SELECT id, course_id, knowledge_node_id, title, objective, version, blocks, status FROM lessons WHERE course_id = ? AND knowledge_node_id = ?')
-   .get(courseId, knowledgeNodeId) as any;
+   .prepare(
+    'SELECT id, course_id, knowledge_node_id, title, objective, version, blocks, status FROM lessons WHERE course_id = ? AND knowledge_node_id = ?'
+   )
+   .get(courseId, knowledgeNodeId) as LessonDbRow | undefined;
 
   if (row) {
    return {
@@ -50,7 +65,7 @@ export class LearningSessionCoordinator {
     courseId: row.course_id,
     knowledgeNodeId: row.knowledge_node_id,
     title: row.title,
-    objective: row.objective,
+    objective: row.objective ?? undefined,
     version: row.version,
     blocks: typeof row.blocks === 'string' ? JSON.parse(row.blocks) : row.blocks,
     status: row.status,
@@ -99,13 +114,13 @@ export class LearningSessionCoordinator {
   currentPathNodeId: string,
   currentLessonId: string
  ): Promise<{ detourLesson: Lesson; detourPathNode: LearningPathNode }> {
-  const stack = this.sessionDetourStacks.get(sessionId) ?? [];
-  stack.push({
-   detourNodeId: detourKnowledgeNodeId,
-   parentPathNodeId: currentPathNodeId,
-   savedLessonId: currentLessonId,
-  });
-  this.sessionDetourStacks.set(sessionId, stack);
+  // Ensure session row exists in learning_sessions
+  this.db
+   .prepare(
+    `INSERT OR IGNORE INTO learning_sessions (id, user_id, course_id, path_version, created_at, updated_at)
+         VALUES (?, 'default-user', ?, 1, datetime('now'), datetime('now'))`
+   )
+   .run(sessionId, courseId);
 
   const detourLesson = await this.ensureLessonForNode(
    sessionId,
@@ -114,8 +129,21 @@ export class LearningSessionCoordinator {
    detourTitle
   );
 
+  const detourPathNodeId = `detour-${detourKnowledgeNodeId}`;
+  const activeFrame = this.sessionRepo.peekActiveFrame(sessionId);
+  const depth = (activeFrame ? activeFrame.depth : 0) + 1;
+
+  this.sessionRepo.pushFrame({
+   id: `frame-${sessionId}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+   sessionId,
+   detourPathNodeId,
+   parentPathNodeId: currentPathNodeId,
+   savedLessonId: currentLessonId,
+   depth,
+  });
+
   const detourPathNode: LearningPathNode = {
-   id: `detour-${detourKnowledgeNodeId}`,
+   id: detourPathNodeId,
    knowledgeNodeId: detourKnowledgeNodeId,
    title: detourTitle,
    type: 'detour',
@@ -134,18 +162,17 @@ export class LearningSessionCoordinator {
   sessionId: string,
   courseId: string
  ): Promise<{ resumedLesson: Lesson | null; resumedNodeId: string | null }> {
-  const stack = this.sessionDetourStacks.get(sessionId) ?? [];
-  if (stack.length === 0) {
+  const top = this.sessionRepo.popActiveFrame(sessionId);
+  if (!top) {
    return { resumedLesson: null, resumedNodeId: null };
   }
 
-  const top = stack.pop()!;
-  this.sessionDetourStacks.set(sessionId, stack);
-
   // Fetch the saved parent lesson
   const row = this.db
-   .prepare('SELECT id, course_id, knowledge_node_id, title, objective, version, blocks, status FROM lessons WHERE id = ?')
-   .get(top.savedLessonId) as any;
+   .prepare(
+    'SELECT id, course_id, knowledge_node_id, title, objective, version, blocks, status FROM lessons WHERE id = ?'
+   )
+   .get(top.savedLessonId) as LessonDbRow | undefined;
 
   let resumedLesson: Lesson | null = null;
   if (row) {
@@ -155,7 +182,7 @@ export class LearningSessionCoordinator {
     courseId: row.course_id,
     knowledgeNodeId: row.knowledge_node_id,
     title: row.title,
-    objective: row.objective,
+    objective: row.objective ?? undefined,
     version: row.version,
     blocks: typeof row.blocks === 'string' ? JSON.parse(row.blocks) : row.blocks,
     status: row.status,

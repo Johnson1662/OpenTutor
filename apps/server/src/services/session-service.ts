@@ -2,10 +2,12 @@ import type {
   LearningPathNode,
   LearningPathPatch,
   LearningSessionSnapshot,
+  LessonActivatedEventData,
   LessonUpdatedEventData,
   PathPatchEventData,
+  Lesson,
 } from '@opentutor/protocol';
-import type { SessionRepository } from '@opentutor/database';
+import { NotFoundError, type SessionRepository } from '@opentutor/database';
 import type { LearningSessionCoordinator } from '@opentutor/lesson-core';
 import type { EventBus } from '../events/event-bus.ts';
 
@@ -51,20 +53,42 @@ export class SessionService {
     detour: { id: string; knowledgeNodeId: string; title: string; note?: string }
   ): Promise<{ path: LearningPathNode[]; newVersion: number }> {
     const snapshot = this.sessionRepo.getSessionSnapshot(sessionId);
-    const activeNode = snapshot?.path.find((n) => n.status === 'current');
+    if (!snapshot) {
+      throw new NotFoundError('Session', sessionId);
+    }
 
-    // 1. If coordinator is present, ensure/generate the detour lesson and switch active lesson
-    if (this.coordinator && snapshot && activeNode) {
-      const { detourLesson } = await this.coordinator.handleDetour(
+    const courseId = snapshot.courseId ?? 'transformer';
+    const activeNode = snapshot.path.find((n) => n.status === 'current');
+
+    // 1. Generate/ensure detour lesson asynchronously before entering the DB transaction
+    let detourLesson: Lesson | undefined;
+    if (this.coordinator) {
+      detourLesson = await this.coordinator.ensureLessonForNode(
         sessionId,
-        'transformer',
+        courseId,
         detour.knowledgeNodeId,
-        detour.title,
-        activeNode.id,
-        snapshot.lesson.id
+        detour.title
       );
+    }
 
-      this.sessionRepo.setActiveLesson(sessionId, detourLesson.id);
+    // 2. Perform atomic domain transaction: validate pathVersion, push frame, switch active lesson, patch path
+    const result = this.sessionRepo.insertDetour(sessionId, baseVersion, detour, {
+      activeLessonId: detourLesson?.id,
+      frame: activeNode
+        ? {
+          parentPathNodeId: activeNode.id,
+          savedLessonId: snapshot.lesson.id,
+        }
+        : undefined,
+    });
+
+    // 3. Publish events if and only if atomic transaction succeeded
+    if (detourLesson) {
+      const activatedEvent: LessonActivatedEventData = {
+        lesson: detourLesson,
+        previousLessonId: snapshot.lesson.id,
+      };
+      this.eventBus.publish(sessionId, 'lesson.activated', activatedEvent);
 
       const lessonUpdate: LessonUpdatedEventData = {
         lessonId: detourLesson.id,
@@ -78,7 +102,6 @@ export class SessionService {
       this.eventBus.publish(sessionId, 'lesson.updated', lessonUpdate);
     }
 
-    const result = this.sessionRepo.insertDetour(sessionId, baseVersion, detour);
     const eventData: PathPatchEventData = {
       baseVersion,
       version: result.newVersion,
@@ -98,6 +121,7 @@ export class SessionService {
       ],
     };
     this.eventBus.publish(sessionId, 'path.patch', eventData);
+
     return result;
   }
 
@@ -106,34 +130,48 @@ export class SessionService {
     baseVersion: number
   ): Promise<{ path: LearningPathNode[]; newVersion: number }> {
     const snapshot = this.sessionRepo.getSessionSnapshot(sessionId);
-    const activeNode = snapshot?.path.find((n) => n.status === 'current');
+    if (!snapshot) {
+      throw new NotFoundError('Session', sessionId);
+    }
 
-    // 1. If completing a detour, restore previous lesson on the canvas
-    if (this.coordinator && activeNode?.type === 'detour') {
-      const { resumedLesson } = await this.coordinator.handleResume(sessionId, 'transformer');
-      if (resumedLesson) {
-        this.sessionRepo.setActiveLesson(sessionId, resumedLesson.id);
+    const activeNode = snapshot.path.find((n) => n.status === 'current');
+    const isDetour = activeNode?.type === 'detour';
+
+    // 1. Perform atomic domain transaction: validate pathVersion, pop frame if detour, restore saved lesson, advance path
+    const result = this.sessionRepo.completeCurrentNode(sessionId, baseVersion, {
+      popDetourFrame: isDetour,
+    });
+
+    // 2. If a detour completed and a previous lesson was restored, publish lesson.activated
+    if (result.resumedLessonId) {
+      const resumedSnapshot = this.sessionRepo.getSessionSnapshot(sessionId);
+      if (resumedSnapshot && resumedSnapshot.lesson.id === result.resumedLessonId) {
+        const activatedEvent: LessonActivatedEventData = {
+          lesson: resumedSnapshot.lesson,
+          previousLessonId: snapshot.lesson.id,
+        };
+        this.eventBus.publish(sessionId, 'lesson.activated', activatedEvent);
 
         const lessonUpdate: LessonUpdatedEventData = {
-          lessonId: resumedLesson.id,
-          version: resumedLesson.version,
+          lessonId: resumedSnapshot.lesson.id,
+          version: resumedSnapshot.lesson.version,
           changes: {
-            title: resumedLesson.title,
-            objective: resumedLesson.objective,
-            status: resumedLesson.status,
+            title: resumedSnapshot.lesson.title,
+            objective: resumedSnapshot.lesson.objective,
+            status: resumedSnapshot.lesson.status,
           },
         };
         this.eventBus.publish(sessionId, 'lesson.updated', lessonUpdate);
       }
     }
 
-    const result = this.sessionRepo.completeCurrentNode(sessionId, baseVersion);
     const eventData: PathPatchEventData = {
       baseVersion,
       version: result.newVersion,
       patches: [],
     };
     this.eventBus.publish(sessionId, 'path.patch', eventData);
+
     return result;
   }
 }

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 
 export interface CourseRecord {
@@ -129,6 +129,31 @@ export class CourseRepository {
   return this.getCourse(id);
  }
 
+ attachCourseSource(courseId: string, documentId: string): void {
+  const now = new Date().toISOString();
+  this.db
+   .prepare(
+    `INSERT INTO course_sources (course_id, document_id, created_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(course_id, document_id) DO NOTHING`
+   )
+   .run(courseId, documentId, now);
+ }
+
+ detachCourseSource(courseId: string, documentId: string): boolean {
+  const info = this.db
+   .prepare('DELETE FROM course_sources WHERE course_id = ? AND document_id = ?')
+   .run(courseId, documentId);
+  return info.changes > 0;
+ }
+
+ countCourseSourceReferences(documentId: string): number {
+  const row = this.db
+   .prepare('SELECT COUNT(*) as count FROM course_sources WHERE document_id = ?')
+   .get(documentId) as { count: number } | undefined;
+  return row?.count ?? 0;
+ }
+
  addCourseSource(
   courseId: string,
   title: string,
@@ -136,26 +161,27 @@ export class CourseRepository {
  ): CourseSourceRecord {
   const documentId = `doc-${randomUUID()}`;
   const versionId = `ver-${randomUUID()}`;
+  const contentHash = createHash('sha256').update(content).digest('hex');
   const now = new Date().toISOString();
 
   this.db.transaction(() => {
    this.db
-    .prepare('INSERT INTO documents (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)')
+    .prepare(
+     `INSERT INTO documents (id, title, created_at, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at`
+    )
     .run(documentId, title, now, now);
 
    this.db
     .prepare(
-     'INSERT INTO document_versions (id, document_id, version, content_hash, content, status, created_at) VALUES (?, ?, 1, ?, ?, ?, ?)'
+     `INSERT INTO document_versions (id, document_id, version, content_hash, content, status, created_at)
+           VALUES (?, ?, 1, ?, ?, 'active', ?)
+           ON CONFLICT(document_id, content_hash) DO NOTHING`
     )
-    .run(versionId, documentId, `${content.length}`, content, 'active', now);
+    .run(versionId, documentId, contentHash, content, now);
 
-   this.db
-    .prepare(
-     `INSERT INTO course_sources (course_id, document_id, created_at)
-           VALUES (?, ?, ?)
-           ON CONFLICT(course_id, document_id) DO NOTHING`
-    )
-    .run(courseId, documentId, now);
+   this.attachCourseSource(courseId, documentId);
   })();
 
   return {
@@ -177,7 +203,7 @@ export class CourseRepository {
          FROM documents d
          JOIN course_sources cs ON cs.document_id = d.id
          JOIN document_versions dv ON dv.document_id = d.id
-         WHERE cs.course_id = ? AND dv.status != 'deleted'
+         WHERE cs.course_id = ? AND dv.status = 'active'
          ORDER BY dv.created_at ASC`
    )
    .all(courseId) as any[];
@@ -195,18 +221,7 @@ export class CourseRepository {
  }
 
  deleteCourseSource(courseId: string, documentId: string): boolean {
-  const deleteTx = this.db.transaction(() => {
-   this.db
-    .prepare('DELETE FROM course_sources WHERE course_id = ? AND document_id = ?')
-    .run(courseId, documentId);
-
-   this.db
-    .prepare(`UPDATE document_versions SET status = 'deleted' WHERE document_id = ?`)
-    .run(documentId);
-  });
-
-  deleteTx();
-  return true;
+  return this.detachCourseSource(courseId, documentId);
  }
 
  getCourseMap(courseId: string): CourseMapData {

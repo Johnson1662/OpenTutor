@@ -5,6 +5,7 @@ import type {
   AgentCompletedEventData,
   LearningPathNode,
   Lesson,
+  LessonActivatedEventData,
   LessonPatchEventData,
   LessonUpdatedEventData,
   PathPatchEventData,
@@ -82,6 +83,11 @@ export function LearningRoom({
               setLesson((prev) => (prev ? { ...prev, ...data.changes, version: data.version } : prev));
             }
 
+            if (event.type === 'lesson.activated') {
+              const data = event.data as LessonActivatedEventData;
+              setLesson(data.lesson);
+            }
+
             if (event.type === 'path.patch') {
               const data = event.data as PathPatchEventData;
               setPath((prev) => applyPathPatches(prev, data.patches));
@@ -95,7 +101,14 @@ export function LearningRoom({
 
             if (event.type === 'error') {
               setBusy(false);
-              onFlash(`Agent error: ${(event.data as any)?.error || 'Operation failed'}`);
+              let errorMsg = 'Operation failed';
+              if (event.data && typeof event.data === 'object' && 'error' in event.data) {
+                const errValue = (event.data as Record<string, unknown>).error;
+                if (typeof errValue === 'string') {
+                  errorMsg = errValue;
+                }
+              }
+              onFlash(`Agent error: ${errorMsg}`);
             }
           },
           (status) => setConnected(status)

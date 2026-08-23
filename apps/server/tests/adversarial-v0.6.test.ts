@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Type } from 'typebox';
-import { createDatabase, seedDatabase, CourseRepository } from '@opentutor/database';
+import { createDatabase, seedDatabase, CourseRepository, SessionRepository, VersionConflictError, EventRepository } from '@opentutor/database';
 import {
  DefaultModelExecutionService,
+ FakeModelDriver,
  ModelExecutionError,
  RoleModelResolver,
  ModelSelectionService,
@@ -20,10 +21,13 @@ import {
 } from '@opentutor/knowledge-core';
 import {
  LessonValidator,
+ LearningSessionCoordinator,
 } from '@opentutor/lesson-core';
 import {
  PrerequisiteResolver,
 } from '@opentutor/course-core';
+import { SessionService } from '../src/services/session-service.ts';
+import { EventBus } from '../src/events/event-bus.ts';
 
 test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
  const db = createDatabase(':memory:');
@@ -40,9 +44,12 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
    }),
   } as any;
 
-  const brokenService = new DefaultModelExecutionService(mockRoleResolver, async () => {
-   return '<html>Internal Server Error 502</html>';
-  });
+  const brokenService = new DefaultModelExecutionService(
+   mockRoleResolver,
+   new FakeModelDriver(async () => {
+    return '<html>Internal Server Error 502</html>';
+   })
+  );
 
   const Schema = Type.Object({ title: Type.String() });
 
@@ -230,7 +237,7 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
 
   const selectionService = new ModelSelectionService(emptyRuntime, prefsRepo);
   const roleResolver = new RoleModelResolver(selectionService, emptyRuntime, prefsRepo);
-  const execService = new DefaultModelExecutionService(roleResolver);
+  const execService = new DefaultModelExecutionService(roleResolver, new FakeModelDriver());
 
   await assert.rejects(
    async () => {
@@ -246,5 +253,85 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
     return true;
    }
   );
+ });
+
+ await t.test('9. Session: Atomic domain transaction rolls back cleanly on VersionConflictError without corrupting active lesson', async () => {
+  const sessionRepo = new SessionRepository(db);
+  const eventRepo = new EventRepository(db);
+  const eventBus = new EventBus(eventRepo);
+  const sessionService = new SessionService(sessionRepo, eventBus);
+
+  const initialSnap = sessionService.getSnapshot('prototype');
+  assert.ok(initialSnap);
+  assert.equal(initialSnap.pathVersion, 1);
+  assert.equal(initialSnap.lesson.id, 'lesson-self-attention');
+
+  // Attempt detour with stale baseVersion (expected 1, provided 99)
+  await assert.rejects(
+   async () => {
+    await sessionService.insertDetour('prototype', 99, {
+     id: 'detour-conflict-test',
+     knowledgeNodeId: 'softmax',
+     title: 'Softmax Conflict',
+    });
+   },
+   (err: any) => {
+    assert.equal(err instanceof VersionConflictError, true);
+    return true;
+   }
+  );
+
+  // Snapshot must remain completely unchanged
+  const postFailSnap = sessionService.getSnapshot('prototype');
+  assert.ok(postFailSnap);
+  assert.equal(postFailSnap.pathVersion, 1);
+  assert.equal(postFailSnap.lesson.id, 'lesson-self-attention');
+  assert.equal(sessionRepo.peekActiveFrame('prototype'), null);
+ });
+
+ await t.test('10. Session: Session frames support nested detours and dynamic courseId', async () => {
+  const sessionRepo = new SessionRepository(db);
+  const eventRepo = new EventRepository(db);
+  const eventBus = new EventBus(eventRepo);
+  const sessionService = new SessionService(sessionRepo, eventBus);
+
+  // 1. Insert Detour 1 (Softmax)
+  const detour1Res = await sessionService.insertDetour('prototype', 1, {
+   id: 'detour-soft',
+   knowledgeNodeId: 'softmax',
+   title: 'Softmax Detour',
+  });
+  assert.equal(detour1Res.newVersion, 2);
+
+  const frame1 = sessionRepo.peekActiveFrame('prototype');
+  assert.ok(frame1);
+  assert.equal(frame1.depth, 1);
+
+  // 2. Insert Nested Detour 2 (Multi-Head)
+  const detour2Res = await sessionService.insertDetour('prototype', 2, {
+   id: 'detour-multi',
+   knowledgeNodeId: 'multi-head',
+   title: 'Multi-Head Detour',
+  });
+  assert.equal(detour2Res.newVersion, 3);
+
+  const frame2 = sessionRepo.peekActiveFrame('prototype');
+  assert.ok(frame2);
+  assert.equal(frame2.depth, 2);
+
+  // 3. Complete Detour 2 -> restores frame 1 (depth 1)
+  const comp2 = await sessionService.completeCurrentNode('prototype', 3);
+  assert.equal(comp2.newVersion, 4);
+
+  const frameAfterComp2 = sessionRepo.peekActiveFrame('prototype');
+  assert.ok(frameAfterComp2);
+  assert.equal(frameAfterComp2.depth, 1);
+
+  // 4. Complete Detour 1 -> restores main track (depth 0, no active frames)
+  const comp1 = await sessionService.completeCurrentNode('prototype', 4);
+  assert.equal(comp1.newVersion, 5);
+
+  const frameAfterComp1 = sessionRepo.peekActiveFrame('prototype');
+  assert.equal(frameAfterComp1, null);
  });
 });

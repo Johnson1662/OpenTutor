@@ -22,6 +22,7 @@ export type LearningEventType =
   | 'agent.completed'
   | 'lesson.patch'
   | 'lesson.updated'
+  | 'lesson.activated'
   | 'path.patch'
   | 'assessment.completed'
   | 'knowledge.updated'
@@ -77,6 +78,11 @@ export interface LessonUpdatedEventData {
   changes: Partial<Pick<Lesson, 'status' | 'title' | 'objective'>>;
 }
 
+export interface LessonActivatedEventData {
+  lesson: Lesson;
+  previousLessonId?: string;
+}
+
 export interface PathPatchEventData {
   baseVersion: number;
   version: number;
@@ -95,6 +101,7 @@ export interface KnowledgeUpdatedEventData {
 
 export interface LearningSessionSnapshot {
   sessionId: string;
+  courseId?: string;
   lesson: Lesson;
   path: LearningPathNode[];
   pathVersion: number;

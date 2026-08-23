@@ -2,6 +2,7 @@ export * from './source/source-hash.ts';
 export * from './source/markdown-parser.ts';
 export * from './source/ingestion-service.ts';
 export * from './source/document-lifecycle.ts';
+export * from './source/course-source-service.ts';
 
 export * from './analysis/knowledge-candidate-schema.ts';
 export * from './analysis/analysis-batcher.ts';

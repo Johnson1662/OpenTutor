@@ -217,6 +217,107 @@ describe('@opentutor/database', () => {
         }
       );
     });
+
+    it('manages learning session frames with pushFrame, peekActiveFrame, and popActiveFrame', () => {
+      const session = sessionRepo.getSession('prototype');
+      assert.ok(session);
+      assert.equal(session.courseId, 'transformer');
+
+      const snapshot = sessionRepo.getSessionSnapshot('prototype');
+      assert.ok(snapshot);
+      assert.equal(snapshot.courseId, 'transformer');
+
+      // No active frame initially
+      assert.equal(sessionRepo.peekActiveFrame('prototype'), null);
+
+      // Push Frame 1 (depth 1)
+      const frame1 = sessionRepo.pushFrame({
+        sessionId: 'prototype',
+        detourPathNodeId: 'detour-softmax',
+        parentPathNodeId: 'self-attention',
+        savedLessonId: 'lesson-self-attention',
+      });
+      assert.equal(frame1.depth, 1);
+      assert.equal(frame1.status, 'active');
+
+      // Peek returns Frame 1
+      const peek1 = sessionRepo.peekActiveFrame('prototype');
+      assert.ok(peek1);
+      assert.equal(peek1.id, frame1.id);
+      assert.equal(peek1.depth, 1);
+
+      // Push Nested Frame 2 (depth 2)
+      const frame2 = sessionRepo.pushFrame({
+        sessionId: 'prototype',
+        detourPathNodeId: 'detour-logits',
+        parentPathNodeId: 'detour-softmax',
+        savedLessonId: 'lesson-softmax',
+      });
+      assert.equal(frame2.depth, 2);
+      assert.equal(frame2.status, 'active');
+
+      // Peek returns Frame 2 (highest depth)
+      const peek2 = sessionRepo.peekActiveFrame('prototype');
+      assert.ok(peek2);
+      assert.equal(peek2.id, frame2.id);
+      assert.equal(peek2.depth, 2);
+
+      // Pop Frame 2
+      const popped2 = sessionRepo.popActiveFrame('prototype');
+      assert.ok(popped2);
+      assert.equal(popped2.id, frame2.id);
+      assert.equal(popped2.status, 'completed');
+
+      // Peek now returns Frame 1
+      const peekAfterPop = sessionRepo.peekActiveFrame('prototype');
+      assert.ok(peekAfterPop);
+      assert.equal(peekAfterPop.id, frame1.id);
+      assert.equal(peekAfterPop.depth, 1);
+
+      // Pop Frame 1
+      const popped1 = sessionRepo.popActiveFrame('prototype');
+      assert.ok(popped1);
+      assert.equal(popped1.id, frame1.id);
+      assert.equal(popped1.status, 'completed');
+
+      // Peek returns null
+      assert.equal(sessionRepo.peekActiveFrame('prototype'), null);
+    });
+
+    it('rolls back atomic insertDetour if version conflict occurs', () => {
+      const snapBefore = sessionRepo.getSessionSnapshot('prototype');
+      assert.ok(snapBefore);
+      const activeLessonBefore = snapBefore.lesson.id;
+      const pathVersionBefore = snapBefore.pathVersion;
+
+      // Try insertDetour with wrong baseVersion
+      assert.throws(
+        () => {
+          sessionRepo.insertDetour('prototype', 999, {
+            id: 'detour-fail',
+            knowledgeNodeId: 'softmax',
+            title: 'Softmax Fail',
+          }, {
+            activeLessonId: 'lesson-softmax',
+            frame: {
+              parentPathNodeId: 'self-attention',
+              savedLessonId: activeLessonBefore,
+            },
+          });
+        },
+        (err: unknown) => {
+          assert.ok(err instanceof VersionConflictError);
+          return true;
+        }
+      );
+
+      // Verify no changes were committed: no frame, no path change, no active lesson change
+      const snapAfter = sessionRepo.getSessionSnapshot('prototype');
+      assert.ok(snapAfter);
+      assert.equal(snapAfter.pathVersion, pathVersionBefore);
+      assert.equal(snapAfter.lesson.id, activeLessonBefore);
+      assert.equal(sessionRepo.peekActiveFrame('prototype'), null);
+    });
   });
 
   describe('KnowledgeRepository', () => {

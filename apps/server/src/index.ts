@@ -18,8 +18,24 @@ import { KnowledgeService } from './services/knowledge-service.ts';
 import { AssessmentService } from './services/assessment-service.ts';
 import { LearningProgressService } from './services/learning-progress-service.ts';
 import { CourseService } from './services/course-service.ts';
-import { SearchService, LivingKnowledgeCompiler } from '@opentutor/knowledge-core';
-import { CourseCompiler } from '@opentutor/course-core';
+import {
+  SearchService,
+  LivingKnowledgeCompiler,
+  ModelKnowledgeAnalyzer,
+  FakeKnowledgeAnalyzer,
+  ModelArtifactSynthesizer,
+  FakeArtifactSynthesizer,
+} from '@opentutor/knowledge-core';
+import {
+  CourseCompiler,
+  ModelGoalAnalyzer,
+  FakeGoalAnalyzer,
+} from '@opentutor/course-core';
+import {
+  LearningSessionCoordinator,
+  ModelLessonGenerator,
+  FakeLessonGenerator,
+} from '@opentutor/lesson-core';
 import {
   createOpenTutorModelRuntime,
   ProviderService,
@@ -27,6 +43,8 @@ import {
   ModelPreferencesRepository,
   ModelSelectionService,
   SessionModelResolver,
+  RoleModelResolver,
+  DefaultModelExecutionService,
 } from '@opentutor/model-runtime';
 import { DomainToolsExecutor } from '@opentutor/agent-tools';
 import { PiTutorRuntime, type TutorRuntime } from '@opentutor/agent-runtime';
@@ -73,23 +91,50 @@ export async function createServerContext(
   const authService = new AuthService(modelRuntime);
   const modelSelectionService = new ModelSelectionService(modelRuntime, preferencesRepo);
   const sessionModelResolver = new SessionModelResolver(modelSelectionService, modelRuntime, agentSessionRepo);
+  const roleModelResolver = new RoleModelResolver(modelSelectionService, modelRuntime, preferencesRepo);
+  const modelExecutionService = new DefaultModelExecutionService(roleModelResolver);
+
+  const isTestOrFake = process.env.OPENTUTOR_RUNTIME_MODE === 'fake' || process.env.NODE_ENV === 'test';
+
+  const knowledgeAnalyzer = isTestOrFake
+    ? new FakeKnowledgeAnalyzer()
+    : new ModelKnowledgeAnalyzer(modelExecutionService);
+
+  const artifactSynthesizer = isTestOrFake
+    ? new FakeArtifactSynthesizer()
+    : new ModelArtifactSynthesizer(modelExecutionService);
+
+  const goalAnalyzer = isTestOrFake
+    ? new FakeGoalAnalyzer()
+    : new ModelGoalAnalyzer(modelExecutionService);
+
+  const lessonGenerator = isTestOrFake
+    ? new FakeLessonGenerator()
+    : new ModelLessonGenerator(modelExecutionService);
 
   const eventBus = new EventBus(eventRepo);
-  const sessionService = new SessionService(sessionRepo, eventBus);
+  const knowledgeCompiler = new LivingKnowledgeCompiler(db, knowledgeAnalyzer, artifactSynthesizer);
+  const courseCompiler = new CourseCompiler(db, goalAnalyzer);
+  const learningSessionCoordinator = new LearningSessionCoordinator(
+    db,
+    knowledgeCompiler.artifacts,
+    lessonGenerator
+  );
+
+  const sessionService = new SessionService(sessionRepo, eventBus, learningSessionCoordinator);
   const lessonService = new LessonService(lessonRepo, eventBus);
   const searchService = new SearchService(db);
   const knowledgeService = new KnowledgeService(knowledgeRepo, searchService, eventBus);
   const learningProgressService = new LearningProgressService(sessionService, eventBus);
   const assessmentService = new AssessmentService(lessonService, knowledgeService, learningProgressService);
 
-  const knowledgeCompiler = new LivingKnowledgeCompiler(db);
-  const courseCompiler = new CourseCompiler(db);
   const courseService = new CourseService(
     courseRepo,
     sessionRepo,
     lessonRepo,
     knowledgeCompiler,
     courseCompiler,
+    lessonGenerator,
     eventBus
   );
 

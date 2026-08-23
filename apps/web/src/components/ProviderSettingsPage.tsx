@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import {
   listProviders,
+  listProviderModels,
   getAiPreferences,
   updateAiPreferences,
-  startAuthSession,
+  loginWithApiKey,
   type ProviderInfo,
   type UserAiPreferences,
 } from '../runtime/api.ts';
 
 export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => void }) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [models, setModels] = useState<Array<{ id: string; name: string }>>([]);
   const [prefs, setPrefs] = useState<UserAiPreferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiKeyModal, setApiKeyModal] = useState<string | null>(null);
@@ -20,6 +22,12 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (prefs?.defaultProviderId) {
+      loadModels(prefs.defaultProviderId);
+    }
+  }, [prefs?.defaultProviderId]);
+
   async function loadData() {
     try {
       setLoading(true);
@@ -29,6 +37,9 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
       ]);
       setProviders(provList);
       setPrefs(userPrefs);
+      if (userPrefs.defaultProviderId) {
+        await loadModels(userPrefs.defaultProviderId);
+      }
     } catch (err: any) {
       onFlash(`Error loading AI settings: ${err.message}`);
     } finally {
@@ -36,11 +47,20 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     }
   }
 
+  async function loadModels(providerId: string) {
+    try {
+      const modelList = await listProviderModels(providerId);
+      setModels(modelList);
+    } catch {
+      setModels([]);
+    }
+  }
+
   async function handleConnectApiKey(providerId: string) {
     if (!apiKeyInput.trim()) return;
     try {
       setSaving(true);
-      await startAuthSession(providerId, 'api_key');
+      await loginWithApiKey(providerId, apiKeyInput.trim());
       onFlash(`Connected ${providerId} API key successfully!`);
       setApiKeyModal(null);
       setApiKeyInput('');
@@ -74,7 +94,7 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     <main className="page-shell">
       <div className="page-header">
         <h1>AI Provider Control Plane</h1>
-        <p>Connect and configure your AI models. Credentials remain secure and locally encrypted.</p>
+        <p>Credentials are stored locally by the Pi model runtime and are never written to the OpenTutor SQLite database.</p>
       </div>
 
       <section className="settings-grid">
@@ -91,12 +111,12 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
                 </div>
                 <div className="provider-actions">
                   {p.configured ? (
-                    <button className="btn-secondary" onClick={() => onFlash(`${p.name} is ready for learning sessions.`)}>
+                    <button className="btn-secondary" onClick={() => onFlash(`${p.name} is configured and ready.`)}>
                       Configured
                     </button>
                   ) : (
                     <button className="btn-primary" onClick={() => setApiKeyModal(p.id)}>
-                      Connect API Key
+                      Connect Key / Auth
                     </button>
                   )}
                 </div>
@@ -107,32 +127,40 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
 
         <div className="settings-card">
           <h2>Default Model Selection</h2>
-          <p className="hint-text">Select the default model for Tutor, Knowledge Compilation, and dynamic Lessons.</p>
+          <p className="hint-text">Select your default model for Socratic Tutor, Knowledge Compilation, and dynamic Lessons.</p>
 
           <form onSubmit={handleSaveModelPreferences} className="preferences-form">
             <label className="form-field">
               <span>Default Provider</span>
               <select
                 value={prefs?.defaultProviderId ?? 'anthropic'}
-                onChange={(e) => setPrefs((prev) => prev ? { ...prev, defaultProviderId: e.target.value } : null)}
+                onChange={(e) => {
+                  const newProv = e.target.value;
+                  setPrefs((prev) => prev ? { ...prev, defaultProviderId: newProv } : null);
+                  loadModels(newProv);
+                }}
               >
-                <option value="anthropic">Anthropic Claude</option>
-                <option value="openai-codex">OpenAI / ChatGPT</option>
-                <option value="google">Google Gemini</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
               </select>
             </label>
 
             <label className="form-field">
               <span>Default Model ID</span>
               <select
-                value={prefs?.defaultModelId ?? 'claude-3-7-sonnet-20250219'}
+                value={prefs?.defaultModelId ?? ''}
                 onChange={(e) => setPrefs((prev) => prev ? { ...prev, defaultModelId: e.target.value } : null)}
               >
-                <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Hybrid Reasoning)</option>
-                <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-                <option value="gpt-4o">GPT-4o (Omni)</option>
-                <option value="o3-mini">o3-mini (High Reasoning)</option>
-                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                {models.length > 0 ? (
+                  models.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                  ))
+                ) : (
+                  <option value={prefs?.defaultModelId ?? 'claude-3-7-sonnet-20250219'}>
+                    {prefs?.defaultModelId ?? 'Default Model'}
+                  </option>
+                )}
               </select>
             </label>
 
@@ -159,8 +187,8 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
       {apiKeyModal && (
         <div className="modal-backdrop">
           <div className="modal-box">
-            <h3>Connect {apiKeyModal} API Key</h3>
-            <p>Paste your secret key below to enable real AI knowledge compilation and Socratic tutoring:</p>
+            <h3>Connect {apiKeyModal}</h3>
+            <p>Paste your API secret key below to enable real AI knowledge compilation and Socratic tutoring:</p>
             <input
               type="password"
               placeholder="sk-..."
@@ -175,7 +203,7 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
                 onClick={() => handleConnectApiKey(apiKeyModal)}
                 disabled={saving || !apiKeyInput.trim()}
               >
-                {saving ? 'Connecting...' : 'Save Key'}
+                {saving ? 'Connecting...' : 'Save & Connect'}
               </button>
             </div>
           </div>

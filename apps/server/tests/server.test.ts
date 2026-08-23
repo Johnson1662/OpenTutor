@@ -4,7 +4,8 @@ import { createServerContext } from '../src/index.ts';
 import type { AcceptedResponse, LearningSessionSnapshot } from '@opentutor/protocol';
 
 test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
-  const { server, context, close } = await createServerContext(':memory:');
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { server, db, context, close } = await createServerContext(':memory:');
   const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
   server.listen(0, () => resolveListen());
   await listenPromise;

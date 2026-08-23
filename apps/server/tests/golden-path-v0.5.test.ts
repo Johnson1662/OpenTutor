@@ -5,6 +5,7 @@ import { LivingKnowledgeCompiler } from '@opentutor/knowledge-core';
 import type { LearningPathNode, LearningSessionSnapshot } from '@opentutor/protocol';
 
 test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptive Tutor Loop', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
   const { server, db, context, preferencesRepo, close } = await createServerContext(':memory:');
   const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
   server.listen(0, () => resolveListen());

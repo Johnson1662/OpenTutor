@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Type } from 'typebox';
-import { createDatabase, seedDatabase } from '@opentutor/database';
+import { createDatabase, seedDatabase, CourseRepository } from '@opentutor/database';
 import {
  DefaultModelExecutionService,
  ModelExecutionError,
@@ -15,6 +15,7 @@ import {
  ClaimReconciler,
  ClaimService,
  EvidenceService,
+ DocumentLifecycleService,
  EntityResolver,
 } from '@opentutor/knowledge-core';
 import {
@@ -180,5 +181,70 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
   assert.equal(closure.hasCycle, true);
   assert.ok(closure.orderedNodeIds.includes('cycle-a'));
   assert.ok(closure.orderedNodeIds.includes('cycle-b'));
+ });
+
+ await t.test('6. Course Sources: Documents uploaded to Course A are strictly isolated from Course B', () => {
+  const courseRepo = new CourseRepository(db);
+
+  courseRepo.createCourse({ id: 'course-iso-a', title: 'Course A' });
+  courseRepo.createCourse({ id: 'course-iso-b', title: 'Course B' });
+
+  courseRepo.addCourseSource('course-iso-a', 'Doc A.md', '# Content A');
+  courseRepo.addCourseSource('course-iso-b', 'Doc B.md', '# Content B');
+
+  const sourcesA = courseRepo.listCourseSources('course-iso-a');
+  const sourcesB = courseRepo.listCourseSources('course-iso-b');
+
+  assert.equal(sourcesA.length, 1);
+  assert.equal(sourcesA[0]?.title, 'Doc A.md');
+
+  assert.equal(sourcesB.length, 1);
+  assert.equal(sourcesB[0]?.title, 'Doc B.md');
+ });
+
+ await t.test('7. Source Deletion: Deleting document cascades to course_sources and deactivates evidence', () => {
+  const courseRepo = new CourseRepository(db);
+  const claims = new ClaimService(db);
+  const evidence = new EvidenceService(db);
+  const lifecycle = new DocumentLifecycleService(db, claims, evidence);
+
+  courseRepo.createCourse({ id: 'course-del', title: 'Course Del' });
+  const src = courseRepo.addCourseSource('course-del', 'Doc Del.md', '# Del Content');
+
+  assert.equal(courseRepo.listCourseSources('course-del').length, 1);
+
+  // Delete source
+  courseRepo.deleteCourseSource('course-del', src.documentId);
+  lifecycle.deleteDocument(src.documentId);
+
+  assert.equal(courseRepo.listCourseSources('course-del').length, 0);
+ });
+
+ await t.test('8. AI: Unconfigured role model throws MODEL_SETUP_REQUIRED error', async () => {
+  const emptyRuntime = {
+   findModel: () => undefined,
+   getModel: () => undefined,
+   getModels: () => [],
+   hasConfiguredAuth: () => false,
+  } as any;
+
+  const selectionService = new ModelSelectionService(emptyRuntime, prefsRepo);
+  const roleResolver = new RoleModelResolver(selectionService, emptyRuntime, prefsRepo);
+  const execService = new DefaultModelExecutionService(roleResolver);
+
+  await assert.rejects(
+   async () => {
+    await execService.completeText({
+     role: 'assessment',
+     prompt: 'Evaluate',
+     userId: 'unconfigured-user',
+    });
+   },
+   (err: any) => {
+    assert.equal(err instanceof ModelExecutionError, true);
+    assert.equal(err.code, 'MODEL_SETUP_REQUIRED');
+    return true;
+   }
+  );
  });
 });

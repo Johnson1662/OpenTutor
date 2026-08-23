@@ -228,6 +228,13 @@ export class SessionRepository {
   return row.path_version;
  }
 
+ setActiveLesson(sessionId: string, lessonId: string): void {
+  const now = new Date().toISOString();
+  this.db
+   .prepare('UPDATE learning_sessions SET active_lesson_id = ?, updated_at = ? WHERE id = ?')
+   .run(lessonId, now, sessionId);
+ }
+
  createSession(params: CreateSessionParams): void {
   const now = new Date().toISOString();
   const createTx = this.db.transaction(() => {

@@ -13,7 +13,7 @@ export interface DomainServicesContext {
       lessonId: string,
       baseVersion: number,
       patches: LessonPatch[]
-    ): { lesson: Lesson; newVersion: number };
+    ): { lesson: Lesson; newVersion: number } | Promise<{ lesson: Lesson; newVersion: number }>;
   };
   sessionService: {
     getSnapshot(sessionId: string): { lesson?: Lesson; path: LearningPathNode[]; pathVersion: number } | null;
@@ -21,23 +21,23 @@ export interface DomainServicesContext {
       sessionId: string,
       baseVersion: number,
       patches: LearningPathPatch[]
-    ): { path: LearningPathNode[]; newVersion: number };
+    ): { path: LearningPathNode[]; newVersion: number } | Promise<{ path: LearningPathNode[]; newVersion: number }>;
     insertDetour?(
       sessionId: string,
       baseVersion: number,
       detour: { id: string; knowledgeNodeId: string; title: string; note?: string }
-    ): { path: LearningPathNode[]; newVersion: number };
+    ): { path: LearningPathNode[]; newVersion: number } | Promise<{ path: LearningPathNode[]; newVersion: number }>;
     completeCurrentNode?(
       sessionId: string,
       baseVersion: number
-    ): { path: LearningPathNode[]; newVersion: number };
+    ): { path: LearningPathNode[]; newVersion: number } | Promise<{ path: LearningPathNode[]; newVersion: number }>;
   };
   knowledgeService?: {
-    searchKnowledge?(query: string, limit?: number): unknown[];
+    searchKnowledge?(query: string, limit?: number): unknown;
     readArtifact?(knowledgeNodeId: string): unknown;
-    sourceSearch?(query: string, limit?: number): unknown[];
+    sourceSearch?(query: string, limit?: number): unknown;
     sourceRead?(chunkId: string): unknown;
-    getNeighbors?(knowledgeNodeId: string, direction?: string): unknown[];
+    getNeighbors?(knowledgeNodeId: string, direction?: string): unknown;
   };
 }
 
@@ -76,7 +76,7 @@ export class DomainToolsExecutor {
           if (!Array.isArray(patches)) {
             return { success: false, error: 'patches must be an array' };
           }
-          const result = this.services.lessonService.applyPatches(sessionId, lessonId, baseVersion, patches);
+          const result = await this.services.lessonService.applyPatches(sessionId, lessonId, baseVersion, patches);
           return { success: true, data: result };
         }
 
@@ -96,7 +96,7 @@ export class DomainToolsExecutor {
           const detourId = `detour-${knowledgeNodeId}-${Date.now()}`;
 
           if (typeof this.services.sessionService.insertDetour === 'function') {
-            const result = this.services.sessionService.insertDetour(sid, baseVersion, {
+            const result = await this.services.sessionService.insertDetour(sid, baseVersion, {
               id: detourId,
               knowledgeNodeId,
               title,
@@ -125,7 +125,7 @@ export class DomainToolsExecutor {
               },
             });
           }
-          const result = this.services.sessionService.applyPathPatches(sid, baseVersion, patches);
+          const result = await this.services.sessionService.applyPathPatches(sid, baseVersion, patches);
           return { success: true, data: result };
         }
 
@@ -133,74 +133,76 @@ export class DomainToolsExecutor {
           const sid = String(args.sessionId || sessionId);
           const baseVersion = Number(args.baseVersion);
           if (typeof this.services.sessionService.completeCurrentNode === 'function') {
-            const result = this.services.sessionService.completeCurrentNode(sid, baseVersion);
+            const result = await this.services.sessionService.completeCurrentNode(sid, baseVersion);
             return { success: true, data: result };
           }
-          return { success: true, data: { advanced: true } };
+          return { success: false, error: 'completeCurrentNode not supported' };
+        }
+
+        case 'path_patch': {
+          const sid = String(args.sessionId || sessionId);
+          const baseVersion = Number(args.baseVersion);
+          const patches = args.patches as LearningPathPatch[];
+          if (!Array.isArray(patches)) {
+            return { success: false, error: 'patches must be an array' };
+          }
+          const result = await this.services.sessionService.applyPathPatches(sid, baseVersion, patches);
+          return { success: true, data: result };
         }
 
         case 'knowledge_search': {
-          const query = String(args.query);
-          const limit = Number(args.limit ?? 5);
           if (!this.services.knowledgeService?.searchKnowledge) {
             return { success: false, error: 'Knowledge service not available' };
           }
-          const results = this.services.knowledgeService.searchKnowledge(query, limit);
-          return { success: true, data: results };
+          const query = String(args.query || '');
+          const limit = typeof args.limit === 'number' ? args.limit : 5;
+          const data = await this.services.knowledgeService.searchKnowledge(query, limit);
+          return { success: true, data };
         }
 
         case 'artifact_read': {
-          const nodeId = String(args.knowledgeNodeId);
           if (!this.services.knowledgeService?.readArtifact) {
-            return { success: false, error: 'Knowledge service not available' };
+            return { success: false, error: 'Artifact read service not available' };
           }
-          const artifact = this.services.knowledgeService.readArtifact(nodeId);
-          if (!artifact) {
-            return { success: false, error: `Artifact not found for node: ${nodeId}` };
-          }
-          return { success: true, data: artifact };
+          const knowledgeNodeId = String(args.knowledgeNodeId);
+          const data = await this.services.knowledgeService.readArtifact(knowledgeNodeId);
+          return { success: true, data };
         }
 
         case 'source_search': {
-          const query = String(args.query);
-          const limit = Number(args.limit ?? 3);
           if (!this.services.knowledgeService?.sourceSearch) {
             return { success: false, error: 'Source search service not available' };
           }
-          const results = this.services.knowledgeService.sourceSearch(query, limit);
-          return { success: true, data: results };
+          const query = String(args.query || '');
+          const limit = typeof args.limit === 'number' ? args.limit : 5;
+          const data = await this.services.knowledgeService.sourceSearch(query, limit);
+          return { success: true, data };
         }
 
         case 'source_read': {
-          const chunkId = String(args.chunkId);
           if (!this.services.knowledgeService?.sourceRead) {
             return { success: false, error: 'Source read service not available' };
           }
-          const chunk = this.services.knowledgeService.sourceRead(chunkId);
-          if (!chunk) {
-            return { success: false, error: `Document chunk not found: ${chunkId}` };
-          }
-          return { success: true, data: chunk };
+          const chunkId = String(args.chunkId);
+          const data = await this.services.knowledgeService.sourceRead(chunkId);
+          return { success: true, data };
         }
 
         case 'graph_neighbors': {
-          const nodeId = String(args.knowledgeNodeId);
-          const direction = String(args.direction ?? 'all');
           if (!this.services.knowledgeService?.getNeighbors) {
             return { success: false, error: 'Graph neighbors service not available' };
           }
-          const edges = this.services.knowledgeService.getNeighbors(nodeId, direction);
-          return { success: true, data: edges };
+          const knowledgeNodeId = String(args.knowledgeNodeId);
+          const direction = args.direction ? String(args.direction) : undefined;
+          const data = await this.services.knowledgeService.getNeighbors(knowledgeNodeId, direction);
+          return { success: true, data };
         }
 
         default:
-          return { success: false, error: `Unknown or unauthorized tool: ${toolName}` };
+          return { success: false, error: `Unknown tool: ${toolName}` };
       }
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+    } catch (err: any) {
+      return { success: false, error: err.message ?? String(err) };
     }
   }
 }

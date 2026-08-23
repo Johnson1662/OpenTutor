@@ -46,12 +46,20 @@ export class RoleModelResolver {
     // 2. Fall back to global default preference
     const defaultSelection = await this.modelSelectionService.resolveSelectedModel(userId);
     if (defaultSelection && defaultSelection.providerId && defaultSelection.modelId) {
+      const model = this.modelRuntime.getModel(defaultSelection.providerId, defaultSelection.modelId);
+      const allModels = this.modelRuntime.getModels();
+      if (!model && allModels.length === 0) {
+        throw new Error(
+          `MODEL_SETUP_REQUIRED: No AI model configured for role '${role}'. Please configure an AI Provider in Settings.`
+        );
+      }
+
       return {
         role,
         providerId: defaultSelection.providerId,
         modelId: defaultSelection.modelId,
         thinkingLevel: defaultSelection.thinkingLevel,
-        model: defaultSelection.model,
+        model: model ?? defaultSelection.model,
         isRoleSpecific: false,
       };
     }
@@ -70,6 +78,8 @@ export class RoleModelResolver {
       };
     }
 
-    throw new Error(`MODEL_SETUP_REQUIRED: No AI model configured for role '${role}'. Please configure an AI Provider in Settings.`);
+    throw new Error(
+      `MODEL_SETUP_REQUIRED: No AI model configured for role '${role}'. Please configure an AI Provider in Settings.`
+    );
   }
 }

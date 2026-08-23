@@ -1,4 +1,9 @@
-import { createAgentSession, type AgentSession, type ToolDefinition, type ModelRuntime } from '@earendil-works/pi-coding-agent';
+import {
+  createAgentSession,
+  type AgentSession,
+  type ToolDefinition,
+  type ModelRuntime,
+} from '@earendil-works/pi-coding-agent';
 import type { Model } from '@earendil-works/pi-ai';
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { DomainToolsExecutor } from '@opentutor/agent-tools';
@@ -12,6 +17,8 @@ import {
 
 export interface SessionModelResolverLike {
   resolveSessionModel(sessionId: string): Promise<{
+    providerId?: string;
+    modelId?: string;
     model?: Model<any>;
     thinkingLevel?: ThinkingLevel;
   }>;
@@ -25,6 +32,7 @@ export interface PiSessionRegistryOptions {
   baseURL?: string;
   modelRuntime?: ModelRuntime;
   sessionModelResolver?: SessionModelResolverLike;
+  getRetrievalTracker?: (sessionId: string) => RetrievalStepTracker | undefined;
 }
 
 export class PiSessionRegistry {
@@ -52,12 +60,14 @@ export class PiSessionRegistry {
       return existing;
     }
 
+    const trackerResolver = getRetrievalTracker ?? (() => this.options.getRetrievalTracker?.(sessionId));
+
     const tutorTools = createTutorTools(
       sessionId,
       this.toolsExecutor,
       onToolStart,
       onToolEnd,
-      getRetrievalTracker
+      trackerResolver
     );
     validateTutorToolAllowlist(tutorTools);
 
@@ -74,13 +84,12 @@ export class PiSessionRegistry {
           thinkingLevel = resolved.thinkingLevel;
         }
       } catch {
-        // Fall back to configured defaults
+        // Fall back to default options
       }
     }
 
-    const { session } = await createAgentSession({
+    const result = await createAgentSession({
       cwd: this.options.cwd ?? process.cwd(),
-      modelRuntime: this.options.modelRuntime,
       model,
       thinkingLevel,
       noTools: 'builtin',
@@ -88,6 +97,7 @@ export class PiSessionRegistry {
       tools: Array.from(TUTOR_ALLOWED_TOOLS),
     });
 
+    const session = (result as any).session ?? (result as unknown as AgentSession);
     session.agent.state.systemPrompt = SOCRATIC_TUTOR_SYSTEM_PROMPT;
     this.sessions.set(sessionId, session);
     return session;

@@ -65,6 +65,25 @@ export async function listProviders(): Promise<ProviderInfo[]> {
   return res.json();
 }
 
+export async function listProviderModels(providerId: string): Promise<Array<{ id: string; name: string }>> {
+  const res = await fetch(`/api/ai/providers/${providerId}/models`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.models ?? [];
+}
+
+export async function loginWithApiKey(providerId: string, apiKey: string): Promise<void> {
+  const res = await fetch('/api/ai/auth/login-api-key', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId, apiKey }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? 'Failed to login with API key');
+  }
+}
+
 export async function getAiPreferences(): Promise<UserAiPreferences> {
   const res = await fetch('/api/ai/preferences');
   if (!res.ok) throw new Error('Failed to fetch AI preferences');

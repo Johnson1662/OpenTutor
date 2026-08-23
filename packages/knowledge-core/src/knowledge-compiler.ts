@@ -9,6 +9,7 @@ import { EvidenceService } from './claims/evidence-service.ts';
 import { ClaimReconciler } from './claims/claim-reconciler.ts';
 import { DocumentLifecycleService } from './source/document-lifecycle.ts';
 import { ArtifactCompiler, type CompiledArtifact } from './artifacts/artifact-compiler.ts';
+import { FakeArtifactSynthesizer, type ArtifactSynthesizer } from './artifacts/artifact-synthesizer.ts';
 import { SearchService } from './retrieval/search-service.ts';
 
 export class LivingKnowledgeCompiler {
@@ -24,7 +25,11 @@ export class LivingKnowledgeCompiler {
   readonly artifacts: ArtifactCompiler;
   readonly retrieval: SearchService;
 
-  constructor(db: Database, analyzer?: KnowledgeAnalyzer) {
+  constructor(
+    db: Database,
+    analyzer?: KnowledgeAnalyzer,
+    synthesizer?: ArtifactSynthesizer
+  ) {
     this.db = db;
     this.ingestion = new IngestionService(db);
     this.analyzer = analyzer ?? new FakeKnowledgeAnalyzer();
@@ -34,7 +39,13 @@ export class LivingKnowledgeCompiler {
     this.evidence = new EvidenceService(db);
     this.reconciler = new ClaimReconciler(this.claims, this.evidence);
     this.lifecycle = new DocumentLifecycleService(db, this.claims, this.evidence);
-    this.artifacts = new ArtifactCompiler(db, this.claims, this.evidence, this.relations);
+    this.artifacts = new ArtifactCompiler(
+      db,
+      this.claims,
+      this.evidence,
+      this.relations,
+      synthesizer ?? new FakeArtifactSynthesizer()
+    );
     this.retrieval = new SearchService(db, this.artifacts);
   }
 
@@ -45,7 +56,7 @@ export class LivingKnowledgeCompiler {
     const document = this.ingestion.ingest(input);
 
     // Handle document superseding if a previous version existed
-    this.lifecycle.supersedeDocument(document.id, String(document.version));
+    this.lifecycle.supersedeDocument(document.id, document.documentVersionId);
 
     const candidates = await this.analyzer.analyzeChunks(document.chunks);
     const compiledArtifacts: CompiledArtifact[] = [];

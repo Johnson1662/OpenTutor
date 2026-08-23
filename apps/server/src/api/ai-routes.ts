@@ -16,14 +16,27 @@ export async function handleAiRoutes(
   const method = req.method ?? 'GET';
   const path = url.pathname;
 
-  // GET /api/ai/providers
+  // 1. GET /api/ai/providers
   if (method === 'GET' && path === '/api/ai/providers') {
     const providers = await ctx.providerService.listProviders();
     json(res, 200, providers, req);
     return true;
   }
 
-  // GET /api/ai/preferences
+  // 2. GET /api/ai/providers/:providerId/models
+  const modelsMatch = path.match(/^\/api\/ai\/providers\/([a-zA-Z0-9_-]+)\/models$/);
+  if (method === 'GET' && modelsMatch) {
+    const providerId = modelsMatch[1]!;
+    try {
+      const models = await ctx.providerService.listModels(providerId);
+      json(res, 200, { models }, req);
+    } catch (err: any) {
+      json(res, 400, { error: err.message ?? String(err) }, req);
+    }
+    return true;
+  }
+
+  // 3. GET /api/ai/preferences
   if (method === 'GET' && path === '/api/ai/preferences') {
     const userId = url.searchParams.get('userId') ?? 'default-user';
     const preferences = ctx.preferencesRepo.getPreferences(userId) ?? {
@@ -37,7 +50,7 @@ export async function handleAiRoutes(
     return true;
   }
 
-  // PUT /api/ai/preferences
+  // 4. PUT /api/ai/preferences
   if (method === 'PUT' && path === '/api/ai/preferences') {
     const body = await readJson<{
       userId?: string;

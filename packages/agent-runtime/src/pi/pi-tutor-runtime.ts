@@ -42,21 +42,18 @@ export class PiTutorRuntime implements TutorRuntime {
       this.runtimeMode = options.runtimeMode;
     } else if (envMode === 'pi' || envMode === 'fake') {
       this.runtimeMode = envMode;
-    } else if (
-      process.env.NODE_ENV === 'test' ||
-      (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.LLM_API_KEY && !options.apiKey)
-    ) {
+    } else if (process.env.NODE_ENV === 'test') {
       this.runtimeMode = 'fake';
     } else {
-      const hasAuth = Boolean(
-        options.apiKey ??
-        process.env.LLM_API_KEY ??
-        process.env.OPENAI_API_KEY ??
-        options.modelRuntime?.hasConfiguredAuth(options.model?.provider ?? 'anthropic')
-      );
-      this.runtimeMode = hasAuth ? 'pi' : 'fake';
+      this.runtimeMode = 'pi';
     }
-    this.registry = new PiSessionRegistry(toolsExecutor, options);
+
+    this.registry = new PiSessionRegistry(toolsExecutor, {
+      ...options,
+      getRetrievalTracker: (sessionId: string) => {
+        return this.currentTurnContext.get(sessionId)?.retrieval;
+      },
+    });
   }
 
   async runTurn(input: TutorTurnInput): Promise<TutorTurnResult> {
@@ -118,11 +115,36 @@ export class PiTutorRuntime implements TutorRuntime {
     const controller = new AbortController();
     const runId = `run-${randomUUID()}`;
 
+    // Verify auth configuration in production
+    let resolvedProvider = this.options.model?.provider ?? 'anthropic';
+    if (this.options.sessionModelResolver) {
+      try {
+        const resolved = await this.options.sessionModelResolver.resolveSessionModel(input.sessionId);
+        if (resolved.providerId) {
+          resolvedProvider = resolved.providerId;
+        }
+      } catch {
+        // Fall back to default provider
+      }
+    }
+
+    const isConfigured = Boolean(
+      this.options.apiKey ??
+      process.env.LLM_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      process.env.ANTHROPIC_API_KEY ??
+      this.options.modelRuntime?.hasConfiguredAuth(resolvedProvider)
+    );
+
+    if (!isConfigured) {
+      throw new Error(`MODEL_SETUP_REQUIRED: No API key or OAuth credentials found for provider '${resolvedProvider}'. Please connect in Settings.`);
+    }
+
     const budget = this.determineRetrievalBudget(input.message);
     let currentRetrievalSteps = 0;
 
     const retrievalTracker: RetrievalStepTracker = {
-      consumeStep: (tool: string, _query?: string, _resultCount?: number) => {
+      consumeStep: (_tool: string, _query?: string, _resultCount?: number) => {
         if (currentRetrievalSteps >= budget) {
           throw new Error(`RETRIEVAL_BUDGET_EXCEEDED: step limit of ${budget} reached`);
         }
@@ -135,32 +157,32 @@ export class PiTutorRuntime implements TutorRuntime {
       retrieval: retrievalTracker,
     });
 
+    const toolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> = [];
+
     this.traceRepo?.startRun({
       id: runId,
       sessionId: input.sessionId,
       requestId,
-      model: this.options.model?.id ?? 'pi-agent-session',
+      model: this.options.model?.id ?? 'pi-socratic-tutor',
     });
 
-    const toolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> = [];
+    const session = await this.registry.getOrCreateSession(
+      input.sessionId,
+      input.onToolStart,
+      input.onToolEnd,
+      () => this.currentTurnContext.get(input.sessionId)?.retrieval
+    );
+
+    this.activeTurns.set(requestId, { session, controller });
+
+    const eventAdapter = new PiEventAdapter(input);
+
+    let assistantReply = '';
 
     try {
-      const session = await this.registry.getOrCreateSession(
-        input.sessionId,
-        (tcId, name) => {
-          input.onToolStart?.(tcId, name);
-        },
-        (tcId, name, success) => {
-          input.onToolEnd?.(tcId, name, success);
-          toolCalls.push({ tool: name, args: {}, result: { success } });
-        },
-        () => this.currentTurnContext.get(input.sessionId)?.retrieval
-      );
-
-      this.activeTurns.set(requestId, { session, controller });
-
-      const eventAdapter = new PiEventAdapter(input);
-      let assistantReply = '';
+      if (controller.signal.aborted) {
+        throw new Error('Turn cancelled before execution');
+      }
 
       const unsubscribe = session.subscribe((event: unknown) => {
         if (event && typeof event === 'object' && 'type' in event) {

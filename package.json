@@ -15,6 +15,8 @@
     "typecheck": "pnpm --filter @opentutor/server typecheck && pnpm --filter @opentutor/database typecheck && pnpm --filter @opentutor/agent-tools typecheck && pnpm --filter @opentutor/agent-runtime typecheck && pnpm --filter @opentutor/model-runtime typecheck && pnpm --filter @opentutor/knowledge-core typecheck && pnpm --filter @opentutor/course-core typecheck && pnpm --filter @opentutor/lesson-core typecheck && pnpm --filter @opentutor/assessment-core typecheck",
     "build": "pnpm --filter @opentutor/web build",
     "test:runtime:smoke": "node --test --experimental-strip-types packages/agent-runtime/tests/pi-smoke.test.ts",
+    "test:runtime:live": "node --test --experimental-strip-types packages/agent-runtime/tests/runtime-live.test.ts",
+    "test:knowledge:live": "node --test --experimental-strip-types packages/knowledge-core/tests/knowledge-live.test.ts",
     "test:product:e2e": "node --test --experimental-strip-types apps/server/tests/product-e2e.test.ts",
     "test:adversarial": "node --test --experimental-strip-types apps/server/tests/adversarial-v0.6.test.ts",
     "check": "pnpm test && pnpm typecheck && pnpm build"

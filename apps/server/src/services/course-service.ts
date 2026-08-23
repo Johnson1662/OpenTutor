@@ -9,8 +9,10 @@ import type {
 } from '@opentutor/database';
 import type { LivingKnowledgeCompiler } from '@opentutor/knowledge-core';
 import type { CourseCompiler } from '@opentutor/course-core';
+import type { LessonGenerator } from '@opentutor/lesson-core';
+import { FakeLessonGenerator } from '@opentutor/lesson-core';
 import type { EventBus } from '../events/event-bus.ts';
-import type { LearningSessionSnapshot, Lesson } from '@opentutor/protocol';
+import type { LearningSessionSnapshot } from '@opentutor/protocol';
 
 export class CourseService {
   private readonly courseRepo: CourseRepository;
@@ -18,6 +20,7 @@ export class CourseService {
   private readonly lessonRepo: LessonRepository;
   private readonly knowledgeCompiler: LivingKnowledgeCompiler;
   private readonly courseCompiler: CourseCompiler;
+  private readonly lessonGenerator: LessonGenerator;
   private readonly eventBus: EventBus;
 
   constructor(
@@ -26,14 +29,16 @@ export class CourseService {
     lessonRepo: LessonRepository,
     knowledgeCompiler: LivingKnowledgeCompiler,
     courseCompiler: CourseCompiler,
-    eventBus: EventBus
+    lessonGenerator?: LessonGenerator,
+    eventBus?: EventBus
   ) {
     this.courseRepo = courseRepo;
     this.sessionRepo = sessionRepo;
     this.lessonRepo = lessonRepo;
     this.knowledgeCompiler = knowledgeCompiler;
     this.courseCompiler = courseCompiler;
-    this.eventBus = eventBus;
+    this.lessonGenerator = lessonGenerator ?? new FakeLessonGenerator();
+    this.eventBus = eventBus!;
   }
 
   createCourse(params: { id?: string; title: string; description?: string }): CourseRecord {
@@ -67,7 +72,9 @@ export class CourseService {
   }
 
   deleteSource(courseId: string, sourceId: string): boolean {
-    return this.courseRepo.deleteCourseSource(courseId, sourceId);
+    this.courseRepo.deleteCourseSource(courseId, sourceId);
+    this.knowledgeCompiler.lifecycle.deleteDocument(sourceId);
+    return true;
   }
 
   getCourseMap(courseId: string): CourseMapData {
@@ -128,7 +135,7 @@ export class CourseService {
         userId,
       });
 
-      // 5. Ensure learning session and initial active lesson exist
+      // 5. Ensure learning session and initial active lesson exist via LessonGenerator
       const firstNode = compiled.initialPath.find((n) => n.status === 'current') ?? compiled.initialPath[0];
       const knowledgeNodeId = firstNode?.knowledgeNodeId ?? 'self-attention';
       const lessonTitle = firstNode?.title ?? course.title;
@@ -139,42 +146,12 @@ export class CourseService {
         artifact = art.content;
       }
 
-      const initialLesson: Lesson = {
-        schemaVersion: '1.0',
-        id: `lesson-${knowledgeNodeId}`,
+      const initialLesson = await this.lessonGenerator.generate({
         courseId,
         knowledgeNodeId,
-        title: lessonTitle,
-        objective: `Master core principles of ${lessonTitle}`,
-        version: 1,
-        blocks: [
-          {
-            id: `${knowledgeNodeId}-intro`,
-            type: 'text',
-            variant: 'paragraph',
-            content: artifact.definition.text,
-          },
-          {
-            id: `${knowledgeNodeId}-intuition`,
-            type: 'text',
-            variant: 'paragraph',
-            content: artifact.intuition.text,
-          },
-          {
-            id: `${knowledgeNodeId}-quiz`,
-            type: 'quiz',
-            question: `Explain the key intuition behind ${lessonTitle}.`,
-            answerSpec: {
-              type: 'open',
-              rubric: {
-                concepts: [knowledgeNodeId],
-                referenceAnswer: artifact.mechanism.text,
-              },
-            },
-          },
-        ],
-        status: 'active',
-      };
+        artifact,
+        learningGoal,
+      });
 
       // Save lesson via lessonRepo
       try {
@@ -231,6 +208,24 @@ export class CourseService {
     const firstNode = courseMap.nodes[0];
     const knId = firstNode?.knowledgeNodeId ?? 'self-attention';
     const knTitle = firstNode?.title ?? 'Overview';
+
+    const defaultLesson = {
+      schemaVersion: '1.0' as const,
+      id: `lesson-${knId}`,
+      courseId,
+      knowledgeNodeId: knId,
+      title: knTitle,
+      version: 1,
+      blocks: [
+        {
+          id: 'blk-1',
+          type: 'text' as const,
+          variant: 'paragraph' as const,
+          content: `Welcome to ${knTitle}.`,
+        },
+      ],
+      status: 'active' as const,
+    };
 
     const defaultPath = courseMap.nodes.map((n, i) => ({
       id: `path-node-${n.knowledgeNodeId}`,

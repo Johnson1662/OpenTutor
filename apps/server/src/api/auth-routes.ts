@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { json, readJson } from './http-utils.ts';
+import { json, readJson, writeSseHeaders } from './http-utils.ts';
 import type { AuthService } from '@opentutor/model-runtime';
 
 export interface AuthRouteContext {
@@ -15,7 +15,19 @@ export async function handleAuthRoutes(
   const method = req.method ?? 'GET';
   const path = url.pathname;
 
-  // 1. POST /api/ai/auth/sessions or /api/auth/:providerId/start
+  // 1. POST /api/ai/auth/login-api-key (direct API key login)
+  if (method === 'POST' && path === '/api/ai/auth/login-api-key') {
+    const body = await readJson<{ providerId: string; apiKey: string }>(req);
+    try {
+      await ctx.authService.loginWithApiKey(body.providerId, body.apiKey);
+      json(res, 200, { ok: true, providerId: body.providerId, status: 'connected' }, req);
+    } catch (err: any) {
+      json(res, 400, { error: err.message ?? String(err) }, req);
+    }
+    return true;
+  }
+
+  // 2. POST /api/ai/auth/sessions or /api/auth/:providerId/start
   if (method === 'POST' && path === '/api/ai/auth/sessions') {
     const body = await readJson<{ providerId: string; type?: string; method?: string }>(req);
     const authType = body.type === 'oauth' || body.method === 'oauth' ? 'oauth' : 'api_key';
@@ -52,7 +64,28 @@ export async function handleAuthRoutes(
     return true;
   }
 
-  // 2. DELETE /api/ai/auth/sessions/:id or POST /api/auth/:id/cancel
+  // 3. GET /api/ai/auth/sessions/:sessionId/events (SSE stream for interactive auth flow)
+  const authEventsMatch = path.match(/^\/api\/ai\/auth\/sessions\/([a-zA-Z0-9_-]+)\/events$/);
+  if (method === 'GET' && authEventsMatch) {
+    const sessionId = authEventsMatch[1]!;
+    const session = ctx.authService.getSession(sessionId);
+    if (!session) {
+      json(res, 404, { error: 'AUTH_SESSION_NOT_FOUND' }, req);
+      return true;
+    }
+
+    writeSseHeaders(res, req);
+    const unsubscribe = session.subscribe((event) => {
+      res.write(`event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`);
+    });
+
+    req.on('close', () => {
+      unsubscribe();
+    });
+    return true;
+  }
+
+  // 4. DELETE /api/ai/auth/sessions/:id or POST /api/auth/:id/cancel
   const cancelSessionMatch = path.match(/^\/api\/ai\/auth\/sessions\/([a-zA-Z0-9_-]+)$/);
   if (method === 'DELETE' && cancelSessionMatch) {
     const sessionId = cancelSessionMatch[1]!;
@@ -69,8 +102,8 @@ export async function handleAuthRoutes(
     return true;
   }
 
-  // 3. POST /api/auth/:sessionId/respond
-  const respondMatch = path.match(/^\/api\/auth\/([a-zA-Z0-9_-]+)\/respond$/);
+  // 5. POST /api/auth/:sessionId/respond or /api/ai/auth/sessions/:sessionId/respond
+  const respondMatch = path.match(/^\/api\/(?:ai\/auth\/sessions|auth)\/([a-zA-Z0-9_-]+)\/respond$/);
   if (method === 'POST' && respondMatch) {
     const sessionId = respondMatch[1]!;
     const body = await readJson<{ promptId: string; response: string }>(req);

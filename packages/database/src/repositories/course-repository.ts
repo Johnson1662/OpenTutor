@@ -148,6 +148,14 @@ export class CourseRepository {
      'INSERT INTO document_versions (id, document_id, version, content_hash, content, status, created_at) VALUES (?, ?, 1, ?, ?, ?, ?)'
     )
     .run(versionId, documentId, `${content.length}`, content, 'active', now);
+
+   this.db
+    .prepare(
+     `INSERT INTO course_sources (course_id, document_id, created_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(course_id, document_id) DO NOTHING`
+    )
+    .run(courseId, documentId, now);
   })();
 
   return {
@@ -167,11 +175,12 @@ export class CourseRepository {
    .prepare(
     `SELECT d.id, d.title, dv.content, dv.version, dv.status, dv.created_at
          FROM documents d
+         JOIN course_sources cs ON cs.document_id = d.id
          JOIN document_versions dv ON dv.document_id = d.id
-         WHERE dv.status != 'deleted'
+         WHERE cs.course_id = ? AND dv.status != 'deleted'
          ORDER BY dv.created_at ASC`
    )
-   .all() as any[];
+   .all(courseId) as any[];
 
   return rows.map((r) => ({
    id: r.id,
@@ -186,10 +195,18 @@ export class CourseRepository {
  }
 
  deleteCourseSource(courseId: string, documentId: string): boolean {
-  const res = this.db
-   .prepare(`UPDATE document_versions SET status = 'deleted' WHERE document_id = ?`)
-   .run(documentId);
-  return res.changes > 0;
+  const deleteTx = this.db.transaction(() => {
+   this.db
+    .prepare('DELETE FROM course_sources WHERE course_id = ? AND document_id = ?')
+    .run(courseId, documentId);
+
+   this.db
+    .prepare(`UPDATE document_versions SET status = 'deleted' WHERE document_id = ?`)
+    .run(documentId);
+  });
+
+  deleteTx();
+  return true;
  }
 
  getCourseMap(courseId: string): CourseMapData {

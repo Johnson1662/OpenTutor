@@ -12,6 +12,7 @@ export interface IngestDocumentInput {
 
 export interface IngestedDocument {
  id: string;
+ documentVersionId: string;
  title: string;
  sourceUri?: string;
  version: number;
@@ -46,6 +47,7 @@ export class IngestionService {
   if (existing) {
    return {
     id,
+    documentVersionId: existing.id,
     title: input.title,
     sourceUri: input.sourceUri,
     version: existing.version,
@@ -63,6 +65,7 @@ export class IngestionService {
 
   const version = versionRow.next_version;
   const chunks = parseMarkdown(input.content);
+  const versionId = randomUUID();
 
   this.db.transaction(() => {
    this.db
@@ -76,11 +79,10 @@ export class IngestionService {
     )
     .run(id, input.sourceUri ?? null, input.title);
 
-   const versionId = randomUUID();
    this.db
     .prepare(
-     `INSERT INTO document_versions (id, document_id, version, content_hash, content)
-           VALUES (?, ?, ?, ?, ?)`
+     `INSERT INTO document_versions (id, document_id, version, content_hash, content, status, created_at)
+           VALUES (?, ?, ?, ?, ?, 'active', datetime('now'))`
     )
     .run(versionId, id, version, contentHash, input.content);
 
@@ -120,49 +122,39 @@ export class IngestionService {
      item.contentHash
     );
 
-    try {
-     insertFts.run(
-      item.id,
-      id,
-      input.title,
-      item.heading ?? '',
-      item.content
-     );
-    } catch {
-     // Table might not exist in early tests
-    }
+    insertFts.run(
+     item.id,
+     id,
+     input.title,
+     item.heading ?? null,
+     item.content
+    );
    }
   })();
 
-  const insertedVersion = this.db
-   .prepare('SELECT id FROM document_versions WHERE document_id = ? AND version = ?')
-   .get(id, version) as { id: string };
-
   return {
    id,
+   documentVersionId: versionId,
    title: input.title,
    sourceUri: input.sourceUri,
    version,
    contentHash,
-   chunks: this.getChunks(insertedVersion.id),
+   chunks,
    isNewVersion: true,
   };
  }
 
- getChunks(documentVersionId: string): SourceChunk[] {
+ private getChunks(documentVersionId: string): SourceChunk[] {
   const rows = this.db
    .prepare(
-    `SELECT c.id, c.ordinal, s.heading, s.level, c.content, c.content_hash
-         FROM document_chunks c
-         JOIN document_sections s ON s.id = c.document_section_id
-         WHERE c.document_version_id = ?
-         ORDER BY c.ordinal ASC`
+    `SELECT id, ordinal, content, content_hash
+         FROM document_chunks
+         WHERE document_version_id = ?
+         ORDER BY ordinal ASC`
    )
    .all(documentVersionId) as Array<{
     id: string;
     ordinal: number;
-    heading: string | null;
-    level: number;
     content: string;
     content_hash: string;
    }>;
@@ -170,8 +162,7 @@ export class IngestionService {
   return rows.map((r) => ({
    id: r.id,
    ordinal: r.ordinal,
-   heading: r.heading ?? undefined,
-   level: r.level,
+   level: 0,
    content: r.content,
    contentHash: r.content_hash,
   }));

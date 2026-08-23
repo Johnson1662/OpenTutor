@@ -142,12 +142,13 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   await actCompleted;
   unAct();
 
-  // 10. Verify Detour Active in Learning Path
+  // 10. Verify Detour Active in Learning Path and Lesson Canvas Switched to Softmax
   const detourSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
   const detourSnap = (await detourSnapRes.json()) as LearningSessionSnapshot;
   const detourNode = detourSnap.path.find((n) => n.type === 'detour' && n.knowledgeNodeId === 'softmax');
   assert.ok(detourNode);
   assert.equal(detourNode.status, 'current');
+  assert.equal(detourSnap.lesson.knowledgeNodeId, 'softmax');
 
   // 11. Diagnostic Assessment Quiz Submission (HTTP POST /api/lessons/:id/blocks/:id/answer)
   const quizAnswerRes = await fetch(
@@ -165,7 +166,7 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   assert.equal(quizBody.assessment.result, 'correct');
   assert.ok(quizBody.assessment.confidence >= 0.25);
 
-  // 12. Verify Detour Completed and Automatic Resume to Main Track
+  // 12. Verify Detour Completed and Automatic Resume to Main Track with Original Lesson Restored
   const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
   const resumedSnap = (await resumedSnapRes.json()) as LearningSessionSnapshot;
   const completedDetour = resumedSnap.path.find((n) => n.knowledgeNodeId === 'softmax');
@@ -174,4 +175,5 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   assert.equal(completedDetour?.status, 'completed');
   assert.ok(activeNode);
   assert.equal(activeNode?.type, 'main');
+  assert.equal(resumedSnap.lesson.knowledgeNodeId, sessionSnap.lesson.knowledgeNodeId);
 });

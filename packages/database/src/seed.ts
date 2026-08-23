@@ -48,6 +48,13 @@ export const INITIAL_LESSON: Lesson = {
       type: 'quiz',
       answerType: 'text',
       question: 'Why might a token need information from another token?',
+      answerSpec: {
+        type: 'open',
+        rubric: {
+          concepts: ['context', 'attention', 'token', 'tokens', 'information', 'surrounding', 'word'],
+          referenceAnswer: 'Tokens need surrounding context to disambiguate meaning and build richer representations.',
+        },
+      },
     },
   ],
 };
@@ -74,6 +81,13 @@ export const SOFTMAX_LESSON: Lesson = {
       type: 'quiz',
       answerType: 'text',
       question: 'What does softmax ensure regarding the sum of output values?',
+      answerSpec: {
+        type: 'open',
+        rubric: {
+          concepts: ['probability', 'sum', '1', 'softmax', 'positive', 'distribution'],
+          referenceAnswer: 'Softmax ensures that all output probabilities are non-negative and sum to exactly 1.',
+        },
+      },
     },
   ],
 };

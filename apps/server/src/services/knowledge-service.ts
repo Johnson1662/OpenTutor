@@ -1,4 +1,4 @@
-import type { AssessmentCompletedEventData, AssessmentResult, KnowledgeUpdatedEventData } from '@opentutor/protocol';
+import type { AssessmentCompletedEventData, AssessmentResult, KnowledgeUpdatedEventData, UserKnowledgeState } from '@opentutor/protocol';
 import type { KnowledgeRepository } from '@opentutor/database';
 import type { EventBus } from '../events/event-bus.ts';
 
@@ -9,6 +9,10 @@ export class KnowledgeService {
   constructor(knowledgeRepo: KnowledgeRepository, eventBus: EventBus) {
     this.knowledgeRepo = knowledgeRepo;
     this.eventBus = eventBus;
+  }
+
+  getUserKnowledgeState(userId: string, knowledgeNodeId: string): UserKnowledgeState | null {
+    return this.knowledgeRepo.getUserKnowledgeState(userId, knowledgeNodeId);
   }
 
   recordAssessment(sessionId: string, assessment: AssessmentResult): void {

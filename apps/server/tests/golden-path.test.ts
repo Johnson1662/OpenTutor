@@ -6,7 +6,7 @@ import { CourseCompiler } from '@opentutor/assessment-core';
 import type { LearningPathNode, LearningSessionSnapshot } from '@opentutor/protocol';
 
 test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Application/HTTP Boundary)', async (t) => {
-  const { server, db, close } = createServerContext(':memory:');
+  const { server, db, close } = await createServerContext(':memory:');
   const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
   server.listen(0, () => resolveListen());
   await listenPromise;

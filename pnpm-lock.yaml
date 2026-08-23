@@ -25,6 +25,9 @@ importers:
       '@opentutor/knowledge-core':
         specifier: workspace:*
         version: link:../../packages/knowledge-core
+      '@opentutor/model-runtime':
+        specifier: workspace:*
+        version: link:../../packages/model-runtime
       '@opentutor/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -147,6 +150,31 @@ importers:
         version: 22.20.1
       typescript:
         specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/model-runtime:
+    dependencies:
+      '@earendil-works/pi-agent-core':
+        specifier: ^0.84.2
+        version: 0.84.2(ws@8.21.3)
+      '@earendil-works/pi-ai':
+        specifier: ^0.84.2
+        version: 0.84.2(ws@8.21.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: ^0.84.2
+        version: 0.84.2(ws@8.21.3)
+      '@opentutor/database':
+        specifier: workspace:*
+        version: link:../database
+      '@opentutor/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.0
         version: 5.9.3
 
   packages/protocol: {}

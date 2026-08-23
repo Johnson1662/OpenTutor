@@ -4,12 +4,16 @@ import { migration001 } from './migrations/001_initial_schema.ts';
 import { migration002 } from './migrations/002_domain_invariants.ts';
 import { migration003 } from './migrations/003_agent_observability.ts';
 import { migration004 } from './migrations/004_knowledge_core.ts';
+import { migration005 } from './migrations/005_ai_preferences.ts';
+import { migration006 } from './migrations/006_fts5_retrieval.ts';
 
 export const ALL_MIGRATIONS: Migration[] = [
   migration001,
   migration002,
   migration003,
   migration004,
+  migration005,
+  migration006,
 ];
 
 export function runMigrations(db: Database, migrations: Migration[] = ALL_MIGRATIONS): number {

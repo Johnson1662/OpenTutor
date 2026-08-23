@@ -11,6 +11,7 @@ import type { LessonService } from '../services/lesson-service.ts';
 import type { KnowledgeService } from '../services/knowledge-service.ts';
 import type { AssessmentService } from '../services/assessment-service.ts';
 import type { LearningProgressService } from '../services/learning-progress-service.ts';
+import type { ProviderService, AuthService, ModelPreferencesRepository } from '@opentutor/model-runtime';
 import type { TutorRuntime } from '@opentutor/agent-runtime';
 import type { EventBus } from '../events/event-bus.ts';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +22,9 @@ export interface RouteContext {
   knowledgeService: KnowledgeService;
   assessmentService: AssessmentService;
   learningProgressService: LearningProgressService;
+  providerService: ProviderService;
+  authService: AuthService;
+  preferencesRepo: ModelPreferencesRepository;
   tutorRuntime: TutorRuntime;
   eventBus: EventBus;
 }
@@ -78,7 +82,145 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse, c
     return;
   }
 
-  // 1. GET /api/sessions/:sessionId
+  // --- AI Control Plane Routes ---
+  // A1. GET /api/ai/providers
+  if (method === 'GET' && pathname === '/api/ai/providers') {
+    const providers = ctx.providerService.listProviders();
+    json(res, 200, providers);
+    return;
+  }
+
+  // A2. GET /api/ai/preferences & PUT /api/ai/preferences
+  if (pathname === '/api/ai/preferences') {
+    if (method === 'GET') {
+      const prefs = ctx.preferencesRepo.getPreferences('default-user') ?? {
+        userId: 'default-user',
+        defaultProviderId: null,
+        defaultModelId: null,
+        thinkingLevel: 'medium',
+        updatedAt: new Date().toISOString(),
+      };
+      json(res, 200, prefs);
+      return;
+    }
+    if (method === 'PUT') {
+      const body = await readJson<{ defaultProviderId?: string; defaultModelId?: string; thinkingLevel?: string }>(req);
+      const updated = ctx.preferencesRepo.setPreferences('default-user', body);
+      json(res, 200, updated);
+      return;
+    }
+  }
+
+  // A3. Provider Specific Actions
+  const providerModelsMatch = pathname.match(/^\/api\/ai\/providers\/([^/]+)\/models$/);
+  if (method === 'GET' && providerModelsMatch) {
+    const providerId = providerModelsMatch[1];
+    try {
+      const models = await ctx.providerService.listModels(providerId);
+      json(res, 200, models);
+    } catch (err) {
+      json(res, 500, { error: err instanceof Error ? err.message : 'FAILED_TO_LIST_MODELS' });
+    }
+    return;
+  }
+
+  const providerRefreshMatch = pathname.match(/^\/api\/ai\/providers\/([^/]+)\/refresh$/);
+  if (method === 'POST' && providerRefreshMatch) {
+    const providerId = providerRefreshMatch[1];
+    try {
+      await ctx.providerService.refreshProvider(providerId);
+      json(res, 200, { refreshed: true });
+    } catch (err) {
+      json(res, 500, { error: err instanceof Error ? err.message : 'REFRESH_FAILED' });
+    }
+    return;
+  }
+
+  const providerApiKeyMatch = pathname.match(/^\/api\/ai\/providers\/([^/]+)\/api-key$/);
+  if (method === 'POST' && providerApiKeyMatch) {
+    const providerId = providerApiKeyMatch[1];
+    const body = await readJson<{ apiKey: string }>(req);
+    try {
+      await ctx.authService.loginWithApiKey(providerId, body.apiKey ?? '');
+      json(res, 200, { success: true });
+    } catch (err) {
+      json(res, 400, { error: err instanceof Error ? err.message : 'API_KEY_LOGIN_FAILED' });
+    }
+    return;
+  }
+
+  const providerAuthMatch = pathname.match(/^\/api\/ai\/providers\/([^/]+)\/auth$/);
+  if (method === 'DELETE' && providerAuthMatch) {
+    const providerId = providerAuthMatch[1];
+    try {
+      await ctx.providerService.logout(providerId);
+      json(res, 200, { loggedOut: true });
+    } catch (err) {
+      json(res, 500, { error: err instanceof Error ? err.message : 'LOGOUT_FAILED' });
+    }
+    return;
+  }
+
+  const providerStatusMatch = pathname.match(/^\/api\/ai\/providers\/([^/]+)$/);
+  if (method === 'GET' && providerStatusMatch) {
+    const providerId = providerStatusMatch[1];
+    try {
+      const status = await ctx.providerService.getProviderStatus(providerId);
+      json(res, 200, status);
+    } catch (err) {
+      json(res, 500, { error: err instanceof Error ? err.message : 'STATUS_CHECK_FAILED' });
+    }
+    return;
+  }
+
+  // A4. Auth Flow Sessions
+  if (method === 'POST' && pathname === '/api/ai/auth/sessions') {
+    const body = await readJson<{ providerId: string; type: 'api_key' | 'oauth' }>(req);
+    if (!body.providerId || !body.type) {
+      json(res, 400, { error: 'MISSING_PROVIDER_OR_TYPE' });
+      return;
+    }
+    const session = ctx.authService.startAuthSession(body.providerId, body.type);
+    json(res, 201, { authSessionId: session.id });
+    return;
+  }
+
+  const authEventsMatch = pathname.match(/^\/api\/ai\/auth\/sessions\/([^/]+)\/events$/);
+  if (method === 'GET' && authEventsMatch) {
+    const authSessionId = authEventsMatch[1];
+    const session = ctx.authService.getSession(authSessionId);
+    if (!session) {
+      notFound(res);
+      return;
+    }
+    writeSseHeaders(res);
+    const unsubscribe = session.subscribe((evt) => {
+      res.write(`id: ${evt.id}\nevent: ${evt.type}\ndata: ${JSON.stringify(evt)}\n\n`);
+    });
+    req.on('close', () => {
+      unsubscribe();
+    });
+    return;
+  }
+
+  const authRespondMatch = pathname.match(/^\/api\/ai\/auth\/sessions\/([^/]+)\/respond$/);
+  if (method === 'POST' && authRespondMatch) {
+    const authSessionId = authRespondMatch[1];
+    const body = await readJson<{ promptId: string; value: string }>(req);
+    const ok = ctx.authService.respond(authSessionId, body.promptId ?? '', body.value ?? '');
+    json(res, ok ? 200 : 404, { accepted: ok });
+    return;
+  }
+
+  const authCancelMatch = pathname.match(/^\/api\/ai\/auth\/sessions\/([^/]+)$/);
+  if (method === 'DELETE' && authCancelMatch) {
+    const authSessionId = authCancelMatch[1];
+    const ok = ctx.authService.cancel(authSessionId);
+    json(res, ok ? 200 : 404, { cancelled: ok });
+    return;
+  }
+
+  // --- Core Learning Session Routes ---
   const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
   if (method === 'GET' && sessionMatch) {
     const sessionId = sessionMatch[1];

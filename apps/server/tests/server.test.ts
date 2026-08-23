@@ -4,7 +4,7 @@ import { createServerContext } from '../src/index.ts';
 import type { AcceptedResponse, LearningSessionSnapshot } from '@opentutor/protocol';
 
 test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
-  const { server, context, close } = createServerContext(':memory:');
+  const { server, context, close } = await createServerContext(':memory:');
   const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
   server.listen(0, () => resolveListen());
   await listenPromise;
@@ -123,5 +123,53 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     const snapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
     const snapshot = (await snapRes.json()) as LearningSessionSnapshot;
     assert.ok(snapshot.lesson.blocks.some((b) => b.type === 'code'));
+  });
+
+  await t.test('7. GET /api/ai/providers returns non-leaking provider list', async () => {
+    const res = await fetch(`${baseUrl}/api/ai/providers`);
+    assert.equal(res.status, 200);
+    const providers = (await res.json()) as Array<{ id: string; name: string; configured: boolean }>;
+    assert.ok(Array.isArray(providers));
+    assert.ok(providers.length > 0);
+    assert.ok(providers.some((p) => p.id === 'anthropic'));
+  });
+
+  await t.test('8. GET & PUT /api/ai/preferences manages default provider/model', async () => {
+    const putRes = await fetch(`${baseUrl}/api/ai/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        defaultProviderId: 'anthropic',
+        defaultModelId: 'claude-3-7-sonnet-20250219',
+        thinkingLevel: 'high',
+      }),
+    });
+    assert.equal(putRes.status, 200);
+
+    const getRes = await fetch(`${baseUrl}/api/ai/preferences`);
+    assert.equal(getRes.status, 200);
+    const prefs = (await getRes.json()) as { defaultProviderId: string; defaultModelId: string; thinkingLevel: string };
+    assert.equal(prefs.defaultProviderId, 'anthropic');
+    assert.equal(prefs.defaultModelId, 'claude-3-7-sonnet-20250219');
+    assert.equal(prefs.thinkingLevel, 'high');
+  });
+
+  await t.test('9. POST /api/ai/auth/sessions starts interactive auth flow and supports cancellation', async () => {
+    const createRes = await fetch(`${baseUrl}/api/ai/auth/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: 'anthropic', type: 'api_key' }),
+    });
+    assert.equal(createRes.status, 201);
+    const { authSessionId } = (await createRes.json()) as { authSessionId: string };
+    assert.ok(authSessionId.startsWith('auth-'));
+
+    // Cancel auth session
+    const cancelRes = await fetch(`${baseUrl}/api/ai/auth/sessions/${authSessionId}`, {
+      method: 'DELETE',
+    });
+    assert.equal(cancelRes.status, 200);
+    const cancelBody = (await cancelRes.json()) as { cancelled: boolean };
+    assert.equal(cancelBody.cancelled, true);
   });
 });

@@ -24,11 +24,29 @@ export interface DiagramBlock extends BaseLessonBlock {
   edges: { from: string; to: string; label?: string }[];
 }
 
+export type QuizAnswerSpec =
+  | {
+    type: 'single_choice';
+    correctOptionId: string;
+  }
+  | {
+    type: 'multiple_choice';
+    correctOptionIds: string[];
+  }
+  | {
+    type: 'open';
+    rubric: {
+      concepts: string[];
+      referenceAnswer?: string;
+    };
+  };
+
 export interface QuizBlock extends BaseLessonBlock {
   type: 'quiz';
   question: string;
-  answerType: 'text' | 'single_choice' | 'multiple_choice';
+  answerType?: 'text' | 'single_choice' | 'multiple_choice';
   options?: { id: string; text: string }[];
+  answerSpec?: QuizAnswerSpec;
 }
 
 export type LessonBlock = TextBlock | CodeBlock | DiagramBlock | QuizBlock;

@@ -1,4 +1,4 @@
-import { createAgentSession, type AgentSession, type ToolDefinition } from '@earendil-works/pi-coding-agent';
+import { createAgentSession, type AgentSession, type ToolDefinition, type ModelRuntime } from '@earendil-works/pi-coding-agent';
 import type { DomainToolsExecutor } from '@opentutor/agent-tools';
 import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from '../prompt.ts';
 import { createTutorTools, TUTOR_ALLOWED_TOOLS, validateTutorToolAllowlist } from './pi-tool-adapter.ts';
@@ -8,6 +8,7 @@ export interface PiSessionRegistryOptions {
   model?: string;
   apiKey?: string;
   baseURL?: string;
+  modelRuntime?: ModelRuntime;
 }
 
 export class PiSessionRegistry {
@@ -35,6 +36,7 @@ export class PiSessionRegistry {
 
     const { session } = await createAgentSession({
       cwd: this.options.cwd ?? process.cwd(),
+      modelRuntime: this.options.modelRuntime,
       noTools: 'builtin',
       customTools: tutorTools as unknown as ToolDefinition[],
       tools: Array.from(TUTOR_ALLOWED_TOOLS),

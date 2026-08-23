@@ -7,6 +7,7 @@ import type { LearningProgressService } from './learning-progress-service.ts';
 
 export interface SubmitAnswerInput {
   sessionId: string;
+  userId?: string;
   lessonId: string;
   blockId: string;
   answer: string;
@@ -42,7 +43,34 @@ export class AssessmentService {
     let feedback = '';
 
     if (block && block.type === 'quiz') {
-      if (block.options && block.options.length > 0) {
+      if (block.answerSpec) {
+        if (block.answerSpec.type === 'single_choice') {
+          const evalObj = this.evaluator.evaluateObjective(
+            { correctAnswer: block.answerSpec.correctOptionId },
+            input.answer
+          );
+          evaluationResult = evalObj.result;
+          feedback = evalObj.feedback;
+        } else if (block.answerSpec.type === 'multiple_choice') {
+          const evalObj = this.evaluator.evaluateObjective(
+            { correctAnswers: block.answerSpec.correctOptionIds },
+            input.answer
+          );
+          evaluationResult = evalObj.result;
+          feedback = evalObj.feedback;
+        } else if (block.answerSpec.type === 'open') {
+          const evalOpen = this.evaluator.evaluateOpenAnswer(
+            input.answer,
+            {
+              keywords: block.answerSpec.rubric.concepts,
+              referenceAnswer: block.answerSpec.rubric.referenceAnswer,
+              minScoreForCorrect: 0.25,
+            }
+          );
+          evaluationResult = evalOpen.result;
+          feedback = evalOpen.feedback;
+        }
+      } else if (block.options && block.options.length > 0) {
         const evalObj = this.evaluator.evaluateObjective(
           {
             type: block.answerType === 'multiple_choice' ? 'multiple' : 'single',
@@ -71,7 +99,9 @@ export class AssessmentService {
       feedback = evaluationResult === 'correct' ? 'Diagnostic evaluation accepted.' : 'Please provide a valid answer.';
     }
 
-    const previousConfidence = evaluationResult === 'correct' ? 0.60 : 0.40;
+    const userId = input.userId ?? 'default-user';
+    const userState = this.knowledgeService.getUserKnowledgeState(userId, lesson.knowledgeNodeId);
+    const previousConfidence = userState ? userState.confidence : 0.60;
     const newConfidence = this.policy.updateConfidence(previousConfidence, evaluationResult);
     const newStatus = this.policy.statusForConfidence(newConfidence);
 

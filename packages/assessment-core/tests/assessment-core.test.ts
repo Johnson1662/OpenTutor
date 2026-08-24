@@ -43,8 +43,12 @@ describe('@opentutor/assessment-core', () => {
     const openEval = evaluator.evaluateOpenAnswer('Keys and values are weighted to gather context', { expectedKeywords: ['keys', 'values', 'context'] });
     assert.equal(openEval.result, 'correct');
     assert.equal(openEval.evidenceConfidence, 1.0);
-  });
 
+    const substringTrap = evaluator.evaluateOpenAnswer('The answer contains keywords only', { expectedKeywords: ['word'] });
+    assert.equal(substringTrap.score, 0);
+    assert.equal(substringTrap.result, 'incorrect');
+
+  });
   it('orders prerequisites stably and filters mastered nodes', () => {
     const compiler = new CourseCompiler();
     const nodes = [{ id: 'goal' }, { id: 'middle' }, { id: 'root' }, { id: 'other' }];

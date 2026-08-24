@@ -119,10 +119,12 @@ export class DiagnosticLearningCoordinator {
         .all(activeLesson.knowledgeNodeId) as Array<{ from_node_id: string }>;
       candidatePrereqs = rows.map((r) => r.from_node_id);
       if (candidatePrereqs.length === 0) {
-        candidatePrereqs = [activeLesson.knowledgeNodeId];
+        return {
+          success: false,
+          message: 'PROBE_TARGET_NOT_FOUND: No prerequisite found for probing',
+        };
       }
     }
-
     // 2. Check prerequisite candidates / probe decision
     const probeDecision = this.probeService.decideProbe({
       activeNodeId: activeLesson.knowledgeNodeId,

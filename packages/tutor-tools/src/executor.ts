@@ -157,36 +157,39 @@ export class DomainToolsExecutor {
     const diagRepo =
       this.services.diagnosisRepository ??
       (this.services.diagnosisService as DiagnosisRepositoryLike | undefined);
-    if (diagRepo && typeof diagRepo.getDiagnosis === 'function') {
-      const diagnosis = await diagRepo.getDiagnosis(params.diagnosisId);
-      if (!diagnosis) {
-        const err = new Error(`Detour not authorized: diagnosis "${params.diagnosisId}" not found`);
-        (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
-        throw err;
-      }
-      if (diagnosis.status !== 'confirmed') {
-        const err = new Error(
-          `Detour not authorized: diagnosis "${params.diagnosisId}" has status "${diagnosis.status}", must be "confirmed"`
-        );
-        (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
-        throw err;
-      }
-      if (diagnosis.sessionId && diagnosis.sessionId !== sessionId) {
-        const err = new Error(
-          `Detour not authorized: diagnosis "${params.diagnosisId}" belongs to session "${diagnosis.sessionId}", not current session "${sessionId}"`
-        );
-        (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
-        throw err;
-      }
-      if (diagnosis.knowledgeNodeId !== targetNodeId) {
-        const err = new Error(
-          `Detour not authorized: diagnosis target node "${diagnosis.knowledgeNodeId}" does not match detour nodeId "${targetNodeId}"`
-        );
-        (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
-        throw err;
-      }
+    if (!diagRepo || typeof diagRepo.getDiagnosis !== 'function') {
+      const err = new Error('Detour not authorized: diagnosis validation capability unavailable');
+      (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+      throw err;
     }
 
+    const diagnosis = await diagRepo.getDiagnosis(params.diagnosisId);
+    if (!diagnosis) {
+      const err = new Error(`Detour not authorized: diagnosis "${params.diagnosisId}" not found`);
+      (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+      throw err;
+    }
+    if (diagnosis.status !== 'confirmed') {
+      const err = new Error(
+        `Detour not authorized: diagnosis "${params.diagnosisId}" has status "${diagnosis.status}", must be "confirmed"`
+      );
+      (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+      throw err;
+    }
+    if (diagnosis.sessionId && diagnosis.sessionId !== sessionId) {
+      const err = new Error(
+        `Detour not authorized: diagnosis "${params.diagnosisId}" belongs to session "${diagnosis.sessionId}", not current session "${sessionId}"`
+      );
+      (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+      throw err;
+    }
+    if (diagnosis.knowledgeNodeId !== targetNodeId) {
+      const err = new Error(
+        `Detour not authorized: diagnosis target node "${diagnosis.knowledgeNodeId}" does not match detour nodeId "${targetNodeId}"`
+      );
+      (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+      throw err;
+    }
     if (typeof this.services.sessionService.insertDetour !== 'function') {
       const err = new Error('insertDetour capability unavailable on session service');
       (err as unknown as Record<string, unknown>).code = 'DOMAIN_CAPABILITY_UNAVAILABLE';

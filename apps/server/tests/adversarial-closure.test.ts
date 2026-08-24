@@ -25,6 +25,7 @@ import {
   migration014,
   migration015,
   migration016,
+  migration017,
 } from '@opentutor/database';
 import { BetaMasteryAggregator } from '@opentutor/assessment-core';
 import { DomainToolsExecutor } from '@opentutor/tutor-tools';
@@ -127,7 +128,7 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
       userId: legitimateUser,
       lessonId: 'lesson-softmax',
       blockId: 'softmax-quiz',
-      answer: 'Softmax ensures that probability outputs across tokens sum up to exactly 1.',
+      answer: 'Softmax ensures that probability outputs form a positive distribution and sum up to exactly 1.',
     });
     // Item 2
     context.assessmentService.submitAnswer({
@@ -209,14 +210,15 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
       )
       .run();
 
-    // Run new migrations 14, 15, 16
-    runMigrations(migrationDb, [migration014, migration015, migration016]);
+    // Run new migrations 14, 15, 16, 17
+    runMigrations(migrationDb, [migration014, migration015, migration016, migration017]);
 
     const newEvidenceRepo = new LearningEvidenceRepository(migrationDb);
     const legacyEvidences = newEvidenceRepo.getEvidenceForNode('legacy-user', 'self-attention');
     assert.equal(legacyEvidences.length, 1);
     assert.equal(legacyEvidences[0]?.id, 'legacy-ev-1');
     assert.equal(legacyEvidences[0]?.attempt, 1, 'Default attempt must be 1 for upgraded rows');
+    assert.equal(legacyEvidences[0]?.score, undefined, 'Score should be undefined for legacy rows');
     migrationDb.close();
   });
 

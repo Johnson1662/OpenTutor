@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createServerContext } from '../src/index.ts';
+import { createServerContext, type ServerContext } from '../src/index.ts';
 import type { LearningPathNode, LearningSessionSnapshot, QuizBlock } from '@opentutor/protocol';
 
 test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc + Real Restart Durability', async (t) => {
@@ -8,10 +8,11 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   const fs = await import('node:fs');
   const { randomUUID } = await import('node:crypto');
   const dbPath = `golden-path-${randomUUID().slice(0, 8)}.sqlite`;
+  let ctx: ServerContext | undefined;
+  let restartedCtx: ServerContext | undefined;
 
   try {
-    let ctx = await createServerContext(dbPath);
-
+    ctx = await createServerContext(dbPath);
     const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
     ctx.server.listen(0, '127.0.0.1', () => resolveListen());
     await listenPromise;
@@ -87,7 +88,7 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        answer: 'Softmax ensures that all output probabilities are non-negative and sum to exactly 1.',
+        answer: 'Softmax ensures that each probability output forms a positive distribution and sum to exactly 1.',
       }),
     }
   );
@@ -106,7 +107,7 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          answer: 'Softmax ensures that all output probabilities are non-negative and sum to exactly 1.',
+          answer: 'Softmax ensures that each probability output forms a positive distribution and sum to exactly 1.',
         }),
       }
     );
@@ -151,8 +152,9 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
 
     // 11. True Server Restart: Close server & SQLite connection, then reopen with a new ServerContext on same DB
     await ctx.close();
+    ctx = undefined;
 
-    const restartedCtx = await createServerContext(dbPath);
+    restartedCtx = await createServerContext(dbPath);
     const { promise: restartListenPromise, resolve: resolveRestartListen } = Promise.withResolvers<void>();
     restartedCtx.server.listen(0, '127.0.0.1', () => resolveRestartListen());
     await restartListenPromise;
@@ -185,8 +187,9 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
     assert.ok(softmaxDiag, 'Confirmed diagnosis must have survived restart for Softmax');
     assert.equal(softmaxDiag.status, 'resolved', 'Resolved diagnosis status must survive server restart');
 
-    await restartedCtx.close();
   } finally {
+    await restartedCtx?.close();
+    await ctx?.close();
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath);
     }

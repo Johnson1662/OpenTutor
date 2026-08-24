@@ -62,10 +62,7 @@ const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? '127.0.0.1';
 const DB_PATH = process.env.OPENTUTOR_DB_PATH ?? 'opentutor.sqlite';
 
-export async function createServerContext(
-  dbPath: string = DB_PATH,
-  customRuntime?: TutorRuntime
-): Promise<{
+export interface ServerContext {
   server: http.Server;
   context: RouteContext;
   db: Database;
@@ -80,7 +77,12 @@ export async function createServerContext(
   diagnosisRepo?: DiagnosisRepository;
   diagnosticCoordinator?: DiagnosticLearningCoordinator;
   close: () => Promise<void>;
-}> {
+}
+
+export async function createServerContext(
+  dbPath: string = DB_PATH,
+  customRuntime?: TutorRuntime
+): Promise<ServerContext> {
   const db = createDatabase(dbPath);
   seedDatabase(db);
 

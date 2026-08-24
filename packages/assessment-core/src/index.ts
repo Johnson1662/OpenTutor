@@ -130,7 +130,8 @@ export class AssessmentEvaluator {
     const text = normalizeText(answer);
     const keywords = rubric.expectedKeywords ?? rubric.keywords ?? extractKeywords(rubric.referenceAnswer ?? '');
     const expected = keywords.map(normalizeText).filter(Boolean);
-    const matched = expected.filter((keyword) => text.includes(keyword));
+    const textTokens = tokenize(text);
+    const matched = expected.filter((keyword) => containsKeyword(textTokens, keyword));
     const score = expected.length === 0 ? (text.length > 0 ? 1 : 0) : matched.length / expected.length;
     const correctAt = rubric.minScoreForCorrect ?? 0.8;
     const partialAt = rubric.minScoreForPartial ?? 0.4;
@@ -150,9 +151,23 @@ export class AssessmentEvaluator {
 function normalizeAnswer(value: unknown): string {
   return normalizeText(String(value ?? ''));
 }
-
 function normalizeText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function tokenize(value: string): string[] {
+  return value.split(/[^a-z0-9]+/).filter(Boolean);
+}
+function containsKeyword(textTokens: string[], keyword: string): boolean {
+  const keywordTokens = tokenize(keyword);
+  if (keywordTokens.length === 0) return false;
+  return textTokens.some((_, index) =>
+    keywordTokens.every((token, offset) => tokenMatches(textTokens[index + offset], token))
+  );
+}
+
+function tokenMatches(actual: string | undefined, expected: string): boolean {
+  return actual === expected || actual === `${expected}s` || actual === `${expected}es`;
 }
 
 function extractKeywords(reference: string): string[] {

@@ -161,6 +161,17 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
         };
       },
     },
+    diagnosisRepository: {
+      getDiagnosis: (id) =>
+        id === 'diag-confirmed-1'
+          ? {
+              id,
+              status: 'confirmed',
+              knowledgeNodeId: 'softmax',
+              sessionId: 's1',
+            }
+          : null,
+    },
     knowledgeService: {
       searchKnowledge: (q, limit) => [{ id: 'k1', title: q, limit }],
       readArtifact: (id) => (id === 'attention-mechanisms' ? { id, title: 'Attention Artifact' } : null),

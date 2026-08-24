@@ -114,7 +114,7 @@ test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptiv
   const quizRes1 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer: 'Softmax converts logits into normalized probabilities summing to 1.' }),
+    body: JSON.stringify({ answer: 'Softmax ensures that each probability output forms a positive distribution and sum to exactly 1.' }),
   });
   assert.equal(quizRes1.status, 200);
 

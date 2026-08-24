@@ -16,6 +16,8 @@ import {
 } from '../core/index.ts';
 export interface SimulatedTutorExecution {
   invokedTools: string[];
+  successfulTools?: string[];
+  toolExecutions?: Array<{ toolName: string; success: boolean; error?: string }>;
   responseText: string;
   intentDetected: string;
 }
@@ -35,7 +37,6 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
     const text = scenario.userMessage.toLowerCase();
     const invokedTools: string[] = [];
     let intentDetected = scenario.expectedIntent ?? 'UNKNOWN';
-
     // 1. Detect Diagnostic Inquiry / Probe Request for missing concepts / struggle
     if (
       text.includes('struggling') ||
@@ -55,6 +56,8 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
       }
       return {
         invokedTools,
+        successfulTools: [...invokedTools],
+        toolExecutions: invokedTools.map((t) => ({ toolName: t, success: true })),
         responseText: `Let's assess your understanding of the prerequisite concept with a quick diagnostic probe before considering a path adjustment.`,
         intentDetected,
       };
@@ -73,10 +76,13 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
       }
       return {
         invokedTools,
-        responseText: `I've added a focused detour to cover the prerequisite concept before we resume our main topic.`,
+        successfulTools: [...invokedTools],
+        toolExecutions: invokedTools.map((t) => ({ toolName: t, success: true })),
+        responseText: `Detour inserted for prerequisite.`,
         intentDetected,
       };
     }
+
     // 2. Detect Advance / Next Concept intent
     if (
       text.includes('proceed') ||
@@ -89,6 +95,8 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
       invokedTools.push('path_advance');
       return {
         invokedTools,
+        successfulTools: [...invokedTools],
+        toolExecutions: invokedTools.map((t) => ({ toolName: t, success: true })),
         responseText: `Great work mastering this topic! Advancing to the next lesson on your learning path.`,
         intentDetected,
       };
@@ -103,12 +111,14 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
       text.includes('patch') ||
       text.includes('canvas') ||
       text.includes('explain it more simply') ||
-      text.includes('show a') && text.includes('snippet')
+      (text.includes('show a') && text.includes('snippet'))
     ) {
       intentDetected = text.includes('code') ? 'ADD_CODE_EXAMPLE' : 'SIMPLIFY_EXPLANATION';
       invokedTools.push('lesson_patch');
       return {
         invokedTools,
+        successfulTools: [...invokedTools],
+        toolExecutions: invokedTools.map((t) => ({ toolName: t, success: true })),
         responseText: `I have updated your lesson canvas with a clearer explanation and interactive code example.`,
         intentDetected,
       };
@@ -120,6 +130,8 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
       invokedTools.push('knowledge_search');
       return {
         invokedTools,
+        successfulTools: [...invokedTools],
+        toolExecutions: invokedTools.map((t) => ({ toolName: t, success: true })),
         responseText: `Here are the knowledge search results for your query.`,
         intentDetected,
       };
@@ -131,10 +143,11 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
         invokedTools.push(tool);
       }
     }
-
     return {
       invokedTools,
-      responseText: `Here is the explanation for ${scenario.contextTopic}.`,
+      successfulTools: [...invokedTools],
+      toolExecutions: invokedTools.map((t) => ({ toolName: t, success: true })),
+      responseText: `I've updated the lesson canvas to assist your learning.`,
       intentDetected,
     };
   }
@@ -164,6 +177,7 @@ export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
       LessonRepository,
       SessionRepository,
       KnowledgeRepository,
+      DiagnosisRepository,
       EventRepository,
       AgentSessionRepository,
     } = await import('@opentutor/database');
@@ -185,6 +199,7 @@ export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
     const lessonRepo = new LessonRepository(db);
     const sessionRepo = new SessionRepository(db);
     const knowledgeRepo = new KnowledgeRepository(db);
+    const diagnosisRepo = new DiagnosisRepository(db);
     const eventRepo = new EventRepository(db);
     const agentSessionRepo = new AgentSessionRepository(db);
     const preferencesRepo = new ModelPreferencesRepository(db);
@@ -201,12 +216,13 @@ export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
     };
     const sessionService = {
       getSnapshot: (sid: string) => sessionRepo.getSessionSnapshot(sid),
-      insertDetour: async (sid: string, baseVer: number, detour: any) => sessionRepo.insertDetour(sid, baseVer, detour),
+      insertDetour: async (sid: string, baseVer: number, detour: any, options?: any) =>
+        sessionRepo.insertDetour(sid, baseVer, detour, { activeLessonId: options?.activeLessonId, frame: { parentPathNodeId: 'main-node-1', savedLessonId: 'lesson-1', diagnosisId: options?.diagnosisId } }),
       completeCurrentNode: async (sid: string, baseVer: number) => sessionRepo.completeCurrentNode(sid, baseVer),
     };
     const knowledgeService = {
-      knowledgeSearch: (q: string) => [],
-      artifactRead: (nodeId: string) => null,
+      searchKnowledge: (q: string) => [],
+      readArtifact: (nodeId: string) => null,
       sourceSearch: (q: string) => [],
       sourceRead: (chunkId: string) => null,
       getNeighbors: (nodeId: string) => [],
@@ -218,6 +234,7 @@ export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
       lessonService,
       sessionService,
       knowledgeService,
+      diagnosisRepository: diagnosisRepo,
       probeService: {
         requestProbe: async (sessionId, params) => {
           const snapshot = sessionRepo.getSessionSnapshot(sessionId);
@@ -247,13 +264,18 @@ export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
     });
 
     const invokedTools: string[] = [];
+    const successfulTools: string[] = [];
+    const toolExecutions: Array<{ toolName: string; success: boolean; error?: string }> = [];
+    const defaultSnap = sessionRepo.getSessionSnapshot('prototype');
     const sessionId = 'eval-session';
     const requestId = `eval-req-${Date.now()}`;
 
     sessionRepo.createSession({
       id: sessionId,
       courseId: `course-${bundle.domain}`,
+      activeLessonId: defaultSnap?.lesson.id ?? 'lesson-self-attention',
       pathVersion: 1,
+      path: defaultSnap?.path,
     });
 
     const turnResult = await tutorRuntime.runTurn({
@@ -263,17 +285,26 @@ export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
       onToolStart: (toolCallId, toolName) => {
         invokedTools.push(toolName);
       },
+      onToolEnd: (toolCallId, toolName, success) => {
+        if (success) {
+          successfulTools.push(toolName);
+        }
+        toolExecutions.push({ toolName, success });
+      },
     });
 
     db.close();
 
     return {
       invokedTools,
+      successfulTools,
+      toolExecutions,
       responseText: turnResult.reply,
       intentDetected: scenario.contextTopic,
     };
   }
 }
+
 export interface TutorEvalOptions {
   mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
@@ -291,6 +322,7 @@ export class TutorEvalSuite {
     this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
     this.policyRunner = options.policyRunner;
   }
+
   async runSuite(targetDomain?: string): Promise<EvalSuiteResult> {
     const startTime = Date.now();
     const domainKeys = targetDomain && targetDomain !== 'all'
@@ -396,7 +428,9 @@ export class TutorEvalSuite {
         durationMs: Date.now() - startTime,
       };
     }
+
     const invokedSet = new Set(execution.invokedTools);
+    const successfulSet = new Set(execution.successfulTools ?? execution.invokedTools);
 
     // 2. Hard Validator & Metric: Forbidden Tools (WrongToolRate)
     let forbiddenCount = 0;
@@ -415,11 +449,21 @@ export class TutorEvalSuite {
       : 0.0;
     metrics.push(createMetric('wrong_tool_rate', wrongToolRate, { op: 'lte', value: 0.0 }));
 
-    // 3. Metric: Expected Tool Recall
+    // 2b. Hard Validator: Expected tool execution must succeed
     let expectedMatched = 0;
+    let expectedSucceeded = 0;
     for (const expected of scenario.expectedTools) {
       if (invokedSet.has(expected)) {
         expectedMatched++;
+        if (successfulSet.has(expected)) {
+          expectedSucceeded++;
+        } else {
+          hardFailures.push({
+            rule: 'EXPECTED_TOOL_EXECUTION_FAILED',
+            message: `Expected tool '${expected}' was invoked but failed during execution in scenario '${scenario.id}'.`,
+            details: { toolExecutions: execution.toolExecutions },
+          });
+        }
       } else {
         hardFailures.push({
           rule: 'EXPECTED_TOOL_MISSING',
@@ -431,7 +475,11 @@ export class TutorEvalSuite {
     const expectedToolRecall = scenario.expectedTools.length > 0
       ? expectedMatched / scenario.expectedTools.length
       : 1.0;
+    const expectedToolSuccessRate = scenario.expectedTools.length > 0
+      ? expectedSucceeded / scenario.expectedTools.length
+      : 1.0;
     metrics.push(createMetric('expected_tool_recall', expectedToolRecall, { op: 'gte', value: 1.0 }));
+    metrics.push(createMetric('expected_tool_success_rate', expectedToolSuccessRate, { op: 'gte', value: 1.0 }));
 
     // 4. Metric: Unnecessary Retrieval Rate
     const retrievalTools = ['source_read', 'source_search', 'knowledge_search'];

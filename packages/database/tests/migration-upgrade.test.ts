@@ -11,8 +11,8 @@ import {
 } from '../src/index.ts';
 import type { LearningEvidence } from '@opentutor/protocol';
 
-describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016)', () => {
-  it('upgrades database from 013 to 016 preserving existing data and enabling new repositories', () => {
+describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017)', () => {
+  it('upgrades database from 013 to 017 preserving existing data and enabling new score repository features', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
 
@@ -67,10 +67,9 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016)', () => {
       now
     );
 
-    // 3. Run migrations 014, 015, 016
+    // 3. Run migrations 014, 015, 016, 017
     const countRemaining = runMigrations(db, ALL_MIGRATIONS);
-    assert.equal(countRemaining, 3);
-
+    assert.equal(countRemaining, 4);
     // 4. Verify learning_evidence schema after migration 014
     const v14Cols = db
       .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
@@ -197,7 +196,29 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016)', () => {
     assert.ok(poppedFrame);
     assert.equal(poppedFrame.status, 'completed');
 
-    // 8. Idempotency test: running all migrations again does nothing
+    // 8. Verify migration 017: learning_evidence score column
+    evidenceRepo.recordEvidence({
+      id: 'v17-ev-score-1',
+      userId: 'user-1',
+      knowledgeNodeId: 'attention-head',
+      type: 'quiz',
+      source: 'lesson-1',
+      sourceItemId: 'quiz-item-score-1',
+      attempt: 1,
+      outcome: 'partial',
+      score: 0.75,
+      difficulty: 1.5,
+      confidence: 0.9,
+      weight: 1.35,
+      sessionId: 'session-1',
+      createdAt: '2026-08-24T12:00:00.000Z',
+    });
+
+    const scoreEv = evidenceRepo.getEvidenceForNode('user-1', 'attention-head').find((e) => e.id === 'v17-ev-score-1');
+    assert.ok(scoreEv);
+    assert.equal(scoreEv.score, 0.75);
+
+    // 9. Idempotency test: running all migrations again does nothing
     const rerunCount = runMigrations(db, ALL_MIGRATIONS);
     assert.equal(rerunCount, 0);
 

@@ -102,7 +102,7 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     const res = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: 'Softmax ensures that all output probabilities are non-negative and sum to exactly 1.' }),
+      body: JSON.stringify({ answer: 'Softmax ensures that each probability output forms a positive distribution and sum to exactly 1.' }),
     });
 
     assert.equal(res.status, 200);

@@ -46,6 +46,7 @@ export class AssessmentService {
 
     let evaluationResult: 'correct' | 'partial' | 'incorrect' = 'correct';
     let evaluationConfidence = 1.0;
+    let evaluationScore = 1.0;
     let feedback = '';
     const difficulty = ('difficulty' in block && (typeof block.difficulty === 'number' || typeof block.difficulty === 'string')) ? block.difficulty : 'medium';
 
@@ -57,6 +58,7 @@ export class AssessmentService {
         );
         evaluationResult = evalObj.result;
         evaluationConfidence = evalObj.evidenceConfidence ?? evalObj.confidence ?? 1.0;
+        evaluationScore = evalObj.score !== undefined ? evalObj.score : (evalObj.result === 'correct' ? 1.0 : evalObj.result === 'partial' ? 0.5 : 0.0);
         feedback = evalObj.feedback;
       } else if (block.answerSpec.type === 'multiple_choice') {
         const evalObj = this.evaluator.evaluateObjective(
@@ -65,6 +67,7 @@ export class AssessmentService {
         );
         evaluationResult = evalObj.result;
         evaluationConfidence = evalObj.evidenceConfidence ?? evalObj.confidence ?? 1.0;
+        evaluationScore = evalObj.score !== undefined ? evalObj.score : (evalObj.result === 'correct' ? 1.0 : evalObj.result === 'partial' ? 0.5 : 0.0);
         feedback = evalObj.feedback;
       } else if (block.answerSpec.type === 'open') {
         const evalOpen = this.evaluator.evaluateOpenAnswer(
@@ -77,6 +80,7 @@ export class AssessmentService {
         );
         evaluationResult = evalOpen.result;
         evaluationConfidence = evalOpen.evidenceConfidence ?? evalOpen.confidence ?? 1.0;
+        evaluationScore = evalOpen.score !== undefined ? evalOpen.score : (evalOpen.result === 'correct' ? 1.0 : evalOpen.result === 'partial' ? 0.5 : 0.0);
         feedback = evalOpen.feedback;
       }
     } else if (block.options && block.options.length > 0) {
@@ -98,6 +102,7 @@ export class AssessmentService {
       );
       evaluationResult = evalObj.result;
       evaluationConfidence = evalObj.evidenceConfidence ?? evalObj.confidence ?? 1.0;
+      evaluationScore = evalObj.score !== undefined ? evalObj.score : (evalObj.result === 'correct' ? 1.0 : evalObj.result === 'partial' ? 0.5 : 0.0);
       feedback = evalObj.feedback;
     } else {
       const keywords = input.lessonId.includes('softmax')
@@ -112,6 +117,7 @@ export class AssessmentService {
       );
       evaluationResult = evalOpen.result;
       evaluationConfidence = evalOpen.evidenceConfidence ?? evalOpen.confidence ?? 1.0;
+      evaluationScore = evalOpen.score !== undefined ? evalOpen.score : (evalOpen.result === 'correct' ? 1.0 : evalOpen.result === 'partial' ? 0.5 : 0.0);
       feedback = evalOpen.feedback;
     }
 
@@ -147,6 +153,7 @@ export class AssessmentService {
       {
         difficulty,
         confidence: evaluationConfidence,
+        score: evaluationScore,
         sourceItemId: block.id,
         type: evidenceType,
         candidateMisconceptionIds,

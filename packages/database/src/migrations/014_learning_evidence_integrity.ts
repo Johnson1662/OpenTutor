@@ -16,9 +16,6 @@ export const migration014: Migration = {
     if (!columnNames.has('attempt')) {
       db.exec('ALTER TABLE learning_evidence ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1;');
     }
-    if (!columnNames.has('score')) {
-      db.exec('ALTER TABLE learning_evidence ADD COLUMN score REAL;');
-    }
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_learning_evidence_source_item ON learning_evidence(user_id, knowledge_node_id, source_item_id);
     `);

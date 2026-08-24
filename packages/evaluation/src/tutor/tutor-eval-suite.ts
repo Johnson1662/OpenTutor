@@ -14,12 +14,24 @@ import {
   ModelSetupRequiredError,
   MODEL_SETUP_REQUIRED,
 } from '../core/index.ts';
+import { createProductionTutorEvalEnvironment } from '../production/production-eval-environment.ts';
 export interface SimulatedTutorExecution {
   invokedTools: string[];
   successfulTools?: string[];
   toolExecutions?: Array<{ toolName: string; success: boolean; error?: string }>;
   responseText: string;
   intentDetected: string;
+}
+
+export interface ProductionTutorScenarioInput {
+  id: string;
+  userMessage: string;
+  contextTopic: string;
+}
+
+export interface ProductionTutorDomainInput {
+  domain: string;
+  sourceText: string;
 }
 
 export interface TutorPolicyRunner {
@@ -153,16 +165,18 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
   }
 }
 
-export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
+export class ProductionTutorPolicyRunner {
   private readonly modelRuntime?: any;
+  private readonly knowledgePreparation: 'real' | 'fixture';
 
-  constructor(modelRuntime?: any) {
+  constructor(modelRuntime?: any, knowledgePreparation: 'real' | 'fixture' = 'real') {
     this.modelRuntime = modelRuntime;
+    this.knowledgePreparation = knowledgePreparation;
   }
 
   async executeScenario(
-    scenario: TutorScenarioFixture,
-    bundle: DomainFixtureBundle
+    scenario: ProductionTutorScenarioInput,
+    bundle: ProductionTutorDomainInput
   ): Promise<SimulatedTutorExecution> {
     const runtime = this.modelRuntime ?? (await createOpenTutorModelRuntime());
     const available = await runtime.getAvailable();
@@ -170,138 +184,42 @@ export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
       throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production tutor evaluation.');
     }
 
-    const {
-      createDatabase,
-      seedDatabase,
-      TraceRepository,
-      LessonRepository,
-      SessionRepository,
-      KnowledgeRepository,
-      DiagnosisRepository,
-      EventRepository,
-      AgentSessionRepository,
-    } = await import('@opentutor/database');
-    const {
-      SessionModelResolver,
-      RoleModelResolver,
-      PiModelDriver,
-      DefaultModelExecutionService,
-      ModelSelectionService,
-      ModelPreferencesRepository,
-    } = await import('@opentutor/model-runtime');
-    const { DomainToolsExecutor } = await import('@opentutor/tutor-tools');
-    const { PiTutorRuntime } = await import('@opentutor/agent-runtime');
-    const { ModelProbeGenerator } = await import('@opentutor/learning-core');
-
-    const db = createDatabase(':memory:');
-    seedDatabase(db);
-    const traceRepo = new TraceRepository(db);
-    const lessonRepo = new LessonRepository(db);
-    const sessionRepo = new SessionRepository(db);
-    const knowledgeRepo = new KnowledgeRepository(db);
-    const diagnosisRepo = new DiagnosisRepository(db);
-    const eventRepo = new EventRepository(db);
-    const agentSessionRepo = new AgentSessionRepository(db);
-    const preferencesRepo = new ModelPreferencesRepository(db);
-
-    const modelSelectionService = new ModelSelectionService(runtime, preferencesRepo);
-    const sessionModelResolver = new SessionModelResolver(modelSelectionService, runtime, agentSessionRepo);
-    const roleModelResolver = new RoleModelResolver(modelSelectionService, runtime, preferencesRepo);
-    const modelDriver = new PiModelDriver(runtime);
-    const modelExecutionService = new DefaultModelExecutionService(roleModelResolver, modelDriver);
-
-    const lessonService = {
-      getLesson: (id: string) => lessonRepo.getLesson(id),
-      applyPatches: (sid: string, lid: string, baseVer: number, patches: any) => lessonRepo.applyPatches(lid, baseVer, patches),
-    };
-    const sessionService = {
-      getSnapshot: (sid: string) => sessionRepo.getSessionSnapshot(sid),
-      insertDetour: async (sid: string, baseVer: number, detour: any, options?: any) =>
-        sessionRepo.insertDetour(sid, baseVer, detour, { activeLessonId: options?.activeLessonId, frame: { parentPathNodeId: 'main-node-1', savedLessonId: 'lesson-1', diagnosisId: options?.diagnosisId } }),
-      completeCurrentNode: async (sid: string, baseVer: number) => sessionRepo.completeCurrentNode(sid, baseVer),
-    };
-    const knowledgeService = {
-      searchKnowledge: (q: string) => [],
-      readArtifact: (nodeId: string) => null,
-      sourceSearch: (q: string) => [],
-      sourceRead: (chunkId: string) => null,
-      getNeighbors: (nodeId: string) => [],
-    };
-
-    const probeGenerator = new ModelProbeGenerator(modelExecutionService);
-
-    const toolsExecutor = new DomainToolsExecutor({
-      lessonService,
-      sessionService,
-      knowledgeService,
-      diagnosisRepository: diagnosisRepo,
-      probeService: {
-        requestProbe: async (sessionId, params) => {
-          const snapshot = sessionRepo.getSessionSnapshot(sessionId);
-          const targetNodeId = params.prerequisiteNodeId ?? 'softmax';
-          const probeBlock = await probeGenerator.generateProbe({
-            targetKnowledgeNodeId: targetNodeId,
-            probeType: 'concept',
-          });
-          if (snapshot) {
-            lessonRepo.applyPatches(snapshot.lesson.id, snapshot.lesson.version, [
-              { op: 'insert', position: { index: snapshot.lesson.blocks.length }, block: probeBlock },
-            ]);
-          }
-          return {
-            success: true,
-            probeBlockId: probeBlock.id,
-            targetKnowledgeNodeId: targetNodeId,
-            message: `Probe placed on Canvas`,
-          };
-        },
-      },
-    });
-
-    const tutorRuntime = new PiTutorRuntime(toolsExecutor, traceRepo, {
+    const environment = await createProductionTutorEvalEnvironment({
+      bundle,
+      scenario,
       modelRuntime: runtime,
-      sessionModelResolver,
+      knowledgePreparation: this.knowledgePreparation,
     });
-
     const invokedTools: string[] = [];
     const successfulTools: string[] = [];
     const toolExecutions: Array<{ toolName: string; success: boolean; error?: string }> = [];
-    const defaultSnap = sessionRepo.getSessionSnapshot('prototype');
-    const sessionId = 'eval-session';
-    const requestId = `eval-req-${Date.now()}`;
 
-    sessionRepo.createSession({
-      id: sessionId,
-      courseId: `course-${bundle.domain}`,
-      activeLessonId: defaultSnap?.lesson.id ?? 'lesson-self-attention',
-      pathVersion: 1,
-      path: defaultSnap?.path,
-    });
+    try {
+      const turnResult = await environment.tutorRuntime.runTurn({
+        sessionId: environment.sessionId,
+        requestId: `eval-req-${Date.now()}`,
+        message: scenario.userMessage,
+        onToolStart: (_toolCallId, toolName) => {
+          invokedTools.push(toolName);
+        },
+        onToolEnd: (_toolCallId: string, toolName: string, success: boolean) => {
+          if (success) {
+            successfulTools.push(toolName);
+          }
+          toolExecutions.push({ toolName, success });
+        },
+      });
 
-    const turnResult = await tutorRuntime.runTurn({
-      sessionId,
-      requestId,
-      message: scenario.userMessage,
-      onToolStart: (toolCallId, toolName) => {
-        invokedTools.push(toolName);
-      },
-      onToolEnd: (toolCallId, toolName, success) => {
-        if (success) {
-          successfulTools.push(toolName);
-        }
-        toolExecutions.push({ toolName, success });
-      },
-    });
-
-    db.close();
-
-    return {
-      invokedTools,
-      successfulTools,
-      toolExecutions,
-      responseText: turnResult.reply,
-      intentDetected: scenario.contextTopic,
-    };
+      return {
+        invokedTools,
+        successfulTools,
+        toolExecutions,
+        responseText: turnResult.reply,
+        intentDetected: scenario.contextTopic,
+      };
+    } finally {
+      await environment.dispose();
+    }
   }
 }
 
@@ -309,13 +227,13 @@ export interface TutorEvalOptions {
   mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
   evalsDir?: string;
-  policyRunner?: TutorPolicyRunner;
+  policyRunner?: TutorPolicyRunner | ProductionTutorPolicyRunner;
 }
 
 export class TutorEvalSuite {
   readonly mode: EvalMode;
   private readonly bundles: Record<string, DomainFixtureBundle>;
-  private readonly policyRunner?: TutorPolicyRunner;
+  private readonly policyRunner?: TutorPolicyRunner | ProductionTutorPolicyRunner;
 
   constructor(options: TutorEvalOptions = {}) {
     this.mode = options.mode ?? 'contract';
@@ -384,32 +302,34 @@ export class TutorEvalSuite {
     // 1. Run simulation through tutor policy runner
     let execution: SimulatedTutorExecution;
     try {
-      let runner: TutorPolicyRunner;
       if (this.mode === 'production') {
-        if (this.policyRunner) {
-          if (this.policyRunner instanceof BenchmarkTutorPolicyRunner || this.policyRunner.constructor.name === 'BenchmarkTutorPolicyRunner') {
-            throw new Error('PROHIBITED_ADAPTER: BenchmarkTutorPolicyRunner is strictly prohibited in production mode.');
-          }
-          runner = this.policyRunner;
+        const runner = this.policyRunner ?? new ProductionTutorPolicyRunner();
+        if (runner instanceof BenchmarkTutorPolicyRunner || runner.constructor.name === 'BenchmarkTutorPolicyRunner') {
+          throw new Error('PROHIBITED_ADAPTER: BenchmarkTutorPolicyRunner is strictly prohibited in production mode.');
+        }
+
+        const sanitizedScenario: ProductionTutorScenarioInput = {
+          id: scenario.id,
+          userMessage: scenario.userMessage,
+          contextTopic: scenario.contextTopic,
+        };
+        const sanitizedBundle: ProductionTutorDomainInput = {
+          domain: bundle.domain,
+          sourceText: bundle.sourceText,
+        };
+
+        if (runner instanceof ProductionTutorPolicyRunner) {
+          execution = await runner.executeScenario(sanitizedScenario, sanitizedBundle);
         } else {
-          runner = new ProductionTutorPolicyRunner();
+          execution = await (runner as TutorPolicyRunner).executeScenario(
+            sanitizedScenario as TutorScenarioFixture,
+            sanitizedBundle as DomainFixtureBundle
+          );
         }
       } else {
-        runner = this.policyRunner ?? new BenchmarkTutorPolicyRunner();
+        const runner = (this.policyRunner as TutorPolicyRunner | undefined) ?? new BenchmarkTutorPolicyRunner();
+        execution = await runner.executeScenario(scenario, bundle);
       }
-
-      // Sanitized input in production: only userMessage and contextTopic
-      const sanitizedScenario: TutorScenarioFixture = this.mode === 'production'
-        ? {
-            id: scenario.id,
-            userMessage: scenario.userMessage,
-            contextTopic: scenario.contextTopic,
-            expectedTools: [],
-            forbiddenTools: [],
-          }
-        : scenario;
-
-      execution = await runner.executeScenario(sanitizedScenario, bundle);
     } catch (err: unknown) {
       if (err instanceof ModelSetupRequiredError || (err instanceof Error && err.message.includes(MODEL_SETUP_REQUIRED))) {
         throw err;
@@ -428,9 +348,21 @@ export class TutorEvalSuite {
         durationMs: Date.now() - startTime,
       };
     }
-
+    const toolExecutions = execution.toolExecutions ?? [];
+    if (
+      this.mode === 'production' &&
+      (execution.successfulTools === undefined || execution.toolExecutions === undefined)
+    ) {
+      hardFailures.push({
+        rule: 'TUTOR_EXECUTION_CONFIGURATION_ERROR',
+        message: `Production tutor execution must report successfulTools and toolExecutions for scenario '${scenario.id}'.`,
+        details: { execution },
+      });
+    }
     const invokedSet = new Set(execution.invokedTools);
-    const successfulSet = new Set(execution.successfulTools ?? execution.invokedTools);
+    const successfulSet = this.mode === 'production'
+      ? new Set(toolExecutions.filter((tool) => tool.success).map((tool) => tool.toolName))
+      : new Set(execution.successfulTools ?? execution.invokedTools);
 
     // 2. Hard Validator & Metric: Forbidden Tools (WrongToolRate)
     let forbiddenCount = 0;

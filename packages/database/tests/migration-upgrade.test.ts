@@ -224,4 +224,94 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017)', () => {
 
     db.close();
   });
+  it('applies migration 017 to an already-applied v16 database without rewriting legacy rows', () => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    try {
+      const countV16 = runMigrations(db, ALL_MIGRATIONS.slice(0, 16));
+      assert.equal(countV16, 16);
+      const appliedV16 = db
+        .prepare('SELECT version FROM schema_migrations ORDER BY version ASC')
+        .all() as Array<{ version: number }>;
+      assert.equal(appliedV16.at(-1)?.version, 16);
+
+      const columnsBefore = db
+        .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
+        .all() as Array<{ name: string }>;
+      assert.equal(columnsBefore.some((column) => column.name === 'score'), false);
+
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO knowledge_nodes (id, title, description, created_at)
+         VALUES (?, ?, ?, ?)`
+      ).run('v16-node', 'V16 Node', 'Legacy node', now);
+      db.prepare(
+        `INSERT INTO courses (id, title, description, created_at)
+         VALUES (?, ?, ?, ?)`
+      ).run('v16-course', 'V16 Course', 'Legacy course', now);
+      db.prepare(
+        `INSERT INTO learning_sessions (id, user_id, course_id, active_lesson_id, path_version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run('v16-session', 'v16-user', 'v16-course', null, 1, now, now);
+      db.prepare(
+        `INSERT INTO learning_evidence (
+           id, user_id, knowledge_node_id, type, source, source_item_id, attempt,
+           outcome, difficulty, confidence, weight, assessment_id, session_id, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        'v16-legacy-evidence',
+        'v16-user',
+        'v16-node',
+        'quiz',
+        'legacy-source',
+        'legacy-item',
+        1,
+        'correct',
+        1.0,
+        1.0,
+        1.0,
+        'v16-assessment',
+        'v16-session',
+        now
+      );
+
+      const executed = runMigrations(db, ALL_MIGRATIONS);
+      assert.equal(executed, 1);
+      const appliedV17 = db
+        .prepare('SELECT version FROM schema_migrations ORDER BY version ASC')
+        .all() as Array<{ version: number }>;
+      assert.deepEqual(appliedV17.map((row) => row.version), [...Array.from({ length: 16 }, (_, index) => index + 1), 17]);
+      const columnsAfter = db
+        .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
+        .all() as Array<{ name: string }>;
+      assert.equal(columnsAfter.some((column) => column.name === 'score'), true);
+
+      const evidenceRepo = new LearningEvidenceRepository(db);
+      const legacy = evidenceRepo.getEvidenceForNode('v16-user', 'v16-node');
+      assert.equal(legacy.length, 1);
+      assert.equal(legacy[0]?.id, 'v16-legacy-evidence');
+      assert.equal(legacy[0]?.score, undefined);
+      evidenceRepo.recordEvidence({
+        id: 'v17-new-evidence',
+        userId: 'v16-user',
+        knowledgeNodeId: 'v16-node',
+        type: 'quiz',
+        source: 'new-source',
+        sourceItemId: 'new-item',
+        attempt: 1,
+        outcome: 'partial',
+        score: 0.75,
+        difficulty: 1.0,
+        confidence: 1.0,
+        weight: 1.0,
+        sessionId: 'v16-session',
+        createdAt: now,
+      });
+      const scored = evidenceRepo.getEvidenceForNode('v16-user', 'v16-node').find((row) => row.id === 'v17-new-evidence');
+      assert.equal(scored?.score, 0.75);
+      assert.equal(runMigrations(db, ALL_MIGRATIONS), 0);
+    } finally {
+      db.close();
+    }
+  });
 });

@@ -30,7 +30,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     help: { type: 'boolean' as const, short: 'h', default: false },
   };
 
-  const { values } = parseArgs({ args: argv, options, allowPositionals: true });
+  const { values } = parseArgs({ args: argv.filter((arg) => arg !== '--'), options, allowPositionals: true });
 
   if (values.help) {
     console.log(`

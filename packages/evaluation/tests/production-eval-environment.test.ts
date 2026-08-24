@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, unlinkSync } from 'node:fs';
 import { createOpenTutorModelRuntime } from '@opentutor/model-runtime';
 import {
   BenchmarkTutorPolicyRunner,
   TutorEvalSuite,
   loadDomainBundle,
+  runCli,
 } from '../src/index.ts';
 import { createProductionTutorEvalEnvironment } from '../src/production/production-eval-environment.ts';
 
@@ -165,4 +167,23 @@ test('Production runner input excludes expected benchmark labels', async () => {
   assert.equal('forbiddenTools' in receivedScenario!, false);
   assert.equal('expectedIntent' in receivedScenario!, false);
   assert.equal('tutorScenarios' in receivedBundle!, false);
+});
+
+test('CLI accepts pnpm forwarded delimiter before production options', async () => {
+  const reportPath = `/tmp/opentutor-cli-delimiter-${process.pid}.json`;
+  try {
+    const exitCode = await runCli([
+      '--',
+      '--suite',
+      'learner',
+      '--domain',
+      'transformer',
+      '--out',
+      reportPath,
+    ]);
+    assert.equal(exitCode, 0);
+    assert.equal(existsSync(reportPath), true);
+  } finally {
+    if (existsSync(reportPath)) unlinkSync(reportPath);
+  }
 });

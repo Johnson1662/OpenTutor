@@ -225,7 +225,7 @@ export class TutorEvalSuite {
     const wrongToolRate = scenario.forbiddenTools.length > 0
       ? forbiddenCount / scenario.forbiddenTools.length
       : 0.0;
-    metrics.push(createMetric('wrong_tool_rate', wrongToolRate, 0.0));
+    metrics.push(createMetric('wrong_tool_rate', wrongToolRate, { op: 'lte', value: 0.0 }));
 
     // 3. Metric: Expected Tool Recall
     let expectedMatched = 0;
@@ -243,26 +243,26 @@ export class TutorEvalSuite {
     const expectedToolRecall = scenario.expectedTools.length > 0
       ? expectedMatched / scenario.expectedTools.length
       : 1.0;
-    metrics.push(createMetric('expected_tool_recall', expectedToolRecall, 1.0));
+    metrics.push(createMetric('expected_tool_recall', expectedToolRecall, { op: 'gte', value: 1.0 }));
 
     // 4. Metric: Unnecessary Retrieval Rate
     const retrievalTools = ['source_read', 'source_search', 'knowledge_search'];
     const performedRetrieval = execution.invokedTools.some((t) => retrievalTools.includes(t));
     const retrievalExpected = scenario.expectedTools.some((t) => retrievalTools.includes(t));
     const unnecessaryRetrieval = performedRetrieval && !retrievalExpected;
-    metrics.push(createMetric('unnecessary_retrieval_rate', unnecessaryRetrieval ? 1.0 : 0.0, 0.0));
+    metrics.push(createMetric('unnecessary_retrieval_rate', unnecessaryRetrieval ? 1.0 : 0.0, { op: 'lte', value: 0.0 }));
 
     // 5. Metric: Unnecessary Detour Rate
     const performedDetour = invokedSet.has('path_insert_detour');
     const detourExpected = scenario.expectedTools.includes('path_insert_detour');
     const unnecessaryDetour = performedDetour && !detourExpected;
-    metrics.push(createMetric('unnecessary_detour_rate', unnecessaryDetour ? 1.0 : 0.0, 0.0));
+    metrics.push(createMetric('unnecessary_detour_rate', unnecessaryDetour ? 1.0 : 0.0, { op: 'lte', value: 0.0 }));
 
     // 6. Metric: Chat Dump Rate (long explanation without patch when patch was requested)
     const patchExpected = scenario.expectedTools.includes('lesson_patch');
     const performedPatch = invokedSet.has('lesson_patch');
     const isChatDump = patchExpected && !performedPatch && execution.responseText.length > 100;
-    metrics.push(createMetric('chat_dump_rate', isChatDump ? 1.0 : 0.0, 0.0));
+    metrics.push(createMetric('chat_dump_rate', isChatDump ? 1.0 : 0.0, { op: 'lte', value: 0.0 }));
 
     const allMetricsPassed = metrics.every((m) => m.passed);
     const passed = hardFailures.length === 0 && allMetricsPassed;

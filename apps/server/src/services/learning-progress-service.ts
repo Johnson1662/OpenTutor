@@ -1,3 +1,4 @@
+import type { UserKnowledgeState } from '@opentutor/protocol';
 import type { SessionService } from './session-service.ts';
 import type { EventBus } from '../events/event-bus.ts';
 
@@ -10,26 +11,23 @@ export class LearningProgressService {
     this.eventBus = eventBus;
   }
 
-  onKnowledgeStateUpdated(
-    sessionId: string,
-    knowledgeNodeId: string,
-    status: 'unknown' | 'learning' | 'weak' | 'mastered',
-    confidence: number
-  ): void {
+  onKnowledgeStateUpdated(sessionId: string, state: UserKnowledgeState): void {
     const snapshot = this.sessionService.getSnapshot(sessionId);
     if (!snapshot) return;
 
     const currentNode = snapshot.path.find((n) => n.status === 'current');
     if (!currentNode) return;
 
-    // Check if the current node matches or if a detour has satisfied diagnostic check
-    const isMatchingNode = currentNode.knowledgeNodeId === knowledgeNodeId;
-    const isSatisfied =
-      status === 'mastered' ||
-      confidence >= 0.8 ||
-      (currentNode.type === 'detour' && confidence >= 0.25);
+    const isMatchingNode = currentNode.knowledgeNodeId === state.knowledgeNodeId;
+    if (!isMatchingNode) return;
 
-    if (isMatchingNode && isSatisfied) {
+    const isDetour = currentNode.type === 'detour';
+    const isSatisfied = isDetour
+      ? state.status === 'mastered' ||
+        ((state.masteryProbability ?? 0) >= 0.85 && (state.evidenceCount ?? 0) >= 2)
+      : state.status === 'mastered';
+
+    if (isSatisfied) {
       this.sessionService.completeCurrentNode(sessionId, snapshot.pathVersion);
     }
   }

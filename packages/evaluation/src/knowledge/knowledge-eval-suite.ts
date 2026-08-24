@@ -218,8 +218,8 @@ export class KnowledgeEvalSuite {
     const recall = calculateRecall(actualEntityTitles, expectedEntityNames);
     const precision = calculatePrecision(actualEntityTitles, expectedEntityNames);
 
-    metrics.push(createMetric('entity_recall', recall, 0.95));
-    metrics.push(createMetric('entity_precision', precision, 0.80));
+    metrics.push(createMetric('entity_recall', recall, { op: 'gte', value: 0.95 }));
+    metrics.push(createMetric('entity_precision', precision, { op: 'gte', value: 0.80 }));
 
     // 5. Metric: Alias Merge Recall
     let totalAliasPairs = 0;
@@ -238,7 +238,7 @@ export class KnowledgeEvalSuite {
       }
     }
     const aliasMergeRecall = totalAliasPairs > 0 ? successfulAliasPairs / totalAliasPairs : 1.0;
-    metrics.push(createMetric('alias_merge_recall', aliasMergeRecall, 0.95));
+    metrics.push(createMetric('alias_merge_recall', aliasMergeRecall, { op: 'gte', value: 0.95 }));
 
     // 6. Hard Validator & Metric: Forbidden Merges
     const mergedClustersMap = new Map<string, Set<string>>();
@@ -262,7 +262,7 @@ export class KnowledgeEvalSuite {
     const wrongMergeRate = bundle.forbiddenMerges.length > 0
       ? forbiddenMergeFailures.length / bundle.forbiddenMerges.length
       : 0;
-    metrics.push(createMetric('wrong_merge_rate', wrongMergeRate, 0.0));
+    metrics.push(createMetric('wrong_merge_rate', wrongMergeRate, { op: 'lte', value: 0.02 }));
 
     // 7. Hard Validator & Metric: Claim Grounding Rate
     let groundedClaims = 0;
@@ -305,7 +305,7 @@ export class KnowledgeEvalSuite {
     }
 
     const claimGroundingRate = actualClaims.length > 0 ? groundedClaims / actualClaims.length : 1.0;
-    metrics.push(createMetric('claim_grounding_rate', claimGroundingRate, 1.0));
+    metrics.push(createMetric('claim_grounding_rate', claimGroundingRate, { op: 'gte', value: 1.0 }));
 
     // 8. Metric: Relation Validity
     const actualRelations = db
@@ -336,7 +336,7 @@ export class KnowledgeEvalSuite {
     const relationValidity = bundle.relations.length > 0
       ? validRelations / bundle.relations.length
       : 1.0;
-    metrics.push(createMetric('relation_validity', relationValidity, 0.90));
+    metrics.push(createMetric('relation_validity', relationValidity, { op: 'gte', value: 0.90 }));
 
     // 9. Metric: Artifact Support Evaluator
     const artifactEvaluator = new ArtifactSupportEvaluator(db);
@@ -360,7 +360,7 @@ export class KnowledgeEvalSuite {
     const artifactSupportRate = totalArtifactsEvaluated > 0
       ? supportedArtifacts / totalArtifactsEvaluated
       : 1.0;
-    metrics.push(createMetric('artifact_support_rate', artifactSupportRate, 0.90));
+    metrics.push(createMetric('artifact_support_rate', artifactSupportRate, { op: 'gte', value: 0.90 }));
 
     const allMetricsPassed = metrics.every((m) => m.passed);
     const passed = hardFailures.length === 0 && allMetricsPassed;

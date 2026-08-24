@@ -108,7 +108,8 @@ export class LessonStructureValidator {
    });
   }
 
-  if (!quiz.answerSpec) {
+  const answerSpec = quiz.answerSpec;
+  if (!answerSpec) {
    failures.push({
     rule: 'QUIZ_ANSWERSPEC_MISSING',
     message: `Quiz block '${quiz.id}' is missing mandatory 'answerSpec'.`,
@@ -117,8 +118,8 @@ export class LessonStructureValidator {
    return;
   }
 
-  if (quiz.answerSpec.type === 'single_choice') {
-   if (!quiz.answerSpec.correctOptionId) {
+  if (answerSpec.type === 'single_choice') {
+   if (!answerSpec.correctOptionId) {
     failures.push({
      rule: 'QUIZ_SINGLE_CHOICE_MISSING_CORRECT_OPTION',
      message: `Quiz single_choice block '${quiz.id}' is missing correctOptionId.`,
@@ -131,26 +132,26 @@ export class LessonStructureValidator {
      message: `Quiz single_choice block '${quiz.id}' must provide at least 2 options.`,
      details: { blockId: quiz.id },
     });
-   } else if (quiz.answerSpec.correctOptionId) {
-    const hasMatch = quiz.options.some((o) => o.id === quiz.answerSpec.correctOptionId);
+   } else if (answerSpec.correctOptionId) {
+    const hasMatch = quiz.options.some((o) => o.id === answerSpec.correctOptionId);
     if (!hasMatch) {
      failures.push({
       rule: 'QUIZ_CORRECT_OPTION_NOT_IN_OPTIONS',
-      message: `Quiz single_choice block '${quiz.id}' correctOptionId '${quiz.answerSpec.correctOptionId}' is not among options.`,
-      details: { blockId: quiz.id, correctOptionId: quiz.answerSpec.correctOptionId },
+      message: `Quiz single_choice block '${quiz.id}' correctOptionId '${answerSpec.correctOptionId}' is not among options.`,
+      details: { blockId: quiz.id, correctOptionId: answerSpec.correctOptionId },
      });
     }
    }
-  } else if (quiz.answerSpec.type === 'multiple_choice') {
-   if (!Array.isArray(quiz.answerSpec.correctOptionIds) || quiz.answerSpec.correctOptionIds.length === 0) {
+  } else if (answerSpec.type === 'multiple_choice') {
+   if (!Array.isArray(answerSpec.correctOptionIds) || answerSpec.correctOptionIds.length === 0) {
     failures.push({
      rule: 'QUIZ_MULTIPLE_CHOICE_NO_CORRECT_OPTIONS',
      message: `Quiz multiple_choice block '${quiz.id}' must specify at least one correct option ID.`,
      details: { blockId: quiz.id },
     });
    }
-  } else if (quiz.answerSpec.type === 'open') {
-   if (!quiz.answerSpec.rubric || !Array.isArray(quiz.answerSpec.rubric.concepts) || quiz.answerSpec.rubric.concepts.length === 0) {
+  } else if (answerSpec.type === 'open') {
+   if (!answerSpec.rubric || !Array.isArray(answerSpec.rubric.concepts) || answerSpec.rubric.concepts.length === 0) {
     failures.push({
      rule: 'QUIZ_OPEN_INVALID_RUBRIC',
      message: `Quiz open block '${quiz.id}' must provide rubric with non-empty concepts list.`,
@@ -224,7 +225,7 @@ export class QuizAlignmentValidator {
   const allQuizText = quizBlocks
    .map((q) => {
     const optionTexts = q.options?.map((o) => o.text).join(' ') ?? '';
-    const rubricText = q.answerSpec.type === 'open' ? q.answerSpec.rubric?.concepts.join(' ') ?? '' : '';
+    const rubricText = q.answerSpec && q.answerSpec.type === 'open' && q.answerSpec.rubric ? q.answerSpec.rubric.concepts.join(' ') : '';
     return `${q.question} ${optionTexts} ${rubricText}`.toLowerCase();
    })
    .join(' ');
@@ -325,7 +326,7 @@ export class BenchmarkLessonGenerator {
    {
     id: `${lessonCase.id}-diag`,
     type: 'diagram',
-    diagramType: 'concept_map',
+    diagramType: 'relationship',
     nodes: lessonCase.expectedConcepts.map((c, i) => ({ id: `n-${i}`, label: c })),
     edges: lessonCase.expectedConcepts.slice(1).map((c, i) => ({
      from: `n-0`,
@@ -462,7 +463,7 @@ export class LessonEvalSuite {
   hardFailures.push(...structureFailures);
 
   const structureScore = structureFailures.length === 0 ? 1.0 : 0.0;
-  metrics.push(createMetric('lesson_structure_score', structureScore, 1.0));
+  metrics.push(createMetric('lesson_structure_score', structureScore, { op: 'gte', value: 1.0 }));
 
   // 4. Validator: LessonGroundingValidator
   const groundingValidator = new LessonGroundingValidator(db);
@@ -470,13 +471,13 @@ export class LessonEvalSuite {
   hardFailures.push(...groundingFailures);
 
   const groundingScore = groundingFailures.length === 0 ? 1.0 : 0.0;
-  metrics.push(createMetric('lesson_grounding_rate', groundingScore, 1.0));
+  metrics.push(createMetric('lesson_grounding_rate', groundingScore, { op: 'gte', value: 1.0 }));
 
   // 5. Validator & Metric: QuizAlignmentValidator
   const quizValidator = new QuizAlignmentValidator();
   const { alignmentScore, failures: quizFailures } = quizValidator.validateAlignment(lesson, lessonCase);
   hardFailures.push(...quizFailures);
-  metrics.push(createMetric('quiz_alignment_rate', alignmentScore, 0.95));
+  metrics.push(createMetric('quiz_alignment_rate', alignmentScore, { op: 'gte', value: 0.95 }));
 
   // 6. Metric: Concept Coverage
   const lessonContentText = lesson.blocks
@@ -499,7 +500,7 @@ export class LessonEvalSuite {
   const conceptCoverage = lessonCase.expectedConcepts.length > 0
    ? coveredConcepts / lessonCase.expectedConcepts.length
    : 1.0;
-  metrics.push(createMetric('concept_coverage_rate', conceptCoverage, 0.95));
+  metrics.push(createMetric('concept_coverage_rate', conceptCoverage, { op: 'gte', value: 0.95 }));
 
   const allMetricsPassed = metrics.every((m) => m.passed);
   const passed = hardFailures.length === 0 && allMetricsPassed;

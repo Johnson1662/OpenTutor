@@ -151,7 +151,8 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   assert.equal(detourSnap.lesson.knowledgeNodeId, 'softmax');
 
   // 11. Diagnostic Assessment Quiz Submission (HTTP POST /api/lessons/:id/blocks/:id/answer)
-  const quizAnswerRes = await fetch(
+  // Answer 1: Verify single answer does not prematurely complete the detour
+  const quizAnswerRes1 = await fetch(
     `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer?sessionId=${sessionId}`,
     {
       method: 'POST',
@@ -161,11 +162,30 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
       }),
     }
   );
-  assert.equal(quizAnswerRes.status, 200);
-  const quizBody = (await quizAnswerRes.json()) as { assessment: { result: string; confidence: number } };
-  assert.equal(quizBody.assessment.result, 'correct');
-  assert.ok(quizBody.assessment.confidence >= 0.25);
+  assert.equal(quizAnswerRes1.status, 200);
+  const quizBody1 = (await quizAnswerRes1.json()) as { assessment: { result: string; confidence: number } };
+  assert.equal(quizBody1.assessment.result, 'correct');
+  assert.ok(quizBody1.assessment.confidence >= 0.25);
 
+  const midSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
+  const midSnap = (await midSnapRes.json()) as LearningSessionSnapshot;
+  const midDetour = midSnap.path.find((n) => n.knowledgeNodeId === 'softmax');
+  assert.equal(midDetour?.status, 'current');
+
+  // Answer 2 & 3: Accumulate evidence to meet detour threshold (evidenceCount >= 2 and p >= 0.85)
+  for (let i = 0; i < 2; i++) {
+    const quizAnswerRes = await fetch(
+      `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer?sessionId=${sessionId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          answer: 'Softmax ensures that probability outputs across tokens sum up to exactly 1.',
+        }),
+      }
+    );
+    assert.equal(quizAnswerRes.status, 200);
+  }
   // 12. Verify Detour Completed and Automatic Resume to Main Track with Original Lesson Restored
   const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
   const resumedSnap = (await resumedSnapRes.json()) as LearningSessionSnapshot;

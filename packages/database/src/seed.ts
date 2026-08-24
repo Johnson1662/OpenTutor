@@ -79,6 +79,7 @@ export const SOFTMAX_LESSON: Lesson = {
     {
       id: 'softmax-quiz',
       type: 'quiz',
+      difficulty: 2.5,
       answerType: 'text',
       question: 'What does softmax ensure regarding the sum of output values?',
       answerSpec: {

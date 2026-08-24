@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type {
  LearningPathNode,
@@ -168,7 +169,7 @@ export class SessionRepository {
   savedLessonId: string;
   depth?: number;
  }): LearningSessionFrame {
-  const id = frame.id ?? `frame-${crypto.randomUUID()}`;
+  const id = frame.id ?? `frame-${randomUUID()}`;
   let depth = frame.depth;
   if (depth === undefined) {
    const active = this.peekActiveFrame(frame.sessionId);

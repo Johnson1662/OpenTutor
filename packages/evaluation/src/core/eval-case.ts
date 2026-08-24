@@ -8,10 +8,18 @@ export interface EvalCase<TInput = unknown, TExpected = unknown> {
   metadata?: Record<string, unknown>;
 }
 
+export type MetricComparator = 'gte' | 'lte' | 'eq' | 'gt' | 'lt';
+
+export interface MetricExpectation {
+  op: MetricComparator;
+  value: number;
+}
+
 export interface MetricResult {
   name: string;
   value: number;
   threshold?: number;
+  expectation?: MetricExpectation;
   passed: boolean;
   details?: unknown;
 }

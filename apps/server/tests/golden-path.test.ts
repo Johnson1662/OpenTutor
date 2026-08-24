@@ -91,17 +91,18 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
   assert.ok(detourNode);
   assert.equal(detourNode.status, 'current');
 
-  // 6. Assessment Answer Submission -> Evaluator -> MasteryPolicy -> Automatic Detour Resume (HTTP POST /answer)
-  const quizRes = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer: 'Softmax ensures that probability outputs sum up to 1 across the sequence.' }),
-  });
-  assert.equal(quizRes.status, 200);
-  const quizBody = (await quizRes.json()) as { assessment: { result: string; confidence: number } };
-  assert.equal(quizBody.assessment.result, 'correct');
-  assert.ok(quizBody.assessment.confidence >= 0.25);
-
+  // 6. Assessment Answer Submission -> Evaluator -> BetaMasteryAggregator -> Automatic Detour Resume (HTTP POST /answer)
+  for (let i = 0; i < 3; i++) {
+    const quizRes = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: 'Softmax ensures that probability outputs sum up to 1 across the sequence.' }),
+    });
+    assert.equal(quizRes.status, 200);
+    const quizBody = (await quizRes.json()) as { assessment: { result: string; confidence: number } };
+    assert.equal(quizBody.assessment.result, 'correct');
+    assert.ok(quizBody.assessment.confidence >= 0.25);
+  }
   // 7. Verify Final Snapshot State (HTTP GET - zero repository shortcut calls!)
   const finalSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
   assert.equal(finalSnapRes.status, 200);

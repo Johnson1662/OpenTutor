@@ -213,7 +213,7 @@ export class CourseEvalSuite {
     const targetCoverage = courseCase.targetNodes.length > 0
       ? matchedTargets / courseCase.targetNodes.length
       : 1.0;
-    metrics.push(createMetric('target_concept_coverage', targetCoverage, 0.95));
+    metrics.push(createMetric('target_concept_coverage', targetCoverage, { op: 'gte', value: 0.95 }));
 
     // 4. Metric & Validator: Prerequisite Closure (100% closure)
     let matchedPrereqs = 0;
@@ -232,7 +232,7 @@ export class CourseEvalSuite {
     const prereqClosureRate = courseCase.expectedPrerequisites.length > 0
       ? matchedPrereqs / courseCase.expectedPrerequisites.length
       : 1.0;
-    metrics.push(createMetric('prerequisite_closure_rate', prereqClosureRate, 1.0));
+    metrics.push(createMetric('prerequisite_closure_rate', prereqClosureRate, { op: 'gte', value: 1.0 }));
 
     // Check DB-level prerequisite closure for all included nodes
     const allDbPrereqs = db
@@ -255,7 +255,7 @@ export class CourseEvalSuite {
     }));
 
     const topologicalValidity = calculateTopologicalValidity(orderedNodeIds, dependencyEdges);
-    metrics.push(createMetric('topological_ordering_validity', topologicalValidity, 1.0));
+    metrics.push(createMetric('topological_ordering_validity', topologicalValidity, { op: 'gte', value: 1.0 }));
 
     if (topologicalValidity < 1.0) {
       hardFailures.push({
@@ -281,13 +281,13 @@ export class CourseEvalSuite {
     const forbiddenNodeRate = (courseCase.forbiddenNodes?.length ?? 0) > 0
       ? forbiddenFound / courseCase.forbiddenNodes!.length
       : 0.0;
-    metrics.push(createMetric('forbidden_node_rate', forbiddenNodeRate, 0.0));
+    metrics.push(createMetric('forbidden_node_rate', forbiddenNodeRate, { op: 'lte', value: 0.0 }));
 
     // 7. Hard Validator & Metric: Graph Cycle Count (must be 0)
     const cycleFailures = assertAcyclic(Array.from(includedNodeIds), dependencyEdges);
     hardFailures.push(...cycleFailures);
     const cycleCount = cycleFailures.length;
-    metrics.push(createMetric('graph_cycle_count', cycleCount === 0 ? 1.0 : 0.0, 1.0, { cycleCount }));
+    metrics.push(createMetric('graph_cycle_count', cycleCount === 0 ? 1.0 : 0.0, { op: 'gte', value: 1.0 }, { cycleCount }));
 
     const allMetricsPassed = metrics.every((m) => m.passed);
     const passed = hardFailures.length === 0 && allMetricsPassed;

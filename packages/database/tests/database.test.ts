@@ -321,7 +321,7 @@ describe('@opentutor/database', () => {
   });
 
   describe('KnowledgeRepository', () => {
-    it('records assessment and updates user knowledge state to mastered on correct answer', () => {
+    it('records assessment into assessments table without mutating user knowledge states directly', () => {
       const assessment: AssessmentResult = {
         id: 'asmt-1',
         knowledgeNodeId: 'self-attention',
@@ -335,32 +335,36 @@ describe('@opentutor/database', () => {
       knowledgeRepo.recordAssessment(assessment, 'default-user');
 
       const state = knowledgeRepo.getUserKnowledgeState('default-user', 'self-attention');
+      assert.equal(state, null);
+
+      const assessments = knowledgeRepo.getAssessments('default-user', 'lesson-self-attention');
+      assert.equal(assessments.length, 1);
+      assert.equal(assessments[0].id, 'asmt-1');
+      assert.equal(assessments[0].result, 'correct');
+    });
+
+    it('sets and retrieves user knowledge state via setUserKnowledgeState', () => {
+      knowledgeRepo.setUserKnowledgeState('default-user', {
+        userId: 'default-user',
+        knowledgeNodeId: 'self-attention',
+        status: 'mastered',
+        confidence: 0.88,
+        masteryProbability: 0.88,
+        evidenceCount: 3,
+        correctCount: 3,
+        incorrectCount: 0,
+      });
+
+      const state = knowledgeRepo.getUserKnowledgeState('default-user', 'self-attention');
       assert.ok(state);
       assert.equal(state.knowledgeNodeId, 'self-attention');
       assert.equal(state.status, 'mastered');
       assert.equal(state.confidence, 0.88);
+      assert.equal(state.evidenceCount, 3);
 
-      const assessments = knowledgeRepo.getAssessments('default-user', 'lesson-self-attention');
-      assert.equal(assessments.length, 1);
-      assert.equal(assessments[0].result, 'correct');
-    });
-
-    it('updates user knowledge state to weak on incorrect answer', () => {
-      const assessment: AssessmentResult = {
-        id: 'asmt-2',
-        knowledgeNodeId: 'multi-head',
-        lessonId: 'lesson-self-attention',
-        result: 'incorrect',
-        confidence: 0.2,
-        feedback: 'Review the multi-head attention concept.',
-      };
-
-      knowledgeRepo.recordAssessment(assessment, 'default-user');
-
-      const state = knowledgeRepo.getUserKnowledgeState('default-user', 'multi-head');
-      assert.ok(state);
-      assert.equal(state.status, 'weak');
-      assert.equal(state.confidence, 0.2);
+      const allStates = knowledgeRepo.getAllUserKnowledgeStates('default-user');
+      assert.equal(allStates.length, 1);
+      assert.equal(allStates[0].knowledgeNodeId, 'self-attention');
     });
   });
 

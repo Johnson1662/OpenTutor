@@ -98,16 +98,17 @@ test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptiv
   assert.equal(detourNode.status, 'current');
 
   // 5. Assessment Evaluation & Mastery Update (HTTP POST /answer)
-  const quizRes = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer: 'Softmax converts logits into normalized probabilities summing to 1.' }),
-  });
-  assert.equal(quizRes.status, 200);
-  const quizBody = (await quizRes.json()) as { assessment: { result: string; confidence: number } };
-  assert.equal(quizBody.assessment.result, 'correct');
-  assert.ok(quizBody.assessment.confidence >= 0.25);
-
+  for (let i = 0; i < 4; i++) {
+    const quizRes = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: 'Softmax converts logits into normalized probabilities summing to 1.' }),
+    });
+    assert.equal(quizRes.status, 200);
+    const quizBody = (await quizRes.json()) as { assessment: { result: string; confidence: number } };
+    assert.equal(quizBody.assessment.result, 'correct');
+    assert.ok(quizBody.assessment.confidence >= 0.25);
+  }
   // 6. Verify Automatic Detour Resume on Main Track
   const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
   assert.equal(resumedSnapRes.status, 200);

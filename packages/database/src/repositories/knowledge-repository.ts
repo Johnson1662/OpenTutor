@@ -60,48 +60,22 @@ export class KnowledgeRepository {
  recordAssessment(assessment: AssessmentResult, userId: string = 'default-user'): void {
   const now = new Date().toISOString();
 
-  const statusMap: Record<AssessmentResult['result'], KnowledgeStatus> = {
-   correct: 'mastered',
-   partial: 'learning',
-   incorrect: 'weak',
-  };
-
-  const status = statusMap[assessment.result] ?? 'learning';
-
-  const recordTx = this.db.transaction(() => {
-   this.db
-    .prepare(`
-          INSERT INTO assessments (id, user_id, knowledge_node_id, lesson_id, block_id, result, confidence, feedback, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `)
-    .run(
-     assessment.id,
-     userId,
-     assessment.knowledgeNodeId,
-     assessment.lessonId,
-     assessment.blockId ?? null,
-     assessment.result,
-     assessment.confidence,
-     assessment.feedback,
-     now
-    );
-
-   this.db
-    .prepare(`
-          INSERT INTO user_knowledge_states (
-            user_id, knowledge_node_id, status, confidence, last_assessed_at, updated_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT(user_id, knowledge_node_id) DO UPDATE SET
-            status = excluded.status,
-            confidence = excluded.confidence,
-            last_assessed_at = excluded.last_assessed_at,
-            updated_at = excluded.updated_at
-        `)
-    .run(userId, assessment.knowledgeNodeId, status, assessment.confidence, now, now);
-  });
-
-  recordTx();
+  this.db
+   .prepare(`
+        INSERT INTO assessments (id, user_id, knowledge_node_id, lesson_id, block_id, result, confidence, feedback, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+   .run(
+    assessment.id,
+    userId,
+    assessment.knowledgeNodeId,
+    assessment.lessonId,
+    assessment.blockId ?? null,
+    assessment.result,
+    assessment.confidence,
+    assessment.feedback,
+    now
+   );
  }
 
  getUserKnowledgeState(userId: string, nodeId: string): UserKnowledgeState | null {

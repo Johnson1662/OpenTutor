@@ -138,7 +138,7 @@ export class LearnerEvalSuite {
     }
 
     const oneAnswerImpossibleRate = singleAnswerTotal > 0 ? (singleAnswerTotal - singleAnswerViolations) / singleAnswerTotal : 1.0;
-    metrics.push(createMetric('OneAnswerMasteryImpossibleRate', oneAnswerImpossibleRate, 1.0));
+    metrics.push(createMetric('OneAnswerMasteryImpossibleRate', oneAnswerImpossibleRate, { op: 'gte', value: 1.0 }));
 
     // 2. Benchmark: EvidenceAggregationDeterminism
     // Verify that independent aggregator instances aggregate identical evidence deterministically.
@@ -181,6 +181,9 @@ export class LearnerEvalSuite {
 
       if (
         s1 && s2 &&
+        s1.alpha !== undefined && s2.alpha !== undefined &&
+        s1.beta !== undefined && s2.beta !== undefined &&
+        s1.masteryProbability !== undefined && s2.masteryProbability !== undefined &&
         Math.abs(s1.alpha - s2.alpha) < 1e-9 &&
         Math.abs(s1.beta - s2.beta) < 1e-9 &&
         Math.abs(s1.masteryProbability - s2.masteryProbability) < 1e-9 &&
@@ -200,7 +203,7 @@ export class LearnerEvalSuite {
     }
 
     const determinismRate = determinismChecks > 0 ? determinismMatches / determinismChecks : 1.0;
-    metrics.push(createMetric('EvidenceAggregationDeterminism', determinismRate, 1.0));
+    metrics.push(createMetric('EvidenceAggregationDeterminism', determinismRate, { op: 'gte', value: 1.0 }));
 
     // 3. Benchmark: DecayMonotonicity
     // Verify that forgetting decay is strictly monotonic over time intervals.
@@ -240,10 +243,10 @@ export class LearnerEvalSuite {
     };
 
     const intervals = [1, 3, 7, 14, 30, 60, 90];
-    let prevHighProb = baseStateHigh.masteryProbability;
-    let prevLowProb = baseStateLow.masteryProbability;
-    let prevHighAlpha = baseStateHigh.alpha;
-    let prevLowBeta = baseStateLow.beta;
+    let prevHighProb = baseStateHigh.masteryProbability ?? 0.90;
+    let prevLowProb = baseStateLow.masteryProbability ?? 0.20;
+    let prevHighAlpha = baseStateHigh.alpha ?? 9.0;
+    let prevLowBeta = baseStateLow.beta ?? 4.0;
 
     let highMonotonic = true;
     let lowMonotonic = true;
@@ -254,21 +257,25 @@ export class LearnerEvalSuite {
       const decayedHigh = this.aggregator.projectMasteryAt(baseStateHigh, targetTime);
       const decayedLow = this.aggregator.projectMasteryAt(baseStateLow, targetTime);
 
+      const highProb = decayedHigh.masteryProbability ?? 0.5;
+      const highAlpha = decayedHigh.alpha ?? 1.0;
+      const lowProb = decayedLow.masteryProbability ?? 0.5;
+      const lowBeta = decayedLow.beta ?? 1.0;
+
       // High mastery should decay downwards towards 0.5
-      if (decayedHigh.masteryProbability > prevHighProb || decayedHigh.alpha > prevHighAlpha) {
+      if (highProb > prevHighProb || highAlpha > prevHighAlpha) {
         highMonotonic = false;
       }
       // Low mastery should decay upwards towards 0.5
-      if (decayedLow.masteryProbability < prevLowProb || decayedLow.beta > prevLowBeta) {
+      if (lowProb < prevLowProb || lowBeta > prevLowBeta) {
         lowMonotonic = false;
       }
 
-      prevHighProb = decayedHigh.masteryProbability;
-      prevHighAlpha = decayedHigh.alpha;
-      prevLowProb = decayedLow.masteryProbability;
-      prevLowBeta = decayedLow.beta;
+      prevHighProb = highProb;
+      prevHighAlpha = highAlpha;
+      prevLowProb = lowProb;
+      prevLowBeta = lowBeta;
     }
-
     if (highMonotonic && lowMonotonic) {
       decayMatches = decayChecks;
     } else {
@@ -280,7 +287,7 @@ export class LearnerEvalSuite {
     }
 
     const decayMonotonicityRate = decayChecks > 0 ? decayMatches / decayChecks : 1.0;
-    metrics.push(createMetric('DecayMonotonicity', decayMonotonicityRate, 1.0));
+    metrics.push(createMetric('DecayMonotonicity', decayMonotonicityRate, { op: 'gte', value: 1.0 }));
 
     // 4. Benchmark: ThresholdConsistency
     // Verify that status corresponds exactly to the mathematical bounds:
@@ -328,7 +335,7 @@ export class LearnerEvalSuite {
     }
 
     const thresholdConsistencyRate = thresholdChecks > 0 ? thresholdMatches / thresholdChecks : 1.0;
-    metrics.push(createMetric('ThresholdConsistency', thresholdConsistencyRate, 1.0));
+    metrics.push(createMetric('ThresholdConsistency', thresholdConsistencyRate, { op: 'gte', value: 1.0 }));
 
     const allMetricsPassed = metrics.every((m) => m.passed);
     const passed = hardFailures.length === 0 && allMetricsPassed;

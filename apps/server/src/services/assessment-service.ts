@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { AssessmentResult } from '@opentutor/protocol';
-import { AssessmentEvaluator, MasteryPolicy } from '@opentutor/assessment-core';
+import { AssessmentEvaluator } from '@opentutor/assessment-core';
 import type { LessonService } from './lesson-service.ts';
 import type { KnowledgeService } from './knowledge-service.ts';
 import type { LearningProgressService } from './learning-progress-service.ts';
@@ -18,7 +18,6 @@ export class AssessmentService {
   private readonly knowledgeService: KnowledgeService;
   private readonly progressService: LearningProgressService;
   private readonly evaluator: AssessmentEvaluator;
-  private readonly policy: MasteryPolicy;
 
   constructor(
     lessonService: LessonService,
@@ -29,7 +28,6 @@ export class AssessmentService {
     this.knowledgeService = knowledgeService;
     this.progressService = progressService;
     this.evaluator = new AssessmentEvaluator();
-    this.policy = new MasteryPolicy();
   }
 
   submitAnswer(input: SubmitAnswerInput): { assessment: AssessmentResult } {
@@ -40,7 +38,9 @@ export class AssessmentService {
 
     const block = lesson.blocks.find((b) => b.id === input.blockId);
     let evaluationResult: 'correct' | 'partial' | 'incorrect' = 'correct';
+    let evaluationConfidence = 1.0;
     let feedback = '';
+    const difficulty = block && 'difficulty' in block && block.difficulty !== undefined ? block.difficulty : 'medium';
 
     if (block && block.type === 'quiz') {
       if (block.answerSpec) {
@@ -50,6 +50,7 @@ export class AssessmentService {
             input.answer
           );
           evaluationResult = evalObj.result;
+          evaluationConfidence = evalObj.confidence;
           feedback = evalObj.feedback;
         } else if (block.answerSpec.type === 'multiple_choice') {
           const evalObj = this.evaluator.evaluateObjective(
@@ -57,6 +58,7 @@ export class AssessmentService {
             input.answer
           );
           evaluationResult = evalObj.result;
+          evaluationConfidence = evalObj.confidence;
           feedback = evalObj.feedback;
         } else if (block.answerSpec.type === 'open') {
           const evalOpen = this.evaluator.evaluateOpenAnswer(
@@ -68,6 +70,7 @@ export class AssessmentService {
             }
           );
           evaluationResult = evalOpen.result;
+          evaluationConfidence = evalOpen.confidence;
           feedback = evalOpen.feedback;
         }
       } else if (block.options && block.options.length > 0) {
@@ -79,6 +82,7 @@ export class AssessmentService {
           input.answer
         );
         evaluationResult = evalObj.result;
+        evaluationConfidence = evalObj.confidence;
         feedback = evalObj.feedback;
       } else {
         const keywords = input.lessonId.includes('softmax')
@@ -92,18 +96,16 @@ export class AssessmentService {
           }
         );
         evaluationResult = evalOpen.result;
+        evaluationConfidence = evalOpen.confidence;
         feedback = evalOpen.feedback;
       }
     } else {
       evaluationResult = input.answer.trim().length > 0 ? 'correct' : 'incorrect';
+      evaluationConfidence = evaluationResult === 'correct' ? 1.0 : 0.0;
       feedback = evaluationResult === 'correct' ? 'Diagnostic evaluation accepted.' : 'Please provide a valid answer.';
     }
 
     const userId = input.userId ?? 'default-user';
-    const userState = this.knowledgeService.getUserKnowledgeState(userId, lesson.knowledgeNodeId);
-    const previousConfidence = userState?.confidence ?? 0;
-    const newConfidence = this.policy.updateConfidence(previousConfidence, evaluationResult);
-    const newStatus = this.policy.statusForConfidence(newConfidence);
 
     const assessment: AssessmentResult = {
       id: `asmt-${randomUUID()}`,
@@ -111,17 +113,18 @@ export class AssessmentService {
       lessonId: input.lessonId,
       blockId: input.blockId,
       result: evaluationResult,
-      confidence: newConfidence,
+      confidence: evaluationConfidence,
       feedback: feedback || `Evaluated answer: ${evaluationResult}`,
     };
 
-    this.knowledgeService.recordAssessment(input.sessionId, assessment);
-    this.progressService.onKnowledgeStateUpdated(
+    const updatedState = this.knowledgeService.recordAssessment(
       input.sessionId,
-      lesson.knowledgeNodeId,
-      newStatus,
-      newConfidence
+      assessment,
+      userId,
+      { difficulty, confidence: evaluationConfidence }
     );
+
+    this.progressService.onKnowledgeStateUpdated(input.sessionId, updatedState);
 
     return { assessment };
   }

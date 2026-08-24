@@ -7,7 +7,7 @@ import type {
   UserKnowledgeState,
 } from '@opentutor/protocol';
 import type { KnowledgeRepository, LearningEvidenceRepository } from '@opentutor/database';
-import { BetaMasteryAggregator } from '@opentutor/assessment-core';
+import { BetaMasteryAggregator, type UserKnowledgeStateV2 } from '@opentutor/assessment-core';
 import type {
   SearchService,
   KnowledgeSearchResultItem,
@@ -42,10 +42,18 @@ export class KnowledgeService {
     return this.knowledgeRepo.getUserKnowledgeState(userId, knowledgeNodeId);
   }
 
-  recordAssessment(sessionId: string, assessment: AssessmentResult, userId: string = 'default-user'): void {
+  recordAssessment(
+    sessionId: string,
+    assessment: AssessmentResult,
+    userId: string = 'default-user',
+    options?: { difficulty?: number | 'easy' | 'medium' | 'hard'; confidence?: number }
+  ): UserKnowledgeStateV2 {
     const now = new Date().toISOString();
-    const diffWeight = this.aggregator.computeDifficultyWeight(1.0);
-    const confidence = typeof assessment.confidence === 'number' ? assessment.confidence : 1.0;
+    const rawDifficulty = options?.difficulty ?? 1.0;
+    const diffWeight = this.aggregator.computeDifficultyWeight(rawDifficulty);
+    const confidence = options?.confidence ?? (typeof assessment.confidence === 'number' ? assessment.confidence : 1.0);
+    const weight = diffWeight * confidence;
+    const numericDifficulty = typeof rawDifficulty === 'number' ? rawDifficulty : diffWeight;
 
     const evidence: LearningEvidence = {
       id: `ev-${randomUUID()}`,
@@ -54,9 +62,9 @@ export class KnowledgeService {
       type: 'quiz',
       source: assessment.lessonId || 'assessment',
       outcome: assessment.result,
-      difficulty: 1.0,
+      difficulty: numericDifficulty,
       confidence,
-      weight: diffWeight * confidence,
+      weight,
       assessmentId: assessment.id,
       sessionId,
       createdAt: now,
@@ -83,6 +91,8 @@ export class KnowledgeService {
       confidence: updatedState.masteryProbability ?? updatedState.confidence ?? 0.5,
     };
     this.eventBus.publish(sessionId, 'knowledge.updated', knEvent);
+
+    return updatedState;
   }
 
   searchKnowledge(query: string, limit: number = 5): KnowledgeSearchResultItem[] {

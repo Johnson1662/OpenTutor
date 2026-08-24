@@ -1,4 +1,4 @@
-import type { MetricResult } from './eval-case.ts';
+import type { MetricComparator, MetricExpectation, MetricResult } from './eval-case.ts';
 
 export function calculatePrecision(retrieved: Iterable<string>, groundTruth: Iterable<string>): number {
   const truthSet = new Set(Array.from(groundTruth).map((s) => s.trim().toLowerCase()));
@@ -90,17 +90,69 @@ export function calculateTopologicalValidity(
   return satisfied / dependencyEdges.length;
 }
 
+const LOWER_IS_BETTER_PATTERNS = [
+  'wrong_merge_rate',
+  'wrong_tool_rate',
+  'unnecessary_retrieval_rate',
+  'unnecessary_detour_rate',
+  'chat_dump_rate',
+  'forbidden_node_rate',
+  'hallucinated_evidence',
+  'cycle_count',
+];
+
 export function createMetric(
   name: string,
   value: number,
-  threshold?: number,
+  expectation?: number | MetricExpectation,
   details?: unknown
 ): MetricResult {
-  const passed = threshold !== undefined ? value >= threshold : true;
+  const formattedValue = Number(value.toFixed(4));
+  let metricExpectation: MetricExpectation | undefined;
+  let threshold: number | undefined;
+
+  if (typeof expectation === 'number') {
+    threshold = expectation;
+    const lowerName = name.toLowerCase();
+    const lowerIsBetter =
+      expectation === 0 ||
+      LOWER_IS_BETTER_PATTERNS.some((p) => lowerName.includes(p.toLowerCase())) ||
+      /^(wrong|unnecessary|forbidden|chat_dump|hallucinat|cycle_count)/i.test(lowerName);
+    const op: MetricComparator = lowerIsBetter ? 'lte' : 'gte';
+    metricExpectation = { op, value: expectation };
+  } else if (expectation && typeof expectation === 'object') {
+    metricExpectation = expectation;
+    threshold = expectation.value;
+  }
+
+  let passed = true;
+  if (metricExpectation) {
+    switch (metricExpectation.op) {
+      case 'gte':
+        passed = formattedValue >= metricExpectation.value;
+        break;
+      case 'lte':
+        passed = formattedValue <= metricExpectation.value;
+        break;
+      case 'eq':
+        passed = formattedValue === metricExpectation.value;
+        break;
+      case 'gt':
+        passed = formattedValue > metricExpectation.value;
+        break;
+      case 'lt':
+        passed = formattedValue < metricExpectation.value;
+        break;
+      default:
+        passed = formattedValue >= metricExpectation.value;
+    }
+  }
+
   return {
     name,
-    value: Number(value.toFixed(4)),
+    value: formattedValue,
     threshold,
+    expectation: metricExpectation,
     passed,
     details,
   };

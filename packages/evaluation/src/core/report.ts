@@ -81,7 +81,13 @@ export function formatTerminalReport(suites: EvalSuiteResult[]): string {
       if (r.metrics.length > 0) {
         for (const m of r.metrics) {
           const passIcon = m.passed ? '✓' : '✗';
-          const thresh = m.threshold !== undefined ? ` (target >= ${m.threshold})` : '';
+          let thresh = '';
+          if (m.expectation) {
+            const opSymbol = m.expectation.op === 'lte' ? '<=' : m.expectation.op === 'gte' ? '>=' : m.expectation.op === 'gt' ? '>' : m.expectation.op === 'lt' ? '<' : '==';
+            thresh = ` (target ${opSymbol} ${m.expectation.value})`;
+          } else if (m.threshold !== undefined) {
+            thresh = ` (target >= ${m.threshold})`;
+          }
           lines.push(`      ${passIcon} ${m.name}: ${m.value}${thresh}`);
         }
       }

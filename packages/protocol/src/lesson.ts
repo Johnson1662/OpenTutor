@@ -47,6 +47,7 @@ export interface QuizBlock extends BaseLessonBlock {
   answerType?: 'text' | 'single_choice' | 'multiple_choice';
   options?: { id: string; text: string }[];
   answerSpec?: QuizAnswerSpec;
+  difficulty?: number | 'easy' | 'medium' | 'hard';
 }
 
 export type LessonBlock = TextBlock | CodeBlock | DiagramBlock | QuizBlock;

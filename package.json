@@ -11,8 +11,8 @@
     "dev": "pnpm --parallel --filter @opentutor/server --filter @opentutor/web dev",
     "dev:web": "pnpm --filter @opentutor/web dev",
     "dev:server": "pnpm --filter @opentutor/server dev",
-    "test": "pnpm --filter @opentutor/database test && pnpm --filter @opentutor/tutor-tools test && pnpm --filter @opentutor/agent-runtime test && pnpm --filter @opentutor/model-runtime test && pnpm --filter @opentutor/knowledge-core test && pnpm --filter @opentutor/course-core test && pnpm --filter @opentutor/lesson-core test && pnpm --filter @opentutor/assessment-core test && pnpm --filter @opentutor/server test && pnpm --filter @opentutor/evaluation test",
-    "typecheck": "pnpm --filter @opentutor/server typecheck && pnpm --filter @opentutor/database typecheck && pnpm --filter @opentutor/tutor-tools typecheck && pnpm --filter @opentutor/agent-runtime typecheck && pnpm --filter @opentutor/model-runtime typecheck && pnpm --filter @opentutor/knowledge-core typecheck && pnpm --filter @opentutor/course-core typecheck && pnpm --filter @opentutor/lesson-core typecheck && pnpm --filter @opentutor/assessment-core typecheck && pnpm --filter @opentutor/evaluation typecheck",
+    "test": "pnpm --filter @opentutor/database test && pnpm --filter @opentutor/tutor-tools test && pnpm --filter @opentutor/agent-runtime test && pnpm --filter @opentutor/model-runtime test && pnpm --filter @opentutor/knowledge-core test && pnpm --filter @opentutor/course-core test && pnpm --filter @opentutor/lesson-core test && pnpm --filter @opentutor/assessment-core test && pnpm --filter @opentutor/learning-core test && pnpm --filter @opentutor/server test && pnpm --filter @opentutor/evaluation test",
+    "typecheck": "pnpm --filter @opentutor/server typecheck && pnpm --filter @opentutor/database typecheck && pnpm --filter @opentutor/tutor-tools typecheck && pnpm --filter @opentutor/agent-runtime typecheck && pnpm --filter @opentutor/model-runtime typecheck && pnpm --filter @opentutor/knowledge-core typecheck && pnpm --filter @opentutor/course-core typecheck && pnpm --filter @opentutor/lesson-core typecheck && pnpm --filter @opentutor/assessment-core typecheck && pnpm --filter @opentutor/learning-core typecheck && pnpm --filter @opentutor/evaluation typecheck",
     "build": "pnpm --filter @opentutor/web build",
     "test:runtime:smoke": "node --test --experimental-strip-types packages/agent-runtime/tests/pi-smoke.test.ts",
     "test:runtime:live": "node --test --experimental-strip-types packages/agent-runtime/tests/runtime-live.test.ts",
@@ -27,7 +27,7 @@
     "eval:course": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite course",
     "eval:lesson": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite lesson",
     "eval:tutor": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite tutor",
-    "eval:learner": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite learner"
+    "eval:learner": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite learner --mode contract"
   },
   "dependencies": {
     "typebox": "^1.3.17"

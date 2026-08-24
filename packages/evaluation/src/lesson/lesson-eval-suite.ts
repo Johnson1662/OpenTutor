@@ -1,24 +1,40 @@
 import { createDatabase, type Database } from '@opentutor/database';
 import type { Lesson, LessonBlock, QuizBlock } from '@opentutor/protocol';
 import {
- LivingKnowledgeCompiler,
- EntityResolver,
- type KnowledgeArtifact,
+  LivingKnowledgeCompiler,
+  EntityResolver,
+  ModelKnowledgeAnalyzer,
+  type KnowledgeArtifact,
+  type KnowledgeAnalyzer,
 } from '@opentutor/knowledge-core';
+import {
+  ModelLessonGenerator,
+  type LessonGenerator,
+} from '@opentutor/lesson-core';
+import {
+  createOpenTutorModelRuntime,
+  ModelSelectionService,
+  RoleModelResolver,
+  PiModelDriver,
+  DefaultModelExecutionService,
+  ModelPreferencesRepository,
+} from '@opentutor/model-runtime';
 import type {
- DomainFixtureBundle,
- EvalResult,
- EvalSuiteResult,
- HardFailure,
- LessonCaseFixture,
- MetricResult,
+  DomainFixtureBundle,
+  EvalResult,
+  EvalSuiteResult,
+  HardFailure,
+  LessonCaseFixture,
+  MetricResult,
+  EvalMode,
 } from '../core/index.ts';
 import {
- createMetric,
- loadAllDomainBundles,
+  createMetric,
+  loadAllDomainBundles,
+  ModelSetupRequiredError,
+  MODEL_SETUP_REQUIRED,
 } from '../core/index.ts';
 import { BenchmarkDomainKnowledgeAnalyzer } from '../knowledge/knowledge-eval-suite.ts';
-
 export class LessonStructureValidator {
  validate(lesson: Lesson): HardFailure[] {
   const failures: HardFailure[] = [];
@@ -352,20 +368,22 @@ export class BenchmarkLessonGenerator {
 }
 
 export interface LessonEvalOptions {
- bundles?: Record<string, DomainFixtureBundle>;
- evalsDir?: string;
- lessonGeneratorFactory?: (bundle: DomainFixtureBundle) => (lessonCase: LessonCaseFixture, nodeId: string, artifact?: KnowledgeArtifact) => Lesson;
+  mode?: EvalMode;
+  bundles?: Record<string, DomainFixtureBundle>;
+  evalsDir?: string;
+  lessonGeneratorFactory?: (bundle: DomainFixtureBundle) => (lessonCase: LessonCaseFixture, nodeId: string, artifact?: KnowledgeArtifact) => Lesson | Promise<Lesson>;
 }
 
 export class LessonEvalSuite {
- private readonly bundles: Record<string, DomainFixtureBundle>;
- private readonly lessonGeneratorFactory?: (bundle: DomainFixtureBundle) => (lessonCase: LessonCaseFixture, nodeId: string, artifact?: KnowledgeArtifact) => Lesson;
+  readonly mode: EvalMode;
+  private readonly bundles: Record<string, DomainFixtureBundle>;
+  private readonly lessonGeneratorFactory?: (bundle: DomainFixtureBundle) => (lessonCase: LessonCaseFixture, nodeId: string, artifact?: KnowledgeArtifact) => Lesson | Promise<Lesson>;
 
- constructor(options: LessonEvalOptions = {}) {
-  this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
-  this.lessonGeneratorFactory = options.lessonGeneratorFactory;
- }
-
+  constructor(options: LessonEvalOptions = {}) {
+    this.mode = options.mode ?? 'contract';
+    this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
+    this.lessonGeneratorFactory = options.lessonGeneratorFactory;
+  }
  async runSuite(targetDomain?: string): Promise<EvalSuiteResult> {
   const startTime = Date.now();
   const domainKeys = targetDomain && targetDomain !== 'all'
@@ -426,9 +444,37 @@ export class LessonEvalSuite {
 
   // 1. Setup SQLite database with compiled domain knowledge
   const db = createDatabase(':memory:');
+  let knowledgeAnalyzer: KnowledgeAnalyzer;
+  let modelGenerator: LessonGenerator | undefined;
+
+  if (this.mode === 'production') {
+    const runtime = await createOpenTutorModelRuntime();
+    const available = await runtime.getAvailable();
+    if (available.length === 0) {
+      throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production lesson evaluation.');
+    }
+    const prefsRepo = new ModelPreferencesRepository(db);
+    const first = available[0];
+    if (first) {
+      prefsRepo.setPreferences('eval-user', {
+        defaultProviderId: first.provider,
+        defaultModelId: first.id,
+        thinkingLevel: 'off',
+      });
+    }
+    const selectionService = new ModelSelectionService(runtime, prefsRepo);
+    const roleResolver = new RoleModelResolver(selectionService, runtime, prefsRepo);
+    const driver = new PiModelDriver(runtime);
+    const executionService = new DefaultModelExecutionService(roleResolver, driver);
+    knowledgeAnalyzer = new ModelKnowledgeAnalyzer(executionService);
+    modelGenerator = new ModelLessonGenerator(executionService);
+  } else {
+    knowledgeAnalyzer = new BenchmarkDomainKnowledgeAnalyzer(bundle);
+  }
+
   const knowledgeCompiler = new LivingKnowledgeCompiler(
    db,
-   new BenchmarkDomainKnowledgeAnalyzer(bundle)
+   knowledgeAnalyzer
   );
 
   const compilationResult = await knowledgeCompiler.ingestAndCompile({
@@ -452,11 +498,31 @@ export class LessonEvalSuite {
   )?.content;
 
   // 2. Generate lesson for case
-  const generator = new BenchmarkLessonGenerator();
-  const lesson = this.lessonGeneratorFactory
-   ? this.lessonGeneratorFactory(bundle)(lessonCase, targetNodeId, matchedArtifact)
-   : generator.generateLesson(lessonCase, bundle, targetNodeId, matchedArtifact);
-
+  let lesson: Lesson;
+  if (this.mode === 'production' && modelGenerator) {
+    const fallbackArtifact: KnowledgeArtifact = {
+      nodeId: targetNodeId,
+      title: lessonCase.topic,
+      definition: { text: lessonCase.topic, claimIds: [] },
+      intuition: { text: '', claimIds: [] },
+      mechanism: { text: '', claimIds: [] },
+      formula: { text: '', claimIds: [] },
+      prerequisites: [],
+      related: [],
+      examples: [],
+      misconceptions: [],
+    };
+    lesson = await modelGenerator.generate({
+      courseId: `course-${bundle.domain}`,
+      knowledgeNodeId: targetNodeId,
+      artifact: matchedArtifact ?? fallbackArtifact,
+    });
+  } else if (this.lessonGeneratorFactory) {
+    lesson = await this.lessonGeneratorFactory(bundle)(lessonCase, targetNodeId, matchedArtifact);
+  } else {
+    const generator = new BenchmarkLessonGenerator();
+    lesson = generator.generateLesson(lessonCase, bundle, targetNodeId, matchedArtifact);
+  }
   // 3. Validator: LessonStructureValidator
   const structureValidator = new LessonStructureValidator();
   const structureFailures = structureValidator.validate(lesson);

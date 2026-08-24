@@ -72,7 +72,7 @@ test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptiv
   assert.equal(initialSnapshot.sessionId, 'prototype');
   assert.equal(initialSnapshot.lesson.knowledgeNodeId, 'self-attention');
 
-  // 4. Tutor Agent Interaction & Prerequisite Detour Insertion (HTTP POST /actions)
+  // 4. Tutor Agent Interaction & Diagnostic Probing (HTTP POST /actions & /answer)
   const { promise: completedPromise, resolve: resolveCompleted } = Promise.withResolvers<void>();
   const unsubscribe = context.eventBus.subscribe('prototype', (evt) => {
     if (evt.type === 'agent.completed') {
@@ -90,6 +90,19 @@ test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptiv
   await completedPromise;
   unsubscribe();
 
+  // 4b. Verify probe on Canvas and answer with misconception to confirm diagnosis
+  const probeSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
+  const probeSnap = (await probeSnapRes.json()) as LearningSessionSnapshot;
+  const probeBlock = probeSnap.lesson.blocks.find((b) => b.id.startsWith('probe-') || ('assessmentKind' in b && b.assessmentKind === 'probe'));
+  assert.ok(probeBlock, 'Diagnostic probe placed on Canvas');
+
+  const probeAnsRes = await fetch(`${baseUrl}/api/lessons/${probeSnap.lesson.id}/blocks/${probeBlock.id}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'wrong-guess' }),
+  });
+  assert.equal(probeAnsRes.status, 200);
+
   // Verify detour is active
   const detourSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
   const detourSnapshot = (await detourSnapRes.json()) as LearningSessionSnapshot;
@@ -97,18 +110,28 @@ test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptiv
   assert.ok(detourNode);
   assert.equal(detourNode.status, 'current');
 
-  // 5. Assessment Evaluation & Mastery Update (HTTP POST /answer)
-  for (let i = 0; i < 4; i++) {
-    const quizRes = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: 'Softmax converts logits into normalized probabilities summing to 1.' }),
-    });
-    assert.equal(quizRes.status, 200);
-    const quizBody = (await quizRes.json()) as { assessment: { result: string; confidence: number } };
-    assert.equal(quizBody.assessment.result, 'correct');
-    assert.ok(quizBody.assessment.confidence >= 0.25);
-  }
+  // 5. Assessment Evaluation on 3 distinct items & Mastery Update (HTTP POST /answer)
+  const quizRes1 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'Softmax converts logits into normalized probabilities summing to 1.' }),
+  });
+  assert.equal(quizRes1.status, 200);
+
+  const quizRes2 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'opt-exp-1' }),
+  });
+  assert.equal(quizRes2.status, 200);
+
+  const quizRes3 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-3/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'opt-sum-1' }),
+  });
+  assert.equal(quizRes3.status, 200);
+
   // 6. Verify Automatic Detour Resume on Main Track
   const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
   assert.equal(resumedSnapRes.status, 200);

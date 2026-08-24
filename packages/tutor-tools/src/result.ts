@@ -5,6 +5,7 @@ export type TutorToolErrorCode =
   | 'RETRIEVAL_BUDGET_EXCEEDED'
   | 'DOMAIN_CAPABILITY_UNAVAILABLE'
   | 'ARTIFACT_STALE'
+  | 'DETOUR_NOT_AUTHORIZED'
   | 'INTERNAL_DOMAIN_ERROR';
 
 export type TutorToolResult<T = unknown> =

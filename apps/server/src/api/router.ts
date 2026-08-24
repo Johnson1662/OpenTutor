@@ -10,7 +10,7 @@ import { handleEventRoutes, type EventRouteContext } from './event-routes.ts';
 
 import type { KnowledgeService } from '../services/knowledge-service.ts';
 import type { LearningProgressService } from '../services/learning-progress-service.ts';
-
+import type { DiagnosticLearningCoordinator } from '../services/diagnostic-learning-coordinator.ts';
 export type RouteContext = AiRouteContext &
   AuthRouteContext &
   CourseRouteContext &
@@ -20,6 +20,7 @@ export type RouteContext = AiRouteContext &
   EventRouteContext & {
     knowledgeService?: KnowledgeService;
     learningProgressService?: LearningProgressService;
+    diagnosticCoordinator?: DiagnosticLearningCoordinator;
   };
 
 export async function handleRequest(

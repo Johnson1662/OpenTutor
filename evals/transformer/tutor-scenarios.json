@@ -17,11 +17,11 @@
   },
   {
     "id": "transformer-tutor-missing-prerequisite",
-    "userMessage": "Wait, what exactly is Softmax Normalization? I haven't learned that yet, can we take a detour?",
+    "userMessage": "Wait, what exactly is Softmax Normalization? I don't know Softmax and I'm struggling with how it works.",
     "contextTopic": "self-attention",
-    "expectedTools": ["path_insert_detour", "knowledge_search"],
-    "forbiddenTools": ["path_advance"],
-    "expectedIntent": "INSERT_DETOUR"
+    "expectedTools": ["knowledge_search"],
+    "forbiddenTools": ["path_insert_detour", "path_advance"],
+    "expectedIntent": "PROBE_REQUEST"
   },
   {
     "id": "transformer-tutor-advance",

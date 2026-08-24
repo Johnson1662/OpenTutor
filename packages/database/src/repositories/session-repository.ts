@@ -106,16 +106,7 @@ interface LessonRow {
  blocks: string;
 }
 
-export interface LearningSessionFrame {
- id: string;
- sessionId: string;
- detourPathNodeId: string;
- parentPathNodeId: string;
- savedLessonId: string;
- depth: number;
- status: 'active' | 'completed' | 'cancelled';
- createdAt: string;
-}
+import type { LearningSessionFrame } from './session-frame-repository.ts';
 
 export interface CreateSessionParams {
  id: string;
@@ -168,6 +159,7 @@ export class SessionRepository {
   parentPathNodeId: string;
   savedLessonId: string;
   depth?: number;
+  diagnosisId?: string | null;
  }): LearningSessionFrame {
   const id = frame.id ?? `frame-${randomUUID()}`;
   let depth = frame.depth;
@@ -177,11 +169,12 @@ export class SessionRepository {
   }
   const createdAt = new Date().toISOString();
   const status: LearningSessionFrame['status'] = 'active';
+  const diagnosisId = frame.diagnosisId ?? null;
 
   this.db
    .prepare(
-    `INSERT INTO learning_session_frames (id, session_id, detour_path_node_id, parent_path_node_id, saved_lesson_id, depth, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO learning_session_frames (id, session_id, detour_path_node_id, parent_path_node_id, saved_lesson_id, depth, status, diagnosis_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
    )
    .run(
     id,
@@ -191,6 +184,7 @@ export class SessionRepository {
     frame.savedLessonId,
     depth,
     status,
+    diagnosisId,
     createdAt
    );
 
@@ -202,6 +196,7 @@ export class SessionRepository {
    savedLessonId: frame.savedLessonId,
    depth,
    status,
+   diagnosisId,
    createdAt,
   };
  }
@@ -209,7 +204,7 @@ export class SessionRepository {
  peekActiveFrame(sessionId: string): LearningSessionFrame | null {
   const row = this.db
    .prepare(
-    `SELECT id, session_id, detour_path_node_id, parent_path_node_id, saved_lesson_id, depth, status, created_at
+    `SELECT id, session_id, detour_path_node_id, parent_path_node_id, saved_lesson_id, depth, status, diagnosis_id, created_at
      FROM learning_session_frames
      WHERE session_id = ? AND status = 'active'
      ORDER BY depth DESC, created_at DESC
@@ -224,6 +219,7 @@ export class SessionRepository {
     saved_lesson_id: string;
     depth: number;
     status: string;
+    diagnosis_id?: string | null;
     created_at: string;
    }
    | undefined;
@@ -238,6 +234,7 @@ export class SessionRepository {
    savedLessonId: row.saved_lesson_id,
    depth: row.depth,
    status: row.status as LearningSessionFrame['status'],
+   diagnosisId: row.diagnosis_id ?? null,
    createdAt: row.created_at,
   };
  }

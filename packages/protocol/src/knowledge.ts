@@ -13,6 +13,7 @@ export interface LearningEvidence {
   sourceItemId?: string;
   attempt?: number;
   outcome: LearningEvidenceOutcome;
+  score?: number;
   difficulty: number;
   confidence: number;
   weight: number;
@@ -30,10 +31,51 @@ export interface UserKnowledgeState {
   alpha?: number;
   beta?: number;
   evidenceCount?: number;
+  effectiveEvidenceCount?: number;
+  distinctSourceItemCount?: number;
   correctCount?: number;
   incorrectCount?: number;
   stability?: number;
   difficulty?: number;
   lastAssessedAt?: string;
   lastReviewedAt?: string;
+  sourceItemIds?: string[];
+}
+
+export interface Misconception {
+  id: string;
+  knowledgeNodeId: string;
+  title: string;
+  description: string;
+  correctionStrategy?: string;
+  createdAt: string;
+}
+
+export type UserMisconceptionStatus = 'suspected' | 'confirmed' | 'resolved';
+
+export interface UserMisconception {
+  userId: string;
+  misconceptionId: string;
+  confidence: number;
+  evidenceCount: number;
+  status: UserMisconceptionStatus;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+}
+
+export type LearningDiagnosisStatus = 'suspected' | 'confirmed' | 'resolved' | 'dismissed';
+export type LearningDiagnosisType = 'missing_prerequisite' | 'misconception' | 'mastery_gap';
+
+export interface LearningDiagnosis {
+  id: string;
+  sessionId: string;
+  userId: string;
+  knowledgeNodeId: string;
+  type: LearningDiagnosisType;
+  confidence: number;
+  status: LearningDiagnosisStatus;
+  sourceEvidenceIds: string[];
+  createdAt: string;
+  resolvedAt?: string;
 }

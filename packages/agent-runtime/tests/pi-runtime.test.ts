@@ -18,7 +18,7 @@ test('packages/agent-runtime - Pi Extension Security & Event Handling', async (t
       assert.equal(TUTOR_TOOL_NAMES.has(tool), false, `Tool "${tool}" must not be in allowlist`);
     }
 
-    assert.equal(TUTOR_TOOL_DEFINITIONS.length, 10);
+    assert.equal(TUTOR_TOOL_DEFINITIONS.length, 11);
     for (const def of TUTOR_TOOL_DEFINITIONS) {
       assert.ok(TUTOR_TOOL_NAMES.has(def.name));
     }

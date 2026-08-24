@@ -116,10 +116,23 @@ export class AssessmentService {
     }
 
     const userId = input.userId ?? 'default-user';
+    const targetKnowledgeNodeId =
+      ('targetKnowledgeNodeId' in block && typeof block.targetKnowledgeNodeId === 'string' && block.targetKnowledgeNodeId.trim())
+        ? block.targetKnowledgeNodeId
+        : lesson.knowledgeNodeId;
+
+    const assessmentKind = ('assessmentKind' in block && typeof block.assessmentKind === 'string')
+      ? block.assessmentKind
+      : undefined;
+    const evidenceType: 'quiz' | 'probe' = assessmentKind === 'probe' ? 'probe' : 'quiz';
+    const candidateMisconceptionIds: string[] | undefined =
+      ('candidateMisconceptionIds' in block && Array.isArray(block.candidateMisconceptionIds))
+        ? block.candidateMisconceptionIds
+        : undefined;
 
     const assessment: AssessmentResult = {
       id: `asmt-${randomUUID()}`,
-      knowledgeNodeId: lesson.knowledgeNodeId,
+      knowledgeNodeId: targetKnowledgeNodeId,
       lessonId: input.lessonId,
       blockId: input.blockId,
       result: evaluationResult,
@@ -131,7 +144,13 @@ export class AssessmentService {
       input.sessionId,
       assessment,
       userId,
-      { difficulty, confidence: evaluationConfidence, sourceItemId: block.id }
+      {
+        difficulty,
+        confidence: evaluationConfidence,
+        sourceItemId: block.id,
+        type: evidenceType,
+        candidateMisconceptionIds,
+      }
     );
 
     this.progressService.onKnowledgeStateUpdated(input.sessionId, updatedState);

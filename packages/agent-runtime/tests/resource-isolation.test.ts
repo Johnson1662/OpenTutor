@@ -147,7 +147,7 @@ test('packages/agent-runtime - OpenTutor Resource & Tool Isolation', async (t) =
         const session = await registry.getOrCreateSession('adversarial-session');
 
         const activeTools = session.getActiveToolNames();
-        assert.equal(activeTools.length, 10);
+        assert.equal(activeTools.length, 11);
         assert.equal(
           activeTools.includes('evil_shell'),
           false,

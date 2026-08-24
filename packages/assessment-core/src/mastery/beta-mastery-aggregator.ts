@@ -11,7 +11,25 @@ export interface BetaMasteryAggregatorOptions {
   defaultDifficulty?: number;
 }
 
-export type UserKnowledgeStateV2 = Required<UserKnowledgeState>;
+export interface UserKnowledgeStateV2 extends UserKnowledgeState {
+  userId: string;
+  knowledgeNodeId: string;
+  status: KnowledgeStatus;
+  confidence: number;
+  masteryProbability: number;
+  alpha: number;
+  beta: number;
+  evidenceCount: number;
+  effectiveEvidenceCount: number;
+  distinctSourceItemCount: number;
+  correctCount: number;
+  incorrectCount: number;
+  stability: number;
+  difficulty: number;
+  lastAssessedAt: string;
+  lastReviewedAt: string;
+  sourceItemIds?: string[];
+}
 
 export class BetaMasteryAggregator {
   private readonly priorAlpha: number;
@@ -45,22 +63,31 @@ export class BetaMasteryAggregator {
     return 1.0;
   }
 
+  computeAttemptMultiplier(attempt?: number): number {
+    return this.attemptMultiplier(attempt);
+  }
+
   attemptMultiplier(attempt?: number): number {
     const att = typeof attempt === 'number' && Number.isFinite(attempt) && attempt > 0 ? Math.floor(attempt) : 1;
     if (att <= 1) return 1.0;
     if (att === 2) return 0.4;
     if (att === 3) return 0.15;
-    return 0.05;
+    return 0.0;
   }
 
-  computeStatus(p: number, evidenceCount: number): KnowledgeStatus {
-    if (evidenceCount < 1) {
+  computeStatus(
+    p: number,
+    effectiveEvidenceCount: number,
+    distinctSourceItemCount: number = 0,
+    evidenceCount: number = effectiveEvidenceCount
+  ): KnowledgeStatus {
+    if (evidenceCount < 1 && effectiveEvidenceCount <= 0) {
       return 'unknown';
     }
     if (p < 0.40) {
       return 'weak';
     }
-    if (p >= 0.85 && evidenceCount >= 3) {
+    if (p >= 0.85 && effectiveEvidenceCount >= 3.0 && distinctSourceItemCount >= 2) {
       return 'mastered';
     }
     return 'learning';
@@ -87,12 +114,15 @@ export class BetaMasteryAggregator {
           alpha: currentState.alpha ?? this.priorAlpha,
           beta: currentState.beta ?? this.priorBeta,
           evidenceCount: currentState.evidenceCount ?? 0,
+          effectiveEvidenceCount: currentState.effectiveEvidenceCount ?? 0,
+          distinctSourceItemCount: currentState.distinctSourceItemCount ?? 0,
           correctCount: currentState.correctCount ?? 0,
           incorrectCount: currentState.incorrectCount ?? 0,
           stability: currentState.stability ?? this.defaultStability,
           difficulty: currentState.difficulty ?? this.defaultDifficulty,
           lastAssessedAt: currentState.lastAssessedAt ?? timestamp,
           lastReviewedAt: currentState.lastReviewedAt ?? timestamp,
+          sourceItemIds: currentState.sourceItemIds ?? [],
         };
       }
     } else {
@@ -105,38 +135,57 @@ export class BetaMasteryAggregator {
         alpha: this.priorAlpha,
         beta: this.priorBeta,
         evidenceCount: 0,
+        effectiveEvidenceCount: 0,
+        distinctSourceItemCount: 0,
         correctCount: 0,
         incorrectCount: 0,
         stability: this.defaultStability,
         difficulty: this.defaultDifficulty,
         lastAssessedAt: timestamp,
         lastReviewedAt: timestamp,
+        sourceItemIds: [],
       };
     }
 
     const difficultyWeight = this.computeDifficultyWeight(evidence.difficulty);
-    const confidence = typeof evidence.confidence === 'number' ? evidence.confidence : 1.0;
+    const evidenceConfidence = typeof evidence.confidence === 'number' ? evidence.confidence : 1.0;
     const attemptMult = this.attemptMultiplier(evidence.attempt);
-    const weight = difficultyWeight * confidence * attemptMult;
+    const effectiveWeight = difficultyWeight * evidenceConfidence * attemptMult;
+
     let alpha = base.alpha ?? this.priorAlpha;
     let beta = base.beta ?? this.priorBeta;
     let correctCount = base.correctCount ?? 0;
     let incorrectCount = base.incorrectCount ?? 0;
 
-    if (evidence.outcome === 'correct') {
-      alpha += weight;
-      correctCount += 1;
-    } else if (evidence.outcome === 'incorrect') {
-      beta += weight;
+    const score = typeof evidence.score === 'number'
+      ? evidence.score
+      : evidence.outcome === 'correct'
+        ? 1.0
+        : evidence.outcome === 'partial'
+          ? 0.5
+          : 0.0;
+
+    if (score <= 0) {
+      beta += effectiveWeight;
       incorrectCount += 1;
-    } else if (evidence.outcome === 'partial') {
-      alpha += 0.5 * weight;
-      beta += 0.5 * weight;
+    } else {
+      alpha += score * effectiveWeight;
+      beta += (1.0 - score) * effectiveWeight;
+      correctCount += 1;
     }
 
     const evidenceCount = (base.evidenceCount ?? 0) + 1;
+    const effectiveEvidenceCount = (base.effectiveEvidenceCount ?? 0) + (attemptMult * evidenceConfidence);
+
+    const currentSourceItemIds = new Set(base.sourceItemIds ?? []);
+    if (evidence.sourceItemId && typeof evidence.sourceItemId === 'string') {
+      currentSourceItemIds.add(evidence.sourceItemId);
+    }
+    const sourceItemIds = Array.from(currentSourceItemIds);
+    const distinctSourceItemCount = sourceItemIds.length > 0 ? sourceItemIds.length : (base.distinctSourceItemCount ?? 0);
+
     const p = alpha / (alpha + beta);
-    const status = this.computeStatus(p, evidenceCount);
+    const status = this.computeStatus(p, effectiveEvidenceCount, distinctSourceItemCount, evidenceCount);
 
     return {
       userId: base.userId ?? evidence.userId,
@@ -147,12 +196,15 @@ export class BetaMasteryAggregator {
       alpha,
       beta,
       evidenceCount,
+      effectiveEvidenceCount,
+      distinctSourceItemCount,
       correctCount,
       incorrectCount,
       stability: base.stability ?? this.defaultStability,
       difficulty: base.difficulty ?? this.defaultDifficulty,
       lastAssessedAt: timestamp,
       lastReviewedAt: timestamp,
+      sourceItemIds,
     };
   }
 
@@ -160,6 +212,9 @@ export class BetaMasteryAggregator {
     const timestamp = atTime;
     const defaultAlpha = this.priorAlpha;
     const defaultBeta = this.priorBeta;
+    const effectiveEvidenceCount = state.effectiveEvidenceCount ?? 0;
+    const distinctSourceItemCount = state.distinctSourceItemCount ?? (state.sourceItemIds ? state.sourceItemIds.length : 0);
+    const sourceItemIds = state.sourceItemIds ?? [];
 
     if (!state.lastAssessedAt) {
       return {
@@ -171,12 +226,15 @@ export class BetaMasteryAggregator {
         alpha: state.alpha ?? defaultAlpha,
         beta: state.beta ?? defaultBeta,
         evidenceCount: state.evidenceCount ?? 0,
+        effectiveEvidenceCount,
+        distinctSourceItemCount,
         correctCount: state.correctCount ?? 0,
         incorrectCount: state.incorrectCount ?? 0,
         stability: state.stability ?? this.defaultStability,
         difficulty: state.difficulty ?? this.defaultDifficulty,
         lastAssessedAt: state.lastAssessedAt ?? timestamp,
         lastReviewedAt: state.lastReviewedAt ?? timestamp,
+        sourceItemIds,
       };
     }
 
@@ -193,12 +251,15 @@ export class BetaMasteryAggregator {
         alpha: state.alpha ?? defaultAlpha,
         beta: state.beta ?? defaultBeta,
         evidenceCount: state.evidenceCount ?? 0,
+        effectiveEvidenceCount,
+        distinctSourceItemCount,
         correctCount: state.correctCount ?? 0,
         incorrectCount: state.incorrectCount ?? 0,
         stability: state.stability ?? this.defaultStability,
         difficulty: state.difficulty ?? this.defaultDifficulty,
         lastAssessedAt: state.lastAssessedAt,
         lastReviewedAt: state.lastReviewedAt ?? state.lastAssessedAt,
+        sourceItemIds,
       };
     }
 
@@ -213,12 +274,15 @@ export class BetaMasteryAggregator {
         alpha: state.alpha ?? defaultAlpha,
         beta: state.beta ?? defaultBeta,
         evidenceCount: state.evidenceCount ?? 0,
+        effectiveEvidenceCount,
+        distinctSourceItemCount,
         correctCount: state.correctCount ?? 0,
         incorrectCount: state.incorrectCount ?? 0,
         stability: state.stability ?? this.defaultStability,
         difficulty: state.difficulty ?? this.defaultDifficulty,
         lastAssessedAt: state.lastAssessedAt,
         lastReviewedAt: state.lastReviewedAt ?? state.lastAssessedAt,
+        sourceItemIds,
       };
     }
 
@@ -231,7 +295,7 @@ export class BetaMasteryAggregator {
     const alpha = 1.0 + (currentAlpha - 1.0) * decay;
     const beta = 1.0 + (currentBeta - 1.0) * decay;
     const p = alpha / (alpha + beta);
-    const status = this.computeStatus(p, state.evidenceCount ?? 0);
+    const status = this.computeStatus(p, effectiveEvidenceCount, distinctSourceItemCount, state.evidenceCount ?? 0);
 
     return {
       userId: state.userId ?? 'default-user',
@@ -242,12 +306,54 @@ export class BetaMasteryAggregator {
       alpha,
       beta,
       evidenceCount: state.evidenceCount ?? 0,
+      effectiveEvidenceCount,
+      distinctSourceItemCount,
       correctCount: state.correctCount ?? 0,
       incorrectCount: state.incorrectCount ?? 0,
       stability,
       difficulty: state.difficulty ?? this.defaultDifficulty,
       lastAssessedAt: state.lastAssessedAt,
       lastReviewedAt: timestamp,
+      sourceItemIds,
     };
+  }
+
+  static recomputeFromEvidenceHistory(
+    evidences: LearningEvidence[],
+    options?: BetaMasteryAggregatorOptions
+  ): UserKnowledgeStateV2 {
+    const aggregator = new BetaMasteryAggregator(options);
+    return aggregator.recomputeFromEvidenceHistory(evidences);
+  }
+
+  recomputeFromEvidenceHistory(evidences: LearningEvidence[]): UserKnowledgeStateV2 {
+    if (!evidences || evidences.length === 0) {
+      const initialP = this.priorAlpha / (this.priorAlpha + this.priorBeta);
+      return {
+        userId: 'default-user',
+        knowledgeNodeId: '',
+        status: 'unknown',
+        confidence: initialP,
+        masteryProbability: initialP,
+        alpha: this.priorAlpha,
+        beta: this.priorBeta,
+        evidenceCount: 0,
+        effectiveEvidenceCount: 0,
+        distinctSourceItemCount: 0,
+        correctCount: 0,
+        incorrectCount: 0,
+        stability: this.defaultStability,
+        difficulty: this.defaultDifficulty,
+        lastAssessedAt: new Date().toISOString(),
+        lastReviewedAt: new Date().toISOString(),
+        sourceItemIds: [],
+      };
+    }
+
+    let state: UserKnowledgeStateV2 | null = null;
+    for (const evidence of evidences) {
+      state = this.updateMastery(state, evidence, evidence.createdAt);
+    }
+    return state!;
   }
 }

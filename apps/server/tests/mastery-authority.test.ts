@@ -159,6 +159,7 @@ test('Evidence Integrity - Incorrect Answers, Attempt Decay & Invalid Block Reje
       (err: Error) => err.message.includes('BLOCK_NOT_FOUND'),
       'Submitting to a non-existent block must throw BLOCK_NOT_FOUND'
     );
+    assert.equal(evidenceRepo.countEvidence(userId, 'self-attention'), 0, 'No evidence on BLOCK_NOT_FOUND');
 
     // 2. Rejection of non-quiz block (e.g. TextBlock)
     const textBlock = snapshot.lesson.blocks.find((b) => b.type === 'text');
@@ -177,7 +178,7 @@ test('Evidence Integrity - Incorrect Answers, Attempt Decay & Invalid Block Reje
       (err: Error) => err.message.includes('BLOCK_NOT_ASSESSABLE'),
       'Submitting to a non-quiz block must throw BLOCK_NOT_ASSESSABLE'
     );
-
+    assert.equal(evidenceRepo.countEvidence(userId, 'self-attention'), 0, 'No evidence on BLOCK_NOT_ASSESSABLE');
     // 3. Negative Evidence: Submitting an INCORRECT answer must add negative evidence (increase beta and lower probability)
     // First answer: correct -> p increases
     context.assessmentService.submitAnswer({
@@ -220,6 +221,133 @@ test('Evidence Integrity - Incorrect Answers, Attempt Decay & Invalid Block Reje
     // 4. Attempt Diminishing Returns: Repeatedly answering the exact same quiz item yields diminishing weight
     const attempts = evidenceRepo.countItemAttempts(userId, 'self-attention', 'quiz');
     assert.equal(attempts, 2, 'Two attempts recorded for quiz');
+  } finally {
+    await close();
+  }
+});
+
+test('Probe Target Node Invariant - Evidence & Mastery routed to prerequisite node, leaving active lesson node untouched', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { context, sessionRepo, lessonRepo, evidenceRepo, db, close } = await createServerContext(':memory:');
+
+  try {
+    const sessionId = 'prototype';
+    const userId = 'probe-user';
+    const initialSnap = sessionRepo.getSessionSnapshot(sessionId)!;
+    assert.ok(initialSnap);
+    assert.equal(initialSnap.path.find((n) => n.status === 'current')!.knowledgeNodeId, 'self-attention');
+
+    // Insert probe block targeting prerequisite node 'softmax'
+    lessonRepo.applyPatches(initialSnap.lesson.id, initialSnap.lesson.version, [
+      {
+        op: 'insert',
+        position: { after: 'quiz' },
+        block: {
+          id: 'block-probe-softmax',
+          type: 'quiz',
+          question: 'What is softmax output?',
+          answerType: 'single_choice',
+          targetKnowledgeNodeId: 'softmax',
+          assessmentKind: 'probe',
+          candidateMisconceptionIds: ['misc-softmax-prob'],
+          options: [
+            { id: 'opt-1', text: 'Probabilities summing to 1' },
+            { id: 'opt-2', text: 'Arbitrary unbounded values' },
+          ],
+          answerSpec: {
+            type: 'single_choice',
+            correctOptionId: 'opt-1',
+          },
+          difficulty: 'medium',
+        },
+      },
+    ]);
+
+    // Submit correct answer to the probe block
+    const probeResult = context.assessmentService.submitAnswer({
+      sessionId,
+      userId,
+      lessonId: initialSnap.lesson.id,
+      blockId: 'block-probe-softmax',
+      answer: 'opt-1',
+    });
+
+    assert.equal(probeResult.assessment.result, 'correct');
+    assert.equal(probeResult.assessment.knowledgeNodeId, 'softmax');
+
+    // Verify evidence is recorded against 'softmax' (prerequisite)
+    const softmaxEvidence = evidenceRepo.getEvidenceForNode(userId, 'softmax');
+    assert.equal(softmaxEvidence.length, 1);
+    assert.equal(softmaxEvidence[0]?.knowledgeNodeId, 'softmax');
+    assert.equal(softmaxEvidence[0]?.type, 'probe');
+    assert.equal(softmaxEvidence[0]?.sourceItemId, 'block-probe-softmax');
+
+    const softmaxState = context.knowledgeService!.getUserKnowledgeState(userId, 'softmax');
+    assert.ok(softmaxState);
+    assert.equal(softmaxState.evidenceCount, 1);
+    assert.equal(softmaxState.correctCount, 1);
+
+    // Verify active lesson node ('self-attention') remains COMPLETELY UNTOUCHED (0 evidence)
+    const activeNodeEvidence = evidenceRepo.getEvidenceForNode(userId, 'self-attention');
+    assert.equal(activeNodeEvidence.length, 0, 'Active node must have 0 evidence from prerequisite probe');
+
+    const activeNodeState = context.knowledgeService!.getUserKnowledgeState(userId, 'self-attention');
+    assert.equal(activeNodeState, null, 'Active node state must be untouched');
+  } finally {
+    await close();
+  }
+});
+
+test('Transaction Integrity & Rollback - Zero partial state on transaction failure', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { context, sessionRepo, db, close } = await createServerContext(':memory:');
+
+  try {
+    const sessionId = 'prototype';
+    const userId = 'tx-fail-user';
+    const initialSnap = sessionRepo.getSessionSnapshot(sessionId)!;
+
+    // Count records before failure
+    const countAssessmentsBefore = (db.prepare('SELECT count(*) as count FROM assessments WHERE user_id = ?').get(userId) as { count: number }).count;
+    const countEvidenceBefore = (db.prepare('SELECT count(*) as count FROM learning_evidence WHERE user_id = ?').get(userId) as { count: number }).count;
+    const countStatesBefore = (db.prepare('SELECT count(*) as count FROM user_knowledge_states WHERE user_id = ?').get(userId) as { count: number }).count;
+
+    assert.equal(countAssessmentsBefore, 0);
+    assert.equal(countEvidenceBefore, 0);
+    assert.equal(countStatesBefore, 0);
+
+    // Create an assessment targeting a non-existent knowledge node with foreign key constraint to trigger DB rollback
+    // In SQLite, inserting learning_evidence with non-existent knowledge_node_id triggers FOREIGN KEY constraint violation
+    db.pragma('foreign_keys = ON');
+
+    assert.throws(
+      () => {
+        context.knowledgeService!.recordAssessment(
+          sessionId,
+          {
+            id: 'asmt-tx-fail-1',
+            knowledgeNodeId: 'non-existent-fk-node-99999',
+            lessonId: initialSnap.lesson.id,
+            blockId: 'quiz',
+            result: 'correct',
+            confidence: 1.0,
+            feedback: 'Test rollback',
+          },
+          userId
+        );
+      },
+      /FOREIGN KEY|constraint/i,
+      'Should throw SQLite foreign key constraint error'
+    );
+
+    // Verify transaction rollback: ZERO records in DB
+    const countAssessmentsAfter = (db.prepare('SELECT count(*) as count FROM assessments WHERE user_id = ?').get(userId) as { count: number }).count;
+    const countEvidenceAfter = (db.prepare('SELECT count(*) as count FROM learning_evidence WHERE user_id = ?').get(userId) as { count: number }).count;
+    const countStatesAfter = (db.prepare('SELECT count(*) as count FROM user_knowledge_states WHERE user_id = ?').get(userId) as { count: number }).count;
+
+    assert.equal(countAssessmentsAfter, 0, 'No assessments should be saved after rollback');
+    assert.equal(countEvidenceAfter, 0, 'No learning_evidence should be saved after rollback');
+    assert.equal(countStatesAfter, 0, 'No user_knowledge_states should be saved after rollback');
   } finally {
     await close();
   }

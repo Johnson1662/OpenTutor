@@ -1,6 +1,6 @@
 import { Value } from 'typebox/value';
 import type { LearningPathNode, Lesson, LessonPatch } from '@opentutor/protocol';
-import type { TutorToolResult } from './result.ts';
+import type { TutorToolErrorCode, TutorToolResult } from './result.ts';
 import {
   TUTOR_TOOL_DEFINITIONS,
   TUTOR_TOOL_NAMES,
@@ -12,6 +12,7 @@ import {
   type PathAdvanceParams,
   type PathGetParams,
   type PathInsertDetourParams,
+  type ProbeRequestParams,
   type SourceReadParams,
   type SourceSearchParams,
 } from './definitions.ts';
@@ -50,10 +51,25 @@ export interface KnowledgeServiceLike {
   getNeighbors?(nodeId: string, direction?: string): unknown | Promise<unknown>;
 }
 
+export interface DiagnosisRepositoryLike {
+  getDiagnosis(id: string): { id: string; status: string; knowledgeNodeId: string; sessionId?: string } | null | undefined | Promise<{ id: string; status: string; knowledgeNodeId: string; sessionId?: string } | null | undefined>;
+  getDiagnosesForSession?(sessionId: string): Array<{ id: string; status: string; knowledgeNodeId: string; sessionId?: string }> | Promise<Array<{ id: string; status: string; knowledgeNodeId: string; sessionId?: string }>>;
+}
+
+export interface ProbeServiceLike {
+  requestProbe?(
+    sessionId: string,
+    params: ProbeRequestParams
+  ): Promise<{ success: boolean; probeBlockId?: string; targetKnowledgeNodeId?: string; message: string }> | { success: boolean; probeBlockId?: string; targetKnowledgeNodeId?: string; message: string };
+}
+
 export interface DomainServicesContext {
   lessonService: LessonServiceLike;
   sessionService: SessionServiceLike;
   knowledgeService?: KnowledgeServiceLike;
+  probeService?: ProbeServiceLike;
+  diagnosisRepository?: DiagnosisRepositoryLike;
+  diagnosisService?: DiagnosisRepositoryLike | unknown;
 }
 
 function getErrorMessage(err: unknown): string {
@@ -85,6 +101,120 @@ export class DomainToolsExecutor {
     this.services = services;
   }
 
+  async executeProbeRequest(
+    sessionIdOrParams: string | ProbeRequestParams,
+    maybeParams?: ProbeRequestParams
+  ): Promise<{ success: boolean; probeBlockId?: string; targetKnowledgeNodeId?: string; message: string }> {
+    let sessionId = 'default';
+    let params: ProbeRequestParams;
+    if (typeof sessionIdOrParams === 'string') {
+      sessionId = sessionIdOrParams;
+      params = maybeParams ?? {};
+    } else {
+      params = sessionIdOrParams ?? {};
+    }
+
+    if (this.services.probeService?.requestProbe) {
+      return await this.services.probeService.requestProbe(sessionId, params);
+    }
+
+    const targetNodeId = params.prerequisiteNodeId ?? 'prerequisite-concept';
+    const probeBlockId = `probe-${targetNodeId}-${Date.now()}`;
+    return {
+      success: true,
+      probeBlockId,
+      targetKnowledgeNodeId: targetNodeId,
+      message: `Diagnostic probe requested for prerequisite "${targetNodeId}"${params.reason ? `: ${params.reason}` : ''}. Placed probe block on canvas.`,
+    };
+  }
+
+  async executePathInsertDetour(
+    sessionIdOrParams: string | PathInsertDetourParams,
+    maybeParams?: PathInsertDetourParams
+  ): Promise<{ success: boolean; pathVersion: number; message?: string; path?: LearningPathNode[]; newVersion?: number }> {
+    let sessionId = 'default';
+    let params: PathInsertDetourParams;
+    if (typeof sessionIdOrParams === 'string') {
+      sessionId = sessionIdOrParams;
+      params = maybeParams as PathInsertDetourParams;
+    } else {
+      params = sessionIdOrParams;
+    }
+
+    const targetNodeId = params.nodeId || params.detourKnowledgeNodeId;
+    if (!params.diagnosisId || typeof params.diagnosisId !== 'string' || params.diagnosisId.trim() === '') {
+      const err = new Error('Detour not authorized: missing diagnosisId');
+      (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+      throw err;
+    }
+    if (!targetNodeId) {
+      const err = new Error('Detour not authorized: missing nodeId');
+      (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+      throw err;
+    }
+
+    const diagRepo =
+      this.services.diagnosisRepository ??
+      (this.services.diagnosisService as DiagnosisRepositoryLike | undefined);
+    if (diagRepo && typeof diagRepo.getDiagnosis === 'function') {
+      const diagnosis = await diagRepo.getDiagnosis(params.diagnosisId);
+      if (!diagnosis) {
+        const err = new Error(`Detour not authorized: diagnosis "${params.diagnosisId}" not found`);
+        (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+        throw err;
+      }
+      if (diagnosis.status !== 'confirmed') {
+        const err = new Error(
+          `Detour not authorized: diagnosis "${params.diagnosisId}" has status "${diagnosis.status}", must be "confirmed"`
+        );
+        (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+        throw err;
+      }
+      if (diagnosis.sessionId && diagnosis.sessionId !== sessionId) {
+        const err = new Error(
+          `Detour not authorized: diagnosis "${params.diagnosisId}" belongs to session "${diagnosis.sessionId}", not current session "${sessionId}"`
+        );
+        (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+        throw err;
+      }
+      if (diagnosis.knowledgeNodeId !== targetNodeId) {
+        const err = new Error(
+          `Detour not authorized: diagnosis target node "${diagnosis.knowledgeNodeId}" does not match detour nodeId "${targetNodeId}"`
+        );
+        (err as unknown as Record<string, unknown>).code = 'DETOUR_NOT_AUTHORIZED';
+        throw err;
+      }
+    }
+
+    if (typeof this.services.sessionService.insertDetour !== 'function') {
+      const err = new Error('insertDetour capability unavailable on session service');
+      (err as unknown as Record<string, unknown>).code = 'DOMAIN_CAPABILITY_UNAVAILABLE';
+      throw err;
+    }
+    const snapshot = await this.services.sessionService.getSnapshot(sessionId);
+    if (!snapshot) {
+      const err = new Error(`Session not found: ${sessionId}`);
+      (err as unknown as Record<string, unknown>).code = 'NOT_FOUND';
+      throw err;
+    }
+
+    const baseVersion = snapshot.pathVersion;
+    const detourId = `detour-${targetNodeId}-${Date.now()}`;
+    const result = await this.services.sessionService.insertDetour(sessionId, baseVersion, {
+      id: detourId,
+      knowledgeNodeId: targetNodeId,
+      title: params.detourTitle || `Detour: ${targetNodeId}`,
+      note: params.note,
+    });
+
+    return {
+      success: true,
+      pathVersion: result.newVersion,
+      newVersion: result.newVersion,
+      path: result.path,
+      message: `Detour inserted successfully for ${targetNodeId}`,
+    };
+  }
   async executeTool<T = unknown>(
     sessionId: string,
     toolName: string,
@@ -175,6 +305,21 @@ export class DomainToolsExecutor {
             };
           }
         }
+        case 'probe_request': {
+          const params = safeArgs as ProbeRequestParams;
+          try {
+            const result = await this.executeProbeRequest(sessionId, params);
+            return { success: true, data: result as unknown as T };
+          } catch (err: unknown) {
+            return {
+              success: false,
+              error: {
+                code: 'INTERNAL_DOMAIN_ERROR',
+                message: getErrorMessage(err),
+              },
+            };
+          }
+        }
 
         case 'path_get': {
           const params = safeArgs as PathGetParams;
@@ -197,34 +342,8 @@ export class DomainToolsExecutor {
 
         case 'path_insert_detour': {
           const params = safeArgs as PathInsertDetourParams;
-          if (typeof this.services.sessionService.insertDetour !== 'function') {
-            return {
-              success: false,
-              error: {
-                code: 'DOMAIN_CAPABILITY_UNAVAILABLE',
-                message: 'insertDetour capability unavailable on session service',
-              },
-            };
-          }
-          const snapshot = await this.services.sessionService.getSnapshot(sessionId);
-          if (!snapshot) {
-            return {
-              success: false,
-              error: {
-                code: 'NOT_FOUND',
-                message: `Session not found: ${sessionId}`,
-              },
-            };
-          }
-          const baseVersion = snapshot.pathVersion;
-          const detourId = `detour-${params.detourKnowledgeNodeId}-${Date.now()}`;
           try {
-            const result = await this.services.sessionService.insertDetour(sessionId, baseVersion, {
-              id: detourId,
-              knowledgeNodeId: params.detourKnowledgeNodeId,
-              title: params.detourTitle,
-              note: params.note,
-            });
+            const result = await this.executePathInsertDetour(sessionId, params);
             return { success: true, data: result as unknown as T };
           } catch (err: unknown) {
             if (isVersionConflict(err)) {
@@ -232,6 +351,15 @@ export class DomainToolsExecutor {
                 success: false,
                 error: {
                   code: 'VERSION_CONFLICT',
+                  message: getErrorMessage(err),
+                },
+              };
+            }
+            if (err && typeof err === 'object' && 'code' in err && typeof (err as Record<string, unknown>).code === 'string') {
+              return {
+                success: false,
+                error: {
+                  code: (err as Record<string, unknown>).code as TutorToolErrorCode,
                   message: getErrorMessage(err),
                 },
               };

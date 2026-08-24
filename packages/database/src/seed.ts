@@ -91,6 +91,36 @@ export const SOFTMAX_LESSON: Lesson = {
         },
       },
     },
+    {
+      id: 'softmax-quiz-2',
+      type: 'quiz',
+      difficulty: 3.5,
+      answerType: 'single_choice',
+      question: 'Why does softmax use exponentiation?',
+      options: [
+        { id: 'opt-exp-1', text: 'To ensure all output values are strictly positive before normalization' },
+        { id: 'opt-exp-2', text: 'To reduce memory consumption' },
+      ],
+      answerSpec: {
+        type: 'single_choice',
+        correctOptionId: 'opt-exp-1',
+      },
+    },
+    {
+      id: 'softmax-quiz-3',
+      type: 'quiz',
+      difficulty: 3.5,
+      answerType: 'single_choice',
+      question: 'What is the sum of all elements in a softmax output vector?',
+      options: [
+        { id: 'opt-sum-1', text: 'Exactly 1.0' },
+        { id: 'opt-sum-0', text: '0.0' },
+      ],
+      answerSpec: {
+        type: 'single_choice',
+        correctOptionId: 'opt-sum-1',
+      },
+    },
   ],
 };
 
@@ -108,7 +138,7 @@ export function seedDatabase(db: Database.Database): void {
   const seedTx = db.transaction(() => {
     // 1. Knowledge nodes
     const insertNode = db.prepare(`
-      INSERT OR REPLACE INTO knowledge_nodes (id, title, description, created_at)
+      INSERT OR IGNORE INTO knowledge_nodes (id, title, description, created_at)
       VALUES (?, ?, ?, ?)
     `);
 
@@ -121,7 +151,7 @@ export function seedDatabase(db: Database.Database): void {
 
     // 2. Knowledge edges (prerequisites)
     const insertEdge = db.prepare(`
-      INSERT OR REPLACE INTO knowledge_edges (from_node_id, to_node_id, relation_type, created_at)
+      INSERT OR IGNORE INTO knowledge_edges (from_node_id, to_node_id, relation_type, created_at)
       VALUES (?, ?, ?, ?)
     `);
 
@@ -132,7 +162,7 @@ export function seedDatabase(db: Database.Database): void {
 
     // 3. Course
     const insertCourse = db.prepare(`
-      INSERT OR REPLACE INTO courses (id, title, description, created_at)
+      INSERT OR IGNORE INTO courses (id, title, description, created_at)
       VALUES (?, ?, ?, ?)
     `);
 
@@ -145,7 +175,7 @@ export function seedDatabase(db: Database.Database): void {
 
     // 4. Course nodes
     const insertCourseNode = db.prepare(`
-      INSERT OR REPLACE INTO course_nodes (course_id, knowledge_node_id, position)
+      INSERT OR IGNORE INTO course_nodes (course_id, knowledge_node_id, position)
       VALUES (?, ?, ?)
     `);
 
@@ -157,7 +187,7 @@ export function seedDatabase(db: Database.Database): void {
 
     // 5. Initial lesson
     const insertLesson = db.prepare(`
-      INSERT OR REPLACE INTO lessons (id, course_id, knowledge_node_id, title, objective, version, status, blocks, created_at, updated_at)
+      INSERT OR IGNORE INTO lessons (id, course_id, knowledge_node_id, title, objective, version, status, blocks, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
@@ -204,33 +234,35 @@ export function seedDatabase(db: Database.Database): void {
       now
     );
 
-    // 7. Prototype session
-    const insertSession = db.prepare(`
-      INSERT OR REPLACE INTO learning_sessions (id, user_id, course_id, active_lesson_id, path_version, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
+    // 7. Prototype session (only seed if not already present)
+    const existingSession = db.prepare("SELECT id FROM learning_sessions WHERE id = 'prototype'").get();
+    if (!existingSession) {
+      const insertSession = db.prepare(`
+        INSERT INTO learning_sessions (id, user_id, course_id, active_lesson_id, path_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      insertSession.run('prototype', 'default-user', 'transformer', INITIAL_LESSON.id, 1, now, now);
 
-    insertSession.run('prototype', 'default-user', 'transformer', INITIAL_LESSON.id, 1, now, now);
+      // 8. Learning path nodes
+      const insertPathNode = db.prepare(`
+        INSERT INTO learning_path_nodes (id, session_id, knowledge_node_id, title, type, status, position, note, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
 
-    // 8. Learning path nodes
-    const insertPathNode = db.prepare(`
-      INSERT OR REPLACE INTO learning_path_nodes (id, session_id, knowledge_node_id, title, type, status, position, note, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    for (const node of INITIAL_PATH_NODES) {
-      insertPathNode.run(
-        node.id,
-        'prototype',
-        node.knowledgeNodeId,
-        node.title,
-        node.type,
-        node.status,
-        node.position,
-        node.note ?? null,
-        now,
-        now
-      );
+      for (const node of INITIAL_PATH_NODES) {
+        insertPathNode.run(
+          node.id,
+          'prototype',
+          node.knowledgeNodeId,
+          node.title,
+          node.type,
+          node.status,
+          node.position,
+          node.note ?? null,
+          now,
+          now
+        );
+      }
     }
   });
 

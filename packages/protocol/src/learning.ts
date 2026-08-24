@@ -9,6 +9,21 @@ export interface LearningPathNode {
   status: LearningPathNodeStatus;
   position: number;
   note?: string;
+  diagnosisId?: string;
+}
+
+export type LearningSessionFrameStatus = 'active' | 'completed' | 'cancelled';
+
+export interface LearningSessionFrame {
+  id: string;
+  sessionId: string;
+  detourPathNodeId: string;
+  parentPathNodeId: string;
+  savedLessonId?: string;
+  depth: number;
+  status: LearningSessionFrameStatus;
+  diagnosisId?: string;
+  createdAt: string;
 }
 
 export type LearningPathPatch =

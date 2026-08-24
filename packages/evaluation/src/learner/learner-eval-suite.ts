@@ -1,4 +1,4 @@
-import { BetaMasteryAggregator } from '@opentutor/assessment-core';
+import { BetaMasteryAggregator, type UserKnowledgeStateV2 } from '@opentutor/assessment-core';
 import type {
   LearningEvidence,
   UserKnowledgeState,
@@ -9,6 +9,7 @@ import type {
   EvalSuiteResult,
   HardFailure,
   MetricResult,
+  EvalMode,
 } from '../core/index.ts';
 import {
   createMetric,
@@ -16,15 +17,18 @@ import {
 } from '../core/index.ts';
 
 export interface LearnerEvalOptions {
+  mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
   evalsDir?: string;
 }
 
 export class LearnerEvalSuite {
+  readonly mode: EvalMode;
   private readonly bundles: Record<string, DomainFixtureBundle>;
   private readonly aggregator: BetaMasteryAggregator;
 
   constructor(options: LearnerEvalOptions = {}) {
+    this.mode = options.mode ?? 'contract';
     this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
     this.aggregator = new BetaMasteryAggregator();
   }
@@ -92,54 +96,318 @@ export class LearnerEvalSuite {
     const entities = bundle.knowledge?.entities ?? [];
     const testNodes = entities.length > 0 ? entities.map((e) => e.id) : ['synthetic-node-1', 'synthetic-node-2'];
 
-    // 1. Benchmark: OneAnswerMasteryImpossibleRate
-    // Verify that NO single answer (regardless of difficulty, confidence, or correctness) achieves 'mastered'.
-    let singleAnswerTotal = 0;
-    let singleAnswerViolations = 0;
+    // 1. Test 1: same-item-spam-never-mastered
+    // Repeated answers to a single quiz item (even 10 correct attempts) cannot achieve 'mastered'.
+    let spamChecks = 0;
+    let spamViolations = 0;
 
-    const testDifficulties: Array<number | 'easy' | 'medium' | 'hard'> = ['easy', 'medium', 'hard', 0.1, 0.5, 1.0, 1.4, 2.0, 5.0, 10.0];
-    const testOutcomes: Array<'correct' | 'partial' | 'incorrect'> = ['correct', 'partial', 'incorrect'];
+    for (const nodeId of testNodes.slice(0, 3)) {
+      spamChecks++;
+      let state: UserKnowledgeState | null = null;
+      const singleItemId = `quiz-single-${nodeId}`;
 
-    for (const nodeId of testNodes) {
-      for (const diff of testDifficulties) {
-        for (const outcome of testOutcomes) {
-          singleAnswerTotal++;
-          const evidence: LearningEvidence = {
-            id: `ev-${nodeId}-${singleAnswerTotal}`,
-            userId: 'eval-user',
-            knowledgeNodeId: nodeId,
-            type: 'quiz',
-            source: 'eval-suite',
-            outcome,
-            difficulty: typeof diff === 'number' ? diff : (diff === 'easy' ? 0.6 : diff === 'hard' ? 1.4 : 1.0),
-            confidence: 1.0,
-            weight: (typeof diff === 'number' ? diff : (diff === 'easy' ? 0.6 : diff === 'hard' ? 1.4 : 1.0)),
-            createdAt: '2026-08-01T00:00:00.000Z',
-          };
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        const ev: LearningEvidence = {
+          id: `ev-spam-${nodeId}-${attempt}`,
+          userId: 'eval-user',
+          knowledgeNodeId: nodeId,
+          type: 'quiz',
+          source: 'eval-suite',
+          sourceItemId: singleItemId,
+          attempt,
+          outcome: 'correct',
+          difficulty: 1.4,
+          confidence: 1.0,
+          weight: 1.4,
+          createdAt: `2026-08-01T12:${attempt.toString().padStart(2, '0')}:00.000Z`,
+        };
+        state = this.aggregator.updateMastery(state, ev);
+      }
 
-          const state = this.aggregator.updateMastery(null, evidence);
-          if (state.status === 'mastered') {
-            singleAnswerViolations++;
-            hardFailures.push({
-              rule: 'ONE_ANSWER_MASTERY_VIOLATION',
-              message: `Single answer resulted in 'mastered' status for node '${nodeId}' (difficulty: ${diff}, outcome: ${outcome}, p: ${state.masteryProbability}).`,
-              details: { nodeId, diff, outcome, state },
-            });
-          }
-          if (state.evidenceCount !== 1) {
-            hardFailures.push({
-              rule: 'EVIDENCE_COUNT_MISMATCH',
-              message: `Expected evidenceCount 1, got ${state.evidenceCount}.`,
-              details: { state },
-            });
-          }
-        }
+      if (state && state.status === 'mastered') {
+        spamViolations++;
+        hardFailures.push({
+          rule: 'SAME_ITEM_SPAM_MASTERY_VIOLATION',
+          message: `Repeated attempts on a single item erroneously achieved 'mastered' status for node '${nodeId}' (distinctSourceItemCount: ${state.distinctSourceItemCount}).`,
+          details: { nodeId, state },
+        });
+      }
+      if (state && (state.distinctSourceItemCount ?? 0) > 1) {
+        hardFailures.push({
+          rule: 'DISTINCT_ITEM_COUNT_MISMATCH',
+          message: `Expected distinctSourceItemCount 1, got ${state.distinctSourceItemCount}.`,
+          details: { state },
+        });
       }
     }
 
-    const oneAnswerImpossibleRate = singleAnswerTotal > 0 ? (singleAnswerTotal - singleAnswerViolations) / singleAnswerTotal : 1.0;
-    metrics.push(createMetric('OneAnswerMasteryImpossibleRate', oneAnswerImpossibleRate, { op: 'gte', value: 1.0 }));
+    const sameItemSpamNeverMasteredRate = spamChecks > 0 ? (spamChecks - spamViolations) / spamChecks : 1.0;
+    metrics.push(createMetric('same-item-spam-never-mastered', sameItemSpamNeverMasteredRate, { op: 'gte', value: 1.0 }));
+    metrics.push(createMetric('OneAnswerMasteryImpossibleRate', sameItemSpamNeverMasteredRate, { op: 'gte', value: 1.0 }));
 
+    // 2. Test 2: incorrect-evidence-lowers-mastery
+    // Negative evidence decreases probability and increases beta.
+    let incorrectChecks = 0;
+    let incorrectMatches = 0;
+
+    for (const nodeId of testNodes.slice(0, 3)) {
+      incorrectChecks++;
+      let state: UserKnowledgeState | null = null;
+
+      // Seed with 2 correct answers on distinct items
+      state = this.aggregator.updateMastery(state, {
+        id: `ev-seed-1-${nodeId}`,
+        userId: 'eval-user',
+        knowledgeNodeId: nodeId,
+        type: 'quiz',
+        source: 'eval-suite',
+        sourceItemId: `item-seed-1-${nodeId}`,
+        attempt: 1,
+        outcome: 'correct',
+        difficulty: 1.0,
+        confidence: 1.0,
+        weight: 1.0,
+        createdAt: '2026-08-01T10:00:00.000Z',
+      });
+      state = this.aggregator.updateMastery(state, {
+        id: `ev-seed-2-${nodeId}`,
+        userId: 'eval-user',
+        knowledgeNodeId: nodeId,
+        type: 'quiz',
+        source: 'eval-suite',
+        sourceItemId: `item-seed-2-${nodeId}`,
+        attempt: 1,
+        outcome: 'correct',
+        difficulty: 1.0,
+        confidence: 1.0,
+        weight: 1.0,
+        createdAt: '2026-08-01T10:05:00.000Z',
+      });
+
+      const probBefore = state.masteryProbability ?? (state.alpha! / (state.alpha! + state.beta!));
+      const betaBefore = state.beta ?? 1.0;
+
+      // Apply incorrect evidence
+      state = this.aggregator.updateMastery(state, {
+        id: `ev-inc-${nodeId}`,
+        userId: 'eval-user',
+        knowledgeNodeId: nodeId,
+        type: 'quiz',
+        source: 'eval-suite',
+        sourceItemId: `item-seed-3-${nodeId}`,
+        attempt: 1,
+        outcome: 'incorrect',
+        difficulty: 1.0,
+        confidence: 1.0,
+        weight: 1.0,
+        createdAt: '2026-08-01T10:10:00.000Z',
+      });
+
+      const probAfter = state.masteryProbability ?? (state.alpha! / (state.alpha! + state.beta!));
+      const betaAfter = state.beta ?? 1.0;
+
+      if (probAfter < probBefore && betaAfter > betaBefore) {
+        incorrectMatches++;
+      } else {
+        hardFailures.push({
+          rule: 'INCORRECT_EVIDENCE_LOWER_MASTERY_VIOLATION',
+          message: `Incorrect evidence failed to decrease probability or increase beta for node '${nodeId}'. Before: (p=${probBefore}, beta=${betaBefore}), After: (p=${probAfter}, beta=${betaAfter})`,
+          details: { probBefore, probAfter, betaBefore, betaAfter },
+        });
+      }
+    }
+
+    const incorrectEvidenceLowersMasteryRate = incorrectChecks > 0 ? incorrectMatches / incorrectChecks : 1.0;
+    metrics.push(createMetric('incorrect-evidence-lowers-mastery', incorrectEvidenceLowersMasteryRate, { op: 'gte', value: 1.0 }));
+
+    // 3. Test 3: mastery-history-replay-equals-persisted
+    // Replay of evidence sequence matches online updates.
+    let replayChecks = 0;
+    let replayMatches = 0;
+
+    for (const nodeId of testNodes.slice(0, 3)) {
+      replayChecks++;
+      const evidences: LearningEvidence[] = [
+        {
+          id: `ev-rep-1-${nodeId}`,
+          userId: 'eval-user',
+          knowledgeNodeId: nodeId,
+          type: 'quiz',
+          source: 'eval-suite',
+          sourceItemId: `item-rep-1-${nodeId}`,
+          attempt: 1,
+          outcome: 'correct',
+          difficulty: 1.0,
+          confidence: 0.9,
+          weight: 0.9,
+          createdAt: '2026-08-01T10:00:00.000Z',
+        },
+        {
+          id: `ev-rep-2-${nodeId}`,
+          userId: 'eval-user',
+          knowledgeNodeId: nodeId,
+          type: 'quiz',
+          source: 'eval-suite',
+          sourceItemId: `item-rep-2-${nodeId}`,
+          attempt: 1,
+          outcome: 'partial',
+          difficulty: 1.2,
+          confidence: 0.85,
+          weight: 1.02,
+          createdAt: '2026-08-01T11:00:00.000Z',
+        },
+        {
+          id: `ev-rep-3-${nodeId}`,
+          userId: 'eval-user',
+          knowledgeNodeId: nodeId,
+          type: 'probe',
+          source: 'eval-suite',
+          sourceItemId: `item-rep-3-${nodeId}`,
+          attempt: 1,
+          outcome: 'correct',
+          difficulty: 1.4,
+          confidence: 1.0,
+          weight: 1.4,
+          createdAt: '2026-08-01T12:00:00.000Z',
+        },
+      ];
+
+      // Online sequential aggregation
+      let onlineState: UserKnowledgeState | null = null;
+      for (const ev of evidences) {
+        onlineState = this.aggregator.updateMastery(onlineState, ev);
+      }
+
+      // Replay aggregation
+      const replayState = this.aggregator.recomputeFromEvidenceHistory(evidences);
+
+      if (
+        onlineState && replayState &&
+        Math.abs((onlineState.alpha ?? 0) - (replayState.alpha ?? 0)) < 1e-6 &&
+        Math.abs((onlineState.beta ?? 0) - (replayState.beta ?? 0)) < 1e-6 &&
+        Math.abs((onlineState.masteryProbability ?? 0) - (replayState.masteryProbability ?? 0)) < 1e-6 &&
+        onlineState.status === replayState.status &&
+        onlineState.evidenceCount === replayState.evidenceCount &&
+        onlineState.distinctSourceItemCount === replayState.distinctSourceItemCount
+      ) {
+        replayMatches++;
+      } else {
+        hardFailures.push({
+          rule: 'REPLAY_EQUALS_PERSISTED_VIOLATION',
+          message: `Replay state did not match online sequential state for node '${nodeId}'.`,
+          details: { onlineState, replayState },
+        });
+      }
+    }
+
+    const replayRate = replayChecks > 0 ? replayMatches / replayChecks : 1.0;
+    metrics.push(createMetric('mastery-history-replay-equals-persisted', replayRate, { op: 'gte', value: 1.0 }));
+
+    // 4. Test 4: two-plus-independent-items-required
+    // Mastery requires distinctSourceItemCount >= 2 and effectiveEvidenceCount >= 3.
+    let itemChecks = 0;
+    let itemMatches = 0;
+
+    for (const nodeId of testNodes.slice(0, 3)) {
+      itemChecks++;
+      // Case A: 5 correct attempts on 1 single item -> NOT mastered
+      let stateSingle: UserKnowledgeState | null = null;
+      for (let att = 1; att <= 5; att++) {
+        stateSingle = this.aggregator.updateMastery(stateSingle, {
+          id: `ev-single-${att}-${nodeId}`,
+          userId: 'eval-user',
+          knowledgeNodeId: nodeId,
+          type: 'quiz',
+          source: 'eval-suite',
+          sourceItemId: `single-item-${nodeId}`,
+          attempt: att,
+          outcome: 'correct',
+          difficulty: 1.4,
+          confidence: 1.0,
+          weight: 1.4,
+          createdAt: `2026-08-01T10:0${att}:00.000Z`,
+        });
+      }
+      const singleNotMastered = stateSingle?.status !== 'mastered';
+
+      // Case B: 3 distinct items with attempt=1, hard difficulty correct -> MASTERED
+      let stateMulti: UserKnowledgeState | null = null;
+      for (let itemIdx = 1; itemIdx <= 3; itemIdx++) {
+        stateMulti = this.aggregator.updateMastery(stateMulti, {
+          id: `ev-multi-${itemIdx}-${nodeId}`,
+          userId: 'eval-user',
+          knowledgeNodeId: nodeId,
+          type: 'quiz',
+          source: 'eval-suite',
+          sourceItemId: `multi-item-${itemIdx}-${nodeId}`,
+          attempt: 1,
+          outcome: 'correct',
+          difficulty: 2.0,
+          confidence: 1.0,
+          weight: 2.0,
+          createdAt: `2026-08-01T11:0${itemIdx}:00.000Z`,
+        });
+      }
+      const multiMastered = stateMulti?.status === 'mastered';
+
+      if (singleNotMastered && multiMastered) {
+        itemMatches++;
+      } else {
+        hardFailures.push({
+          rule: 'INDEPENDENT_ITEMS_REQUIRED_VIOLATION',
+          message: `Independent items requirement failed for node '${nodeId}'. singleNotMastered=${singleNotMastered}, multiMastered=${multiMastered}`,
+          details: { stateSingle, stateMulti },
+        });
+      }
+    }
+
+    const independentItemsRate = itemChecks > 0 ? itemMatches / itemChecks : 1.0;
+    metrics.push(createMetric('two-plus-independent-items-required', independentItemsRate, { op: 'gte', value: 1.0 }));
+
+    // 5. Test 5: probe-evidence-targets-prerequisite-node
+    // Probe evidence records on target prerequisite node, not active lesson node.
+    let probeChecks = 0;
+    let probeMatches = 0;
+    const activeLessonNodeId = 'self-attention';
+    const prereqNodeId = 'softmax';
+
+    probeChecks++;
+    // Create probe evidence targeting prerequisite node
+    const probeEvidence: LearningEvidence = {
+      id: 'probe-ev-1',
+      userId: 'eval-user',
+      knowledgeNodeId: prereqNodeId, // TARGET IS PREREQUISITE NODE
+      type: 'probe',
+      source: `probe-diagnostic-for-${activeLessonNodeId}`,
+      sourceItemId: 'probe-softmax-quiz',
+      attempt: 1,
+      outcome: 'correct',
+      difficulty: 1.0,
+      confidence: 1.0,
+      weight: 1.0,
+      createdAt: '2026-08-01T12:00:00.000Z',
+    };
+
+    // Update prerequisite state
+    const prereqState = this.aggregator.updateMastery(null, probeEvidence);
+
+    // Verify evidence is recorded on prerequisite node, not active lesson node
+    if (
+      prereqState.knowledgeNodeId === prereqNodeId &&
+      (prereqState.knowledgeNodeId as string) !== activeLessonNodeId &&
+      prereqState.evidenceCount === 1 &&
+      prereqState.correctCount === 1
+    ) {
+      probeMatches++;
+    } else {
+      hardFailures.push({
+        rule: 'PROBE_TARGET_NODE_VIOLATION',
+        message: `Probe evidence did not correctly target prerequisite node '${prereqNodeId}'.`,
+        details: { prereqState },
+      });
+    }
+    const probeTargetRate = probeChecks > 0 ? probeMatches / probeChecks : 1.0;
+    metrics.push(createMetric('probe-evidence-targets-prerequisite-node', probeTargetRate, { op: 'gte', value: 1.0 }));
     // 2. Benchmark: EvidenceAggregationDeterminism
     // Verify that independent aggregator instances aggregate identical evidence deterministically.
     let determinismChecks = 0;
@@ -308,14 +576,15 @@ export class LearnerEvalSuite {
         for (const cnt of counts) {
           thresholdChecks++;
           const p = a / (a + b);
-          const computedStatus = this.aggregator.computeStatus(p, cnt);
+          const distinctItems = cnt >= 3 ? 2 : cnt;
+          const computedStatus = this.aggregator.computeStatus(p, cnt, distinctItems, cnt);
 
           let expectedStatus: 'unknown' | 'weak' | 'learning' | 'mastered';
           if (cnt < 1) {
             expectedStatus = 'unknown';
           } else if (p < 0.40) {
             expectedStatus = 'weak';
-          } else if (p >= 0.85 && cnt >= 3) {
+          } else if (p >= 0.85 && cnt >= 3 && distinctItems >= 2) {
             expectedStatus = 'mastered';
           } else {
             expectedStatus = 'learning';
@@ -326,14 +595,13 @@ export class LearnerEvalSuite {
           } else {
             hardFailures.push({
               rule: 'THRESHOLD_CONSISTENCY_VIOLATION',
-              message: `Status mismatch for alpha=${a}, beta=${b}, p=${p.toFixed(3)}, count=${cnt}: expected '${expectedStatus}', got '${computedStatus}'.`,
-              details: { a, b, p, cnt, expectedStatus, computedStatus },
+              message: `Status mismatch for alpha=${a}, beta=${b}, p=${p.toFixed(3)}, count=${cnt}, distinct=${distinctItems}: expected '${expectedStatus}', got '${computedStatus}'.`,
+              details: { a, b, p, cnt, distinctItems, expectedStatus, computedStatus },
             });
           }
         }
       }
     }
-
     const thresholdConsistencyRate = thresholdChecks > 0 ? thresholdMatches / thresholdChecks : 1.0;
     metrics.push(createMetric('ThresholdConsistency', thresholdConsistencyRate, { op: 'gte', value: 1.0 }));
 

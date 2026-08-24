@@ -95,6 +95,7 @@ test('TutorEvalSuite simulates learner interaction scenarios and tool invocation
   assert.equal(result.metrics.expected_tool_recall, 1.0, 'Expected tool recall must be 1.0');
   assert.equal(result.metrics.unnecessary_retrieval_rate, 0.0, 'Unnecessary retrieval rate must be 0.0');
   assert.equal(result.metrics.unnecessary_detour_rate, 0.0, 'Unnecessary detour rate must be 0.0');
+  assert.equal(result.metrics.unauthorized_detour_rate, 0.0, 'Unauthorized detour rate must be 0.0');
   assert.equal(result.metrics.chat_dump_rate, 0.0, 'Chat dump rate must be 0.0');
 });
 
@@ -107,6 +108,11 @@ test('LearnerEvalSuite verifies one-answer impossibility, determinism, decay, an
   assert.equal(result.passedCases, 3, 'All 3 domain cases must pass');
   assert.equal(result.passed, true, 'Learner suite must pass overall');
 
+  assert.equal(result.metrics['same-item-spam-never-mastered'], 1.0, 'same-item-spam-never-mastered must be 1.0');
+  assert.equal(result.metrics['incorrect-evidence-lowers-mastery'], 1.0, 'incorrect-evidence-lowers-mastery must be 1.0');
+  assert.equal(result.metrics['mastery-history-replay-equals-persisted'], 1.0, 'mastery-history-replay-equals-persisted must be 1.0');
+  assert.equal(result.metrics['two-plus-independent-items-required'], 1.0, 'two-plus-independent-items-required must be 1.0');
+  assert.equal(result.metrics['probe-evidence-targets-prerequisite-node'], 1.0, 'probe-evidence-targets-prerequisite-node must be 1.0');
   assert.equal(result.metrics.OneAnswerMasteryImpossibleRate, 1.0, 'One answer mastery impossible rate must be 1.0');
   assert.equal(result.metrics.EvidenceAggregationDeterminism, 1.0, 'Evidence aggregation determinism must be 1.0');
   assert.equal(result.metrics.DecayMonotonicity, 1.0, 'Decay monotonicity must be 1.0');
@@ -128,4 +134,9 @@ test('CLI runner executes suites and generates eval-report.json output', async (
       fs.unlinkSync(testReportPath);
     }
   }
+});
+
+test('Production mode without model credentials exits with MODEL_SETUP_REQUIRED', async () => {
+  const exitCode = await runCli(['--mode', 'production', '--suite', 'knowledge', '--domain', 'transformer']);
+  assert.equal(exitCode, 1, 'Production mode without configured live models should exit with 1 (MODEL_SETUP_REQUIRED)');
 });

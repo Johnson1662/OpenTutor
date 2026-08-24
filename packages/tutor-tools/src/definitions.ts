@@ -172,11 +172,19 @@ export const PathGetParamsSchema = Type.Object({
 export type PathGetParams = Static<typeof PathGetParamsSchema>;
 
 export const PathInsertDetourParamsSchema = Type.Object({
-  detourKnowledgeNodeId: Type.String({ description: 'ID of the missing prerequisite knowledge node' }),
-  detourTitle: Type.String({ description: 'Title of the detour node' }),
+  nodeId: Type.String({ description: 'Knowledge node ID to detour into' }),
+  diagnosisId: Type.String({ description: 'ID of the confirmed diagnosis authorizing this detour' }),
+  detourKnowledgeNodeId: Type.Optional(Type.String({ description: 'ID of the missing prerequisite knowledge node' })),
+  detourTitle: Type.Optional(Type.String({ description: 'Title of the detour node' })),
   note: Type.Optional(Type.String({ description: 'Diagnostic reason for the detour' })),
 });
 export type PathInsertDetourParams = Static<typeof PathInsertDetourParamsSchema>;
+
+export const ProbeRequestParamsSchema = Type.Object({
+  prerequisiteNodeId: Type.Optional(Type.String({ description: 'Specific prerequisite knowledge node to probe' })),
+  reason: Type.Optional(Type.String({ description: 'Pedagogical reason for diagnostic probe' })),
+});
+export type ProbeRequestParams = Static<typeof ProbeRequestParamsSchema>;
 
 export const PathAdvanceParamsSchema = Type.Object({});
 export type PathAdvanceParams = Static<typeof PathAdvanceParamsSchema>;
@@ -239,6 +247,15 @@ export const TUTOR_TOOL_DEFINITIONS = [
     name: 'lesson_patch',
     description: 'Apply structured block mutations (insert, replace, update, remove, move) to the current lesson canvas.',
     parameters: LessonPatchParamsSchema,
+    category: 'lesson',
+    retrieval: false,
+    retrievalCost: 0,
+    mutation: true,
+  },
+  {
+    name: 'probe_request',
+    description: 'Request a diagnostic probe to be generated and placed on the Lesson Canvas to assess learner understanding of a prerequisite.',
+    parameters: ProbeRequestParamsSchema,
     category: 'lesson',
     retrieval: false,
     retrievalCost: 0,

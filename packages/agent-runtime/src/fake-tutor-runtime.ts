@@ -184,6 +184,49 @@ export class FakeTutorRuntime implements TutorRuntime {
         });
         reply = 'Simplified the explanation with an intuitive callout analogy.';
       } else if (
+        lower.includes('probe') ||
+        lower.includes('doubt') ||
+        lower.includes('struggling') ||
+        lower.includes('confused') ||
+        lower.includes("don't know") ||
+        lower.includes('dont know') ||
+        lower.includes('do not know') ||
+        lower.includes('do not understand') ||
+        lower.includes('not sure') ||
+        lower.includes('unknown') ||
+        lower.includes('softmax_unknown') ||
+        lower.includes('probe_request')
+      ) {
+        const toolCallId = `tc-${randomUUID()}`;
+        input.onToolStart?.(toolCallId, 'probe_request');
+        const probeRes = await this.toolsExecutor.executeTool(
+          input.sessionId,
+          'probe_request',
+          {
+            prerequisiteNodeId: 'softmax',
+            reason: 'Learner expressed uncertainty regarding prerequisite concept',
+          }
+        );
+        input.onToolEnd?.(toolCallId, 'probe_request', probeRes.success);
+
+        this.traceRepo?.recordToolCall({
+          id: toolCallId,
+          runId,
+          toolName: 'probe_request',
+          arguments: {
+            prerequisiteNodeId: 'softmax',
+          },
+          result: probeRes,
+          status: probeRes.success ? 'success' : 'error',
+        });
+
+        executedToolCalls.push({
+          tool: 'probe_request',
+          args: { prerequisiteNodeId: 'softmax' },
+          result: probeRes,
+        });
+        reply = 'Generated and placed a diagnostic probe on the canvas to check your understanding of Softmax.';
+      } else if (
         lower.includes('softmax') ||
         lower.includes('detour') ||
         lower.includes('softmax_unknown')
@@ -194,6 +237,8 @@ export class FakeTutorRuntime implements TutorRuntime {
           input.sessionId,
           'path_insert_detour',
           {
+            nodeId: 'softmax',
+            diagnosisId: 'diag-confirmed-softmax',
             detourKnowledgeNodeId: 'softmax',
             detourTitle: 'Detour: Softmax Normalization',
             note: 'Diagnosed prerequisite gap from learner query',
@@ -207,7 +252,8 @@ export class FakeTutorRuntime implements TutorRuntime {
           toolName: 'path_insert_detour',
           arguments: {
             sessionId: input.sessionId,
-            knowledgeNodeId: 'softmax',
+            nodeId: 'softmax',
+            diagnosisId: 'diag-confirmed-softmax',
             baseVersion: currentPathVersion,
           },
           result: detourRes,
@@ -216,7 +262,7 @@ export class FakeTutorRuntime implements TutorRuntime {
 
         executedToolCalls.push({
           tool: 'path_insert_detour',
-          args: { knowledgeNodeId: 'softmax' },
+          args: { nodeId: 'softmax', diagnosisId: 'diag-confirmed-softmax' },
           result: detourRes,
         });
         reply = 'Identified prerequisite gap: inserted Softmax detour before Self Attention.';

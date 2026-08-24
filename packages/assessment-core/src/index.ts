@@ -92,6 +92,7 @@ export interface AssessmentEvaluation {
   result: AssessmentOutcome;
   score: number;
   evidenceConfidence: number;
+  masteryProbability?: number;
   confidence?: number;
   feedback: string;
 }

@@ -127,7 +127,7 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   const updatedSnap = (await updatedSnapRes.json()) as LearningSessionSnapshot;
   assert.ok(updatedSnap.lesson.blocks.some((b) => b.type === 'code'));
 
-  // 9. Socratic Tutor Action: Prerequisite Detour Insertion (HTTP POST /api/sessions/:id/actions)
+  // 9. Socratic Tutor Action: Diagnostic Probing (HTTP POST /api/sessions/:id/actions & /answer)
   const { promise: actCompleted, resolve: resolveAct } = Promise.withResolvers<void>();
   const unAct = context.context.eventBus.subscribe(sessionId, (evt) => {
     if (evt.type === 'agent.completed') resolveAct();
@@ -142,6 +142,19 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   await actCompleted;
   unAct();
 
+  // 9b. Verify probe on Canvas and submit misconception answer to confirm diagnosis
+  const probeSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
+  const probeSnap = (await probeSnapRes.json()) as LearningSessionSnapshot;
+  const probeBlock = probeSnap.lesson.blocks.find((b) => b.id.startsWith('probe-') || ('assessmentKind' in b && b.assessmentKind === 'probe'));
+  assert.ok(probeBlock, 'Diagnostic probe block placed on Canvas');
+
+  const probeAnsRes = await fetch(`${baseUrl}/api/lessons/${probeSnap.lesson.id}/blocks/${probeBlock.id}/answer?sessionId=${sessionId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'wrong-guess' }),
+  });
+  assert.equal(probeAnsRes.status, 200);
+
   // 10. Verify Detour Active in Learning Path and Lesson Canvas Switched to Softmax
   const detourSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
   const detourSnap = (await detourSnapRes.json()) as LearningSessionSnapshot;
@@ -150,7 +163,7 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   assert.equal(detourNode.status, 'current');
   assert.equal(detourSnap.lesson.knowledgeNodeId, 'softmax');
 
-  // 11. Diagnostic Assessment Quiz Submission (HTTP POST /api/lessons/:id/blocks/:id/answer)
+  // 11. Diagnostic Assessment Quiz Submission on distinct items (HTTP POST /api/lessons/:id/blocks/:id/answer)
   // Answer 1: Verify single answer does not prematurely complete the detour
   const quizAnswerRes1 = await fetch(
     `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer?sessionId=${sessionId}`,
@@ -172,28 +185,37 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   const midDetour = midSnap.path.find((n) => n.knowledgeNodeId === 'softmax');
   assert.equal(midDetour?.status, 'current');
 
-  // Answer 2 & 3: Accumulate evidence to meet detour threshold (evidenceCount >= 2 and p >= 0.85)
-  for (let i = 0; i < 2; i++) {
-    const quizAnswerRes = await fetch(
-      `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer?sessionId=${sessionId}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          answer: 'Softmax ensures that probability outputs across tokens sum up to exactly 1.',
-        }),
-      }
-    );
-    assert.equal(quizAnswerRes.status, 200);
-  }
-  // 12. Verify Detour Completed and Automatic Resume to Main Track with Original Lesson Restored
+  // Answer 2 & 3: Accumulate distinct evidence to meet mastery threshold (distinctSourceItemCount >= 2, effectiveEvidenceCount >= 3, and p >= 0.85)
+  const quizAnswerRes2 = await fetch(
+    `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer?sessionId=${sessionId}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: 'opt-exp-1' }),
+    }
+  );
+  assert.equal(quizAnswerRes2.status, 200);
+
+  const quizAnswerRes3 = await fetch(
+    `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-3/answer?sessionId=${sessionId}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: 'opt-sum-1' }),
+    }
+  );
+  assert.equal(quizAnswerRes3.status, 200);
+
+  // 12. Verify Automatic Detour Resume on Main Track
   const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
+  assert.equal(resumedSnapRes.status, 200);
   const resumedSnap = (await resumedSnapRes.json()) as LearningSessionSnapshot;
+
   const completedDetour = resumedSnap.path.find((n) => n.knowledgeNodeId === 'softmax');
-  const activeNode = resumedSnap.path.find((n) => n.status === 'current');
+  const mainActiveNode = sessionSnap.path.find((n) => n.status === 'current')!;
+  const restoredMainNode = resumedSnap.path.find((n) => n.id === mainActiveNode.id);
 
   assert.equal(completedDetour?.status, 'completed');
-  assert.ok(activeNode);
-  assert.equal(activeNode?.type, 'main');
-  assert.equal(resumedSnap.lesson.knowledgeNodeId, sessionSnap.lesson.knowledgeNodeId);
+  assert.equal(restoredMainNode?.status, 'current');
+  assert.equal(resumedSnap.lesson.id, sessionSnap.lesson.id);
 });

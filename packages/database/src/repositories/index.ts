@@ -6,3 +6,6 @@ export * from './event-repository.ts';
 export * from './trace-repository.ts';
 export * from './agent-session-repository.ts';
 export * from './course-repository.ts';
+export * from './session-frame-repository.ts';
+export * from './misconception-repository.ts';
+export * from './diagnosis-repository.ts';

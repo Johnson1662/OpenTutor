@@ -9,8 +9,10 @@ import {
   formatTerminalReport,
   generateJsonReport,
   type EvalSuiteResult,
+  type EvalMode,
+  ModelSetupRequiredError,
+  MODEL_SETUP_REQUIRED,
 } from './index.ts';
-
 interface ParsedCliArgs {
   mode: string;
   suite: string;
@@ -47,7 +49,7 @@ Options:
     return 0;
   }
 
-  const selectedMode = values.mode ?? 'contract';
+  const selectedMode = (values.mode ?? 'contract') as EvalMode;
   const selectedSuite = values.suite ?? 'all';
   const selectedDomain = values.domain ?? 'all';
   const outputPath = path.resolve(process.cwd(), values.out ?? 'eval-report.json');
@@ -62,46 +64,53 @@ Options:
 
   const suiteResults: EvalSuiteResult[] = [];
 
-  // 1. Knowledge Compiler Suite
-  if (selectedSuite === 'all' || selectedSuite === 'knowledge') {
-    console.log(`[Eval] Executing Knowledge Compiler Evaluation Suite...`);
-    const knowledgeSuite = new KnowledgeEvalSuite();
-    const result = await knowledgeSuite.runSuite(selectedDomain);
-    suiteResults.push(result);
-  }
+  try {
+    // 1. Knowledge Compiler Suite
+    if (selectedSuite === 'all' || selectedSuite === 'knowledge') {
+      console.log(`[Eval] Executing Knowledge Compiler Evaluation Suite...`);
+      const knowledgeSuite = new KnowledgeEvalSuite({ mode: selectedMode });
+      const result = await knowledgeSuite.runSuite(selectedDomain);
+      suiteResults.push(result);
+    }
 
-  // 2. Course Compiler Suite
-  if (selectedSuite === 'all' || selectedSuite === 'course') {
-    console.log(`[Eval] Executing Course Compiler Evaluation Suite...`);
-    const courseSuite = new CourseEvalSuite();
-    const result = await courseSuite.runSuite(selectedDomain);
-    suiteResults.push(result);
-  }
+    // 2. Course Compiler Suite
+    if (selectedSuite === 'all' || selectedSuite === 'course') {
+      console.log(`[Eval] Executing Course Compiler Evaluation Suite...`);
+      const courseSuite = new CourseEvalSuite({ mode: selectedMode });
+      const result = await courseSuite.runSuite(selectedDomain);
+      suiteResults.push(result);
+    }
 
-  // 3. Lesson Quality Suite
-  if (selectedSuite === 'all' || selectedSuite === 'lesson') {
-    console.log(`[Eval] Executing Lesson Quality Evaluation Suite...`);
-    const lessonSuite = new LessonEvalSuite();
-    const result = await lessonSuite.runSuite(selectedDomain);
-    suiteResults.push(result);
-  }
+    // 3. Lesson Quality Suite
+    if (selectedSuite === 'all' || selectedSuite === 'lesson') {
+      console.log(`[Eval] Executing Lesson Quality Evaluation Suite...`);
+      const lessonSuite = new LessonEvalSuite({ mode: selectedMode });
+      const result = await lessonSuite.runSuite(selectedDomain);
+      suiteResults.push(result);
+    }
 
-  // 4. Tutor Behavior Suite
-  if (selectedSuite === 'all' || selectedSuite === 'tutor') {
-    console.log(`[Eval] Executing Tutor Behavior Evaluation Suite...`);
-    const tutorSuite = new TutorEvalSuite();
-    const result = await tutorSuite.runSuite(selectedDomain);
-    suiteResults.push(result);
-  }
+    // 4. Tutor Behavior Suite
+    if (selectedSuite === 'all' || selectedSuite === 'tutor') {
+      console.log(`[Eval] Executing Tutor Behavior Evaluation Suite...`);
+      const tutorSuite = new TutorEvalSuite({ mode: selectedMode });
+      const result = await tutorSuite.runSuite(selectedDomain);
+      suiteResults.push(result);
+    }
 
-  // 5. Learner Model v2 Suite
-  if (selectedSuite === 'all' || selectedSuite === 'learner') {
-    console.log(`[Eval] Executing Learner Model v2 Evaluation Suite...`);
-    const learnerSuite = new LearnerEvalSuite();
-    const result = await learnerSuite.runSuite(selectedDomain);
-    suiteResults.push(result);
+    // 5. Learner Model v2 Suite
+    if (selectedSuite === 'all' || selectedSuite === 'learner') {
+      console.log(`[Eval] Executing Learner Model v2 Evaluation Suite...`);
+      const learnerSuite = new LearnerEvalSuite({ mode: selectedMode });
+      const result = await learnerSuite.runSuite(selectedDomain);
+      suiteResults.push(result);
+    }
+  } catch (err: unknown) {
+    if (err instanceof ModelSetupRequiredError || (err instanceof Error && err.message.includes(MODEL_SETUP_REQUIRED))) {
+      console.error(`\n[OpenTutor Eval Fatal Error]: MODEL_SETUP_REQUIRED - ${err instanceof Error ? err.message : String(err)}`);
+      return 1;
+    }
+    throw err;
   }
-
   // Formatted terminal output
   const terminalReport = formatTerminalReport(suiteResults);
   console.log('\n' + terminalReport);

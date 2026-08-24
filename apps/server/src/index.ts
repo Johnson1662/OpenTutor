@@ -10,6 +10,9 @@ import {
   TraceRepository,
   AgentSessionRepository,
   CourseRepository,
+  MisconceptionRepository,
+  DiagnosisRepository,
+  SessionFrameRepository,
   type Database,
 } from '@opentutor/database';
 import { EventBus } from './events/event-bus.ts';
@@ -18,6 +21,7 @@ import { LessonService } from './services/lesson-service.ts';
 import { KnowledgeService } from './services/knowledge-service.ts';
 import { AssessmentService } from './services/assessment-service.ts';
 import { LearningProgressService } from './services/learning-progress-service.ts';
+import { DiagnosticLearningCoordinator } from './services/diagnostic-learning-coordinator.ts';
 import { CourseService } from './services/course-service.ts';
 import {
   SearchService,
@@ -71,6 +75,9 @@ export async function createServerContext(
   courseRepo: CourseRepository;
   courseService: CourseService;
   preferencesRepo: ModelPreferencesRepository;
+  misconceptionRepo?: MisconceptionRepository;
+  diagnosisRepo?: DiagnosisRepository;
+  diagnosticCoordinator?: DiagnosticLearningCoordinator;
   close: () => Promise<void>;
 }> {
   const db = createDatabase(dbPath);
@@ -85,7 +92,9 @@ export async function createServerContext(
   const traceRepo = new TraceRepository(db);
   const agentSessionRepo = new AgentSessionRepository(db);
   const preferencesRepo = new ModelPreferencesRepository(db);
-
+  const misconceptionRepo = new MisconceptionRepository(db);
+  const diagnosisRepo = new DiagnosisRepository(db);
+  const sessionFrameRepo = new SessionFrameRepository(db);
   const modelRuntime = await createOpenTutorModelRuntime({
     dataDir: dbPath === ':memory:' ? ':memory:' : undefined,
     authPath: dbPath === ':memory:' ? ':memory:' : undefined,
@@ -133,6 +142,17 @@ export async function createServerContext(
   const learningProgressService = new LearningProgressService(sessionService, eventBus);
   const assessmentService = new AssessmentService(lessonService, knowledgeService, learningProgressService);
 
+  const diagnosticCoordinator = new DiagnosticLearningCoordinator({
+    db,
+    lessonService,
+    sessionService,
+    knowledgeService,
+    assessmentService,
+    progressService: learningProgressService,
+    misconceptionRepo,
+    diagnosisRepo,
+    eventBus,
+  });
   const courseService = new CourseService(
     courseRepo,
     sessionRepo,
@@ -147,6 +167,16 @@ export async function createServerContext(
     lessonService,
     sessionService,
     knowledgeService,
+    diagnosisRepository: diagnosisRepo,
+    probeService: {
+      requestProbe: async (sessionId, params) => {
+        return diagnosticCoordinator.requestProbe({
+          sessionId,
+          prerequisiteNodeId: params.prerequisiteNodeId,
+          reason: params.reason,
+        });
+      },
+    },
   });
 
   const tutorRuntime =
@@ -162,6 +192,7 @@ export async function createServerContext(
     knowledgeService,
     assessmentService,
     learningProgressService,
+    diagnosticCoordinator,
     courseService,
     providerService,
     authService,
@@ -192,6 +223,9 @@ export async function createServerContext(
     courseRepo,
     courseService,
     preferencesRepo,
+    misconceptionRepo,
+    diagnosisRepo,
+    diagnosticCoordinator,
     close: async () => {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());

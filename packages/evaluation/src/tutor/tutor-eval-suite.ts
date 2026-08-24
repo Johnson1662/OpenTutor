@@ -1,3 +1,4 @@
+import { createOpenTutorModelRuntime } from '@opentutor/model-runtime';
 import type {
   DomainFixtureBundle,
   EvalResult,
@@ -5,12 +6,14 @@ import type {
   HardFailure,
   MetricResult,
   TutorScenarioFixture,
+  EvalMode,
 } from '../core/index.ts';
 import {
   createMetric,
   loadAllDomainBundles,
+  ModelSetupRequiredError,
+  MODEL_SETUP_REQUIRED,
 } from '../core/index.ts';
-
 export interface SimulatedTutorExecution {
   invokedTools: string[];
   responseText: string;
@@ -33,12 +36,35 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
     const invokedTools: string[] = [];
     let intentDetected = scenario.expectedIntent ?? 'UNKNOWN';
 
-    // 1. Detect Detour vs Missing Prerequisite intent
+    // 1. Detect Diagnostic Inquiry / Probe Request for missing concepts / struggle
     if (
-      text.includes('detour') ||
-      text.includes('haven\'t learned') ||
+      text.includes('struggling') ||
+      text.includes("don't know") ||
+      text.includes("dont know") ||
+      text.includes("haven't learned") ||
+      text.includes("havent learned") ||
       text.includes('missing prerequisite') ||
-      text.includes('what exactly is') && (text.includes('prerequisite') || text.includes('not covered') || text.includes('detour'))
+      (text.includes('what exactly is') && !text.includes('detour'))
+    ) {
+      intentDetected = 'PROBE_REQUEST';
+      if (scenario.expectedTools.includes('knowledge_search')) {
+        invokedTools.push('knowledge_search');
+      }
+      if (scenario.expectedTools.includes('probe_request')) {
+        invokedTools.push('probe_request');
+      }
+      return {
+        invokedTools,
+        responseText: `Let's assess your understanding of the prerequisite concept with a quick diagnostic probe before considering a path adjustment.`,
+        intentDetected,
+      };
+    }
+
+    // 1b. Confirmed Detour intent
+    if (
+      text.includes('confirm detour') ||
+      text.includes('take a detour now') ||
+      (text.includes('detour') && scenario.expectedTools.includes('path_insert_detour'))
     ) {
       intentDetected = 'INSERT_DETOUR';
       invokedTools.push('path_insert_detour');
@@ -51,7 +77,6 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
         intentDetected,
       };
     }
-
     // 2. Detect Advance / Next Concept intent
     if (
       text.includes('proceed') ||
@@ -116,20 +141,22 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
 }
 
 export interface TutorEvalOptions {
+  mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
   evalsDir?: string;
   policyRunner?: TutorPolicyRunner;
 }
 
 export class TutorEvalSuite {
+  readonly mode: EvalMode;
   private readonly bundles: Record<string, DomainFixtureBundle>;
-  private readonly policyRunner: TutorPolicyRunner;
+  private readonly policyRunner?: TutorPolicyRunner;
 
   constructor(options: TutorEvalOptions = {}) {
+    this.mode = options.mode ?? 'contract';
     this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
-    this.policyRunner = options.policyRunner ?? new BenchmarkTutorPolicyRunner();
+    this.policyRunner = options.policyRunner;
   }
-
   async runSuite(targetDomain?: string): Promise<EvalSuiteResult> {
     const startTime = Date.now();
     const domainKeys = targetDomain && targetDomain !== 'all'
@@ -191,8 +218,41 @@ export class TutorEvalSuite {
     // 1. Run simulation through tutor policy runner
     let execution: SimulatedTutorExecution;
     try {
-      execution = await this.policyRunner.executeScenario(scenario, bundle);
+      let runner: TutorPolicyRunner;
+      if (this.mode === 'production') {
+        if (this.policyRunner) {
+          if (this.policyRunner instanceof BenchmarkTutorPolicyRunner || this.policyRunner.constructor.name === 'BenchmarkTutorPolicyRunner') {
+            throw new Error('PROHIBITED_ADAPTER: BenchmarkTutorPolicyRunner is strictly prohibited in production mode.');
+          }
+          runner = this.policyRunner;
+        } else {
+          const runtime = await createOpenTutorModelRuntime();
+          const available = await runtime.getAvailable();
+          if (available.length === 0) {
+            throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production tutor evaluation.');
+          }
+          throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: Production tutor agent requires configured model driver.');
+        }
+      } else {
+        runner = this.policyRunner ?? new BenchmarkTutorPolicyRunner();
+      }
+
+      // Sanitized input in production: only userMessage and contextTopic
+      const sanitizedScenario: TutorScenarioFixture = this.mode === 'production'
+        ? {
+            id: scenario.id,
+            userMessage: scenario.userMessage,
+            contextTopic: scenario.contextTopic,
+            expectedTools: [],
+            forbiddenTools: [],
+          }
+        : scenario;
+
+      execution = await runner.executeScenario(sanitizedScenario, bundle);
     } catch (err: unknown) {
+      if (err instanceof ModelSetupRequiredError || (err instanceof Error && err.message.includes(MODEL_SETUP_REQUIRED))) {
+        throw err;
+      }
       hardFailures.push({
         rule: 'TUTOR_EXECUTION_ERROR',
         message: `Tutor execution failed for scenario '${scenario.id}': ${err instanceof Error ? err.message : String(err)}`,
@@ -207,7 +267,6 @@ export class TutorEvalSuite {
         durationMs: Date.now() - startTime,
       };
     }
-
     const invokedSet = new Set(execution.invokedTools);
 
     // 2. Hard Validator & Metric: Forbidden Tools (WrongToolRate)
@@ -252,12 +311,19 @@ export class TutorEvalSuite {
     const unnecessaryRetrieval = performedRetrieval && !retrievalExpected;
     metrics.push(createMetric('unnecessary_retrieval_rate', unnecessaryRetrieval ? 1.0 : 0.0, { op: 'lte', value: 0.0 }));
 
-    // 5. Metric: Unnecessary Detour Rate
+    // 5. Metric & Hard Failure: Unauthorized Detour Rate (must be 0; detours without confirmed diagnosis are hard failures)
     const performedDetour = invokedSet.has('path_insert_detour');
     const detourExpected = scenario.expectedTools.includes('path_insert_detour');
-    const unnecessaryDetour = performedDetour && !detourExpected;
-    metrics.push(createMetric('unnecessary_detour_rate', unnecessaryDetour ? 1.0 : 0.0, { op: 'lte', value: 0.0 }));
-
+    const unauthorizedDetour = performedDetour && !detourExpected;
+    if (unauthorizedDetour) {
+      hardFailures.push({
+        rule: 'UNAUTHORIZED_DETOUR',
+        message: `Unauthorized detour executed without confirmed diagnosis in scenario '${scenario.id}'.`,
+        details: { scenarioId: scenario.id, invokedTools: execution.invokedTools },
+      });
+    }
+    metrics.push(createMetric('unauthorized_detour_rate', unauthorizedDetour ? 1.0 : 0.0, { op: 'lte', value: 0.0 }));
+    metrics.push(createMetric('unnecessary_detour_rate', unauthorizedDetour ? 1.0 : 0.0, { op: 'lte', value: 0.0 }));
     // 6. Metric: Chat Dump Rate (long explanation without patch when patch was requested)
     const patchExpected = scenario.expectedTools.includes('lesson_patch');
     const performedPatch = invokedSet.has('lesson_patch');

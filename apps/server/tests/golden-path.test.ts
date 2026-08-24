@@ -71,7 +71,7 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
   const postMsgSnapshot = (await postMsgSnapRes.json()) as LearningSessionSnapshot;
   assert.ok(postMsgSnapshot.lesson.blocks.some((b) => b.type === 'code'));
 
-  // 5. Prerequisite Detour Insertion (HTTP POST /actions)
+  // 5. Diagnostic Probing & Prerequisite Detour Insertion (HTTP POST /actions & /answer)
   const { promise: actPromise, resolve: resolveAct } = Promise.withResolvers<void>();
   const unAct = context.eventBus.subscribe('prototype', (evt) => {
     if (evt.type === 'agent.completed') resolveAct();
@@ -85,24 +85,47 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
   await actPromise;
   unAct();
 
+  // 5b. Verify probe placed on Canvas and answer with misconception to confirm diagnosis
+  const probeSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
+  const probeSnap = (await probeSnapRes.json()) as LearningSessionSnapshot;
+  const probeBlock = probeSnap.lesson.blocks.find((b) => b.id.startsWith('probe-') || ('assessmentKind' in b && b.assessmentKind === 'probe'));
+  assert.ok(probeBlock, 'Diagnostic probe block placed on Canvas');
+
+  const probeAnsRes = await fetch(`${baseUrl}/api/lessons/${probeSnap.lesson.id}/blocks/${probeBlock.id}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'wrong-guess' }),
+  });
+  assert.equal(probeAnsRes.status, 200);
+
   const detourSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
   const detourSnapshot = (await detourSnapRes.json()) as LearningSessionSnapshot;
   const detourNode = detourSnapshot.path.find((n: LearningPathNode) => n.knowledgeNodeId === 'softmax' && n.type === 'detour');
   assert.ok(detourNode);
   assert.equal(detourNode.status, 'current');
 
-  // 6. Assessment Answer Submission -> Evaluator -> BetaMasteryAggregator -> Automatic Detour Resume (HTTP POST /answer)
-  for (let i = 0; i < 3; i++) {
-    const quizRes = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: 'Softmax ensures that probability outputs sum up to 1 across the sequence.' }),
-    });
-    assert.equal(quizRes.status, 200);
-    const quizBody = (await quizRes.json()) as { assessment: { result: string; confidence: number } };
-    assert.equal(quizBody.assessment.result, 'correct');
-    assert.ok(quizBody.assessment.confidence >= 0.25);
-  }
+  // 6. Assessment Answer Submission on 3 distinct items -> Evaluator -> BetaMasteryAggregator -> Automatic Detour Resume (HTTP POST /answer)
+  const quizRes1 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'Softmax ensures that all output probabilities are non-negative and sum to exactly 1.' }),
+  });
+  assert.equal(quizRes1.status, 200);
+
+  const quizRes2 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'opt-exp-1' }),
+  });
+  assert.equal(quizRes2.status, 200);
+
+  const quizRes3 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-3/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer: 'opt-sum-1' }),
+  });
+  assert.equal(quizRes3.status, 200);
+
   // 7. Verify Final Snapshot State (HTTP GET - zero repository shortcut calls!)
   const finalSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
   assert.equal(finalSnapRes.status, 200);

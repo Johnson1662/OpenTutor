@@ -87,7 +87,7 @@ test('packages/agent-runtime - OpenTutor Pi Extension & Tool Registration', asyn
 
   const executor = new DomainToolsExecutor(mockServices as any);
 
-  await t.test('1. Extension registers exact 10 tools from TUTOR_TOOL_DEFINITIONS', () => {
+  await t.test('1. Extension registers exact 11 tools from TUTOR_TOOL_DEFINITIONS', () => {
     const registeredTools = new Map<string, any>();
     const registeredHandlers = new Map<string, Function[]>();
 
@@ -109,7 +109,7 @@ test('packages/agent-runtime - OpenTutor Pi Extension & Tool Registration', asyn
 
     extensionFactory(fakePi);
 
-    assert.equal(registeredTools.size, 10);
+    assert.equal(registeredTools.size, 11);
     assert.equal(registeredTools.size, TUTOR_TOOL_DEFINITIONS.length);
 
     for (const def of TUTOR_TOOL_DEFINITIONS) {

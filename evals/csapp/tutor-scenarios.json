@@ -17,11 +17,11 @@
   },
   {
     "id": "csapp-tutor-missing-vm",
-    "userMessage": "I don't understand how TLB works because I don't know what Virtual Memory is. Can we cover Virtual Memory first?",
+    "userMessage": "I don't understand how TLB works because I don't know what Virtual Memory is and I'm struggling with the concept.",
     "contextTopic": "tlb",
-    "expectedTools": ["path_insert_detour", "knowledge_search"],
-    "forbiddenTools": ["path_advance"],
-    "expectedIntent": "INSERT_DETOUR"
+    "expectedTools": ["knowledge_search"],
+    "forbiddenTools": ["path_insert_detour", "path_advance"],
+    "expectedIntent": "PROBE_REQUEST"
   },
   {
     "id": "csapp-tutor-advance-concurrency",

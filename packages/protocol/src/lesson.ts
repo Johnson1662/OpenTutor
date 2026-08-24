@@ -48,6 +48,9 @@ export interface QuizBlock extends BaseLessonBlock {
   options?: { id: string; text: string }[];
   answerSpec?: QuizAnswerSpec;
   difficulty?: number | 'easy' | 'medium' | 'hard';
+  assessmentKind?: 'lesson_quiz' | 'probe';
+  targetKnowledgeNodeId?: string;
+  candidateMisconceptionIds?: string[];
 }
 
 export type LessonBlock = TextBlock | CodeBlock | DiagramBlock | QuizBlock;

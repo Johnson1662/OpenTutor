@@ -59,7 +59,7 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     assert.ok(snapshot.lesson.blocks.some((b) => b.id.startsWith('simple-')));
   });
 
-  await t.test('3. POST /api/sessions/prototype/actions (softmax_unknown) inserts detour path', async () => {
+  await t.test('3. POST /api/sessions/prototype/actions (softmax_unknown) generates diagnostic probe & detour on failed probe', async () => {
     const { promise: completedPromise, resolve: resolveCompleted } = Promise.withResolvers<void>();
     const unsubscribe = context.eventBus.subscribe('prototype', (evt) => {
       if (evt.type === 'agent.completed') {
@@ -78,17 +78,31 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     await completedPromise;
     unsubscribe();
 
-    const snapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
-    const snapshot = (await snapRes.json()) as LearningSessionSnapshot;
-    assert.equal(snapshot.pathVersion, 2);
-    assert.ok(snapshot.path.some((n) => n.type === 'detour' && n.knowledgeNodeId === 'softmax'));
-  });
+    // 1. Verify diagnostic probe was placed on Canvas
+    const snapRes1 = await fetch(`${baseUrl}/api/sessions/prototype`);
+    const snap1 = (await snapRes1.json()) as LearningSessionSnapshot;
+    const probeBlock = snap1.lesson.blocks.find((b) => b.id.startsWith('probe-') || ('assessmentKind' in b && b.assessmentKind === 'probe'));
+    assert.ok(probeBlock, 'Diagnostic probe block must be placed on Lesson Canvas');
 
-  await t.test('4. POST /api/lessons/:id/blocks/:id/answer evaluates diagnostic quiz', async () => {
-    const res = await fetch(`${baseUrl}/api/lessons/lesson-self-attention/blocks/quiz/answer`, {
+    // 2. Student submits incorrect/misconception answer to probe
+    const answerRes = await fetch(`${baseUrl}/api/lessons/${snap1.lesson.id}/blocks/${probeBlock.id}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: 'Because tokens need context from surrounding tokens.' }),
+      body: JSON.stringify({ answer: 'wrong-guess' }),
+    });
+    assert.equal(answerRes.status, 200);
+
+    // 3. Verify confirmed diagnosis caused automatic detour insertion
+    const snapRes2 = await fetch(`${baseUrl}/api/sessions/prototype`);
+    const snap2 = (await snapRes2.json()) as LearningSessionSnapshot;
+    assert.ok(snap2.pathVersion >= 2);
+    assert.ok(snap2.path.some((n) => n.type === 'detour' && n.knowledgeNodeId === 'softmax'));
+  });
+  await t.test('4. POST /api/lessons/:id/blocks/:id/answer evaluates diagnostic quiz', async () => {
+    const res = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: 'Softmax ensures that all output probabilities are non-negative and sum to exactly 1.' }),
     });
 
     assert.equal(res.status, 200);

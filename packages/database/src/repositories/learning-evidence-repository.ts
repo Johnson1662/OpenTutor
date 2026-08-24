@@ -137,4 +137,16 @@ export class LearningEvidenceRepository {
 
     return result?.count ?? 0;
   }
+
+  countDistinctItems(userId: string, nodeId: string): number {
+    const result = this.db
+      .prepare(`
+        SELECT COUNT(DISTINCT source_item_id) as count
+        FROM learning_evidence
+        WHERE user_id = ? AND knowledge_node_id = ? AND source_item_id IS NOT NULL
+      `)
+      .get(userId, nodeId) as { count: number } | undefined;
+
+    return result?.count ?? 0;
+  }
 }

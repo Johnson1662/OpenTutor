@@ -217,13 +217,15 @@ export class TutorAgent {
       lower.includes('gap')
     ) {
       const detourRes = await this.toolsExecutor.executeTool(sessionId, 'path_insert_detour', {
+        nodeId: 'softmax',
+        diagnosisId: 'diag-confirmed-softmax',
         detourKnowledgeNodeId: 'softmax',
         detourTitle: 'Detour: Softmax Normalization',
         note: 'Diagnosed prerequisite gap from query',
       });
       executedToolCalls.push({
         tool: 'path_insert_detour',
-        args: { detourKnowledgeNodeId: 'softmax' },
+        args: { nodeId: 'softmax', diagnosisId: 'diag-confirmed-softmax' },
         result: detourRes,
       });
       reply =

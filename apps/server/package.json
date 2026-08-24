@@ -18,7 +18,8 @@
     "@opentutor/knowledge-core": "workspace:*",
     "@opentutor/course-core": "workspace:*",
     "@opentutor/lesson-core": "workspace:*",
-    "@opentutor/assessment-core": "workspace:*"
+    "@opentutor/assessment-core": "workspace:*",
+    "@opentutor/learning-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

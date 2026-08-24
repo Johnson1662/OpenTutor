@@ -1,7 +1,7 @@
 import type { LearningPathNode, LearningPathPatch } from './learning.ts';
 import type { Lesson } from './lesson.ts';
 import type { LessonPatch } from './patch.ts';
-
+import type { LearningDiagnosis } from './knowledge.ts';
 export type TutorAction = 'simpler' | 'show_code' | 'visualize' | 'softmax_unknown';
 
 export interface AssessmentResult {
@@ -26,6 +26,7 @@ export type LearningEventType =
   | 'path.patch'
   | 'assessment.completed'
   | 'knowledge.updated'
+  | 'diagnosis.updated'
   | 'error';
 
 export interface LearningEvent<T = unknown> {
@@ -97,6 +98,10 @@ export interface KnowledgeUpdatedEventData {
   knowledgeNodeId: string;
   status: 'unknown' | 'learning' | 'weak' | 'mastered';
   confidence: number;
+}
+
+export interface DiagnosisUpdatedEventData {
+  diagnosis: LearningDiagnosis;
 }
 
 export interface LearningSessionSnapshot {

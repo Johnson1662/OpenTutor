@@ -36,6 +36,23 @@ describe('AssessmentService validation & evaluation', () => {
           correctOptionId: 'opt-4',
         },
       },
+      {
+        id: 'quiz-probe-1',
+        type: 'quiz',
+        question: 'What is a prerequisite concept?',
+        answerType: 'single_choice',
+        targetKnowledgeNodeId: 'prereq-node-1',
+        assessmentKind: 'probe',
+        candidateMisconceptionIds: ['misc-prereq-1'],
+        options: [
+          { id: 'opt-a', text: 'Answer A' },
+          { id: 'opt-b', text: 'Answer B' },
+        ],
+        answerSpec: {
+          type: 'single_choice',
+          correctOptionId: 'opt-a',
+        },
+      },
     ],
   };
 
@@ -50,11 +67,11 @@ describe('AssessmentService validation & evaluation', () => {
     sessionId: string;
     assessment: { knowledgeNodeId: string; result: string; confidence: number };
     userId: string;
-    options?: { difficulty?: unknown; confidence?: number; sourceItemId?: string };
+    options?: { difficulty?: unknown; confidence?: number; sourceItemId?: string; type?: string; candidateMisconceptionIds?: string[] };
   }
   const recordedAssessments: RecordedEntry[] = [];
   const mockKnowledgeService: KnowledgeService = {
-    recordAssessment(sessionId: string, assessment: { knowledgeNodeId: string; result: 'correct' | 'partial' | 'incorrect'; confidence: number }, userId: string, options?: { difficulty?: unknown; confidence?: number; sourceItemId?: string }) {
+    recordAssessment(sessionId: string, assessment: { knowledgeNodeId: string; result: 'correct' | 'partial' | 'incorrect'; confidence: number }, userId: string, options?: { difficulty?: unknown; confidence?: number; sourceItemId?: string; type?: any; candidateMisconceptionIds?: string[] }) {
       recordedAssessments.push({ sessionId, assessment, userId, options });
       return {
         userId,
@@ -157,5 +174,52 @@ describe('AssessmentService validation & evaluation', () => {
     assert.equal(recordedAssessments.length, 1);
     assert.equal(recordedAssessments[0]?.options?.sourceItemId, 'quiz-block-1');
     assert.equal(recordedAssessments[0]?.options?.confidence, 1.0);
+  });
+
+  it('routes assessment and evidence to targetKnowledgeNodeId when specified on quiz probe block', () => {
+    recordedAssessments.length = 0;
+    const { assessment } = service.submitAnswer({
+      sessionId: 's-1',
+      lessonId: 'lesson-test',
+      blockId: 'quiz-probe-1',
+      answer: 'opt-a',
+    });
+
+    assert.equal(assessment.knowledgeNodeId, 'prereq-node-1');
+    assert.equal(assessment.result, 'correct');
+    assert.equal(recordedAssessments.length, 1);
+    assert.equal(recordedAssessments[0]?.assessment.knowledgeNodeId, 'prereq-node-1');
+    assert.equal(recordedAssessments[0]?.options?.sourceItemId, 'quiz-probe-1');
+    assert.equal(recordedAssessments[0]?.options?.type, 'probe');
+    assert.deepEqual(recordedAssessments[0]?.options?.candidateMisconceptionIds, ['misc-prereq-1']);
+  });
+
+  it('ensures zero mutation when BLOCK_NOT_FOUND or BLOCK_NOT_ASSESSABLE occurs', () => {
+    recordedAssessments.length = 0;
+    assert.throws(
+      () => {
+        service.submitAnswer({
+          sessionId: 's-1',
+          lessonId: 'lesson-test',
+          blockId: 'non-existent',
+          answer: 'any',
+        });
+      },
+      { message: 'BLOCK_NOT_FOUND' }
+    );
+    assert.equal(recordedAssessments.length, 0, 'No assessment should be recorded on BLOCK_NOT_FOUND');
+
+    assert.throws(
+      () => {
+        service.submitAnswer({
+          sessionId: 's-1',
+          lessonId: 'lesson-test',
+          blockId: 'block-text-1',
+          answer: 'any',
+        });
+      },
+      { message: 'BLOCK_NOT_ASSESSABLE' }
+    );
+    assert.equal(recordedAssessments.length, 0, 'No assessment should be recorded on BLOCK_NOT_ASSESSABLE');
   });
 });

@@ -10,12 +10,13 @@ import type { Lesson, LearningPathNode } from '@opentutor/protocol';
 
 test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
   await t.test('1. Tool definitions and metadata integrity', () => {
-    assert.equal(TUTOR_TOOL_DEFINITIONS.length, 10);
-    assert.equal(TUTOR_TOOL_NAMES.size, 10);
+    assert.equal(TUTOR_TOOL_DEFINITIONS.length, 11);
+    assert.equal(TUTOR_TOOL_NAMES.size, 11);
 
     const expectedNames = [
       'lesson_get',
       'lesson_patch',
+      'probe_request',
       'path_get',
       'path_insert_detour',
       'path_advance',
@@ -45,6 +46,12 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
     assert.equal(lessonGetDef.retrieval, false);
     assert.equal(lessonGetDef.retrievalCost, 0);
     assert.equal(lessonGetDef.mutation, false);
+
+    const probeRequestDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'probe_request')!;
+    assert.equal(probeRequestDef.category, 'lesson');
+    assert.equal(probeRequestDef.retrieval, false);
+    assert.equal(probeRequestDef.retrievalCost, 0);
+    assert.equal(probeRequestDef.mutation, true);
 
     const pathGetDef = TUTOR_TOOL_DEFINITIONS.find((d) => d.name === 'path_get')!;
     assert.equal(pathGetDef.category, 'path');
@@ -215,8 +222,7 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       assert.equal(invalidPatch.error.code, 'INVALID_ARGUMENT');
     }
   });
-
-  await t.test('3. Successful execution across all 10 tools', async () => {
+  await t.test('3. Successful execution across all 11 tools', async () => {
     // 1. lesson_get with lessonId
     const l1 = await executor.executeTool('s1', 'lesson_get', { lessonId: 'lesson-1' });
     assert.equal(l1.success, true);
@@ -248,7 +254,20 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       assert.equal((patchRes.data as { newVersion: number }).newVersion, 2);
     }
 
-    // 3. path_get
+    // 3. probe_request
+    const probeRes = await executor.executeTool('s1', 'probe_request', {
+      prerequisiteNodeId: 'softmax',
+      reason: 'Check understanding of softmax normalization',
+    });
+    assert.equal(probeRes.success, true);
+    if (probeRes.success) {
+      const data = probeRes.data as { success: boolean; probeBlockId?: string; targetKnowledgeNodeId?: string };
+      assert.equal(data.success, true);
+      assert.equal(data.targetKnowledgeNodeId, 'softmax');
+      assert.ok(data.probeBlockId);
+    }
+
+    // 4. path_get
     const pathRes = await executor.executeTool('s1', 'path_get', {});
     assert.equal(pathRes.success, true);
     if (pathRes.success) {
@@ -257,8 +276,10 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       assert.equal(data.path.length, 2);
     }
 
-    // 4. path_insert_detour
+    // 5. path_insert_detour
     const detourRes = await executor.executeTool('s1', 'path_insert_detour', {
+      nodeId: 'softmax',
+      diagnosisId: 'diag-confirmed-1',
       detourKnowledgeNodeId: 'softmax',
       detourTitle: 'Softmax Review',
       note: 'Found gap in knowledge',
@@ -271,7 +292,7 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       assert.equal(data.path[0]?.status, 'current');
     }
 
-    // 5. path_advance
+    // 6. path_advance
     const advanceRes = await executor.executeTool('s1', 'path_advance', {});
     assert.equal(advanceRes.success, true);
     if (advanceRes.success) {
@@ -280,23 +301,23 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       assert.equal(data.path[0]?.status, 'completed');
     }
 
-    // 6. knowledge_search
+    // 7. knowledge_search
     const kSearchRes = await executor.executeTool('s1', 'knowledge_search', { query: 'attention', limit: 3 });
     assert.equal(kSearchRes.success, true);
 
-    // 7. artifact_read
+    // 8. artifact_read
     const artRes = await executor.executeTool('s1', 'artifact_read', { nodeId: 'attention-mechanisms' });
     assert.equal(artRes.success, true);
 
-    // 8. source_search
+    // 9. source_search
     const srcSearchRes = await executor.executeTool('s1', 'source_search', { query: 'attention', limit: 2 });
     assert.equal(srcSearchRes.success, true);
 
-    // 9. source_read
+    // 10. source_read
     const srcReadRes = await executor.executeTool('s1', 'source_read', { chunkId: 'c1' });
     assert.equal(srcReadRes.success, true);
 
-    // 10. graph_neighbors
+    // 11. graph_neighbors
     const graphRes = await executor.executeTool('s1', 'graph_neighbors', {
       nodeId: 'attention-mechanisms',
       direction: 'prerequisites',
@@ -304,7 +325,116 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
     assert.equal(graphRes.success, true);
   });
 
-  await t.test('4. Version conflict handling', async () => {
+  await t.test('4. Diagnosis authorization enforcement on path_insert_detour', async () => {
+    const mockDiagnosisRepo = {
+      getDiagnosis: (id: string) => {
+        if (id === 'diag-confirmed-softmax') {
+          return {
+            id: 'diag-confirmed-softmax',
+            status: 'confirmed',
+            knowledgeNodeId: 'softmax',
+          };
+        }
+        if (id === 'diag-suspected-softmax') {
+          return {
+            id: 'diag-suspected-softmax',
+            status: 'suspected',
+            knowledgeNodeId: 'softmax',
+          };
+        }
+        if (id === 'diag-confirmed-calculus') {
+          return {
+            id: 'diag-confirmed-calculus',
+            status: 'confirmed',
+            knowledgeNodeId: 'calculus',
+          };
+        }
+        return null;
+      },
+    };
+
+    const authExecutor = new DomainToolsExecutor({
+      ...mockServices,
+      diagnosisRepository: mockDiagnosisRepo,
+    });
+
+    // 1. Authorized detour succeeds
+    const validDetour = await authExecutor.executeTool('s1', 'path_insert_detour', {
+      nodeId: 'softmax',
+      diagnosisId: 'diag-confirmed-softmax',
+      detourTitle: 'Softmax Detour',
+    });
+    assert.equal(validDetour.success, true);
+
+    // 2. Missing diagnosisId is rejected
+    const missingDiag = await authExecutor.executeTool('s1', 'path_insert_detour', {
+      nodeId: 'softmax',
+    });
+    assert.equal(missingDiag.success, false);
+
+    // 3. Non-existent diagnosis is rejected with DETOUR_NOT_AUTHORIZED
+    const nonExistentDiag = await authExecutor.executeTool('s1', 'path_insert_detour', {
+      nodeId: 'softmax',
+      diagnosisId: 'non-existent-diag',
+    });
+    assert.equal(nonExistentDiag.success, false);
+    if (!nonExistentDiag.success) {
+      assert.equal(nonExistentDiag.error.code, 'DETOUR_NOT_AUTHORIZED');
+    }
+
+    // 4. Suspected (unconfirmed) diagnosis is rejected with DETOUR_NOT_AUTHORIZED
+    const suspectedDiag = await authExecutor.executeTool('s1', 'path_insert_detour', {
+      nodeId: 'softmax',
+      diagnosisId: 'diag-suspected-softmax',
+    });
+    assert.equal(suspectedDiag.success, false);
+    if (!suspectedDiag.success) {
+      assert.equal(suspectedDiag.error.code, 'DETOUR_NOT_AUTHORIZED');
+    }
+
+    // 5. Mismatched knowledge node is rejected with DETOUR_NOT_AUTHORIZED
+    const mismatchedDiag = await authExecutor.executeTool('s1', 'path_insert_detour', {
+      nodeId: 'softmax',
+      diagnosisId: 'diag-confirmed-calculus',
+    });
+    assert.equal(mismatchedDiag.success, false);
+    if (!mismatchedDiag.success) {
+      assert.equal(mismatchedDiag.error.code, 'DETOUR_NOT_AUTHORIZED');
+    }
+
+    // 6. Direct method executeProbeRequest
+    const directProbe = await authExecutor.executeProbeRequest({
+      prerequisiteNodeId: 'softmax',
+      reason: 'Testing direct method',
+    });
+    assert.equal(directProbe.success, true);
+    assert.equal(directProbe.targetKnowledgeNodeId, 'softmax');
+
+    // 7. Direct method executePathInsertDetour succeeds for authorized diagnosis
+    const directDetour = await authExecutor.executePathInsertDetour('s1', {
+      nodeId: 'softmax',
+      diagnosisId: 'diag-confirmed-softmax',
+    });
+    assert.equal(directDetour.success, true);
+    assert.equal(directDetour.pathVersion, 2);
+
+    // 8. Direct method executePathInsertDetour throws for unauthorized diagnosis
+    await assert.rejects(
+      async () => {
+        await authExecutor.executePathInsertDetour('s1', {
+          nodeId: 'softmax',
+          diagnosisId: 'diag-suspected-softmax',
+        });
+      },
+      (err: unknown) =>
+        typeof err === 'object' &&
+        err !== null &&
+        'code' in err &&
+        (err as { code: string }).code === 'DETOUR_NOT_AUTHORIZED'
+    );
+  });
+
+  await t.test('5. Version conflict handling', async () => {
     const conflictRes = await executor.executeTool('s1', 'lesson_patch', {
       lessonId: 'lesson-1',
       baseVersion: 99,
@@ -316,7 +446,7 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
     }
   });
 
-  await t.test('5. Not found & unavailable domain capabilities', async () => {
+  await t.test('6. Not found & unavailable domain capabilities', async () => {
     const notFoundArtifact = await executor.executeTool('s1', 'artifact_read', { nodeId: 'non-existent' });
     assert.equal(notFoundArtifact.success, false);
     if (!notFoundArtifact.success) {
@@ -335,7 +465,7 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
     }
   });
 
-  await t.test('6. Disallowed & unknown tools rejected', async () => {
+  await t.test('7. Disallowed & unknown tools rejected', async () => {
     const sessionGetRes = await executor.executeTool('s1', 'session_get', {});
     assert.equal(sessionGetRes.success, false);
     if (!sessionGetRes.success) {

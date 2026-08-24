@@ -13,6 +13,9 @@ import { migration010 } from './migrations/010_course_pipeline.ts';
 import { migration011 } from './migrations/011_course_sources.ts';
 import { migration012 } from './migrations/012_learning_session_frames.ts';
 import { migration013 } from './migrations/013_learning_evidence.ts';
+import { migration014 } from './migrations/014_learning_evidence_integrity.ts';
+import { migration015 } from './migrations/015_misconceptions_and_diagnoses.ts';
+import { migration016 } from './migrations/016_detour_diagnosis_link.ts';
 
 export const ALL_MIGRATIONS: Migration[] = [
   migration001,
@@ -28,7 +31,28 @@ export const ALL_MIGRATIONS: Migration[] = [
   migration011,
   migration012,
   migration013,
+  migration014,
+  migration015,
+  migration016,
 ];
+export {
+  migration001,
+  migration002,
+  migration003,
+  migration004,
+  migration005,
+  migration006,
+  migration007,
+  migration008,
+  migration009,
+  migration010,
+  migration011,
+  migration012,
+  migration013,
+  migration014,
+  migration015,
+  migration016,
+};
 
 export function runMigrations(db: Database, migrations: Migration[] = ALL_MIGRATIONS): number {
   db.exec(`

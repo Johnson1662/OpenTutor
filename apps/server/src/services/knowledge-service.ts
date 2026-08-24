@@ -84,12 +84,13 @@ export class KnowledgeService {
     options?: {
       difficulty?: number | 'easy' | 'medium' | 'hard';
       confidence?: number;
+      score?: number;
       sourceItemId?: string;
       type?: LearningEvidenceType;
       candidateMisconceptionIds?: string[];
       isPrerequisiteProbe?: boolean;
     }
-  ): UserKnowledgeStateV2 {
+  ): UserKnowledgeStateV2 & { evidence: LearningEvidence; diagnosis: LearningDiagnosis | null } {
     const now = new Date().toISOString();
     const rawDifficulty = options?.difficulty ?? 1.0;
     const diffWeight = this.aggregator.computeDifficultyWeight(rawDifficulty);
@@ -112,6 +113,7 @@ export class KnowledgeService {
       sourceItemId: options?.sourceItemId,
       attempt,
       outcome: assessment.result,
+      score: options?.score,
       difficulty: numericDifficulty,
       confidence,
       weight: effectiveWeight,
@@ -209,7 +211,10 @@ export class KnowledgeService {
       this.eventBus.publish(sessionId, 'diagnosis.updated', diagEvent);
     }
 
-    return updatedState;
+    return Object.assign(updatedState, {
+      evidence,
+      diagnosis: resultingDiagnosis,
+    });
   }
 
   searchKnowledge(query: string, limit: number = 5): KnowledgeSearchResultItem[] {

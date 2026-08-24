@@ -108,24 +108,57 @@ export class DiagnosticLearningCoordinator {
 
     const userId = params.userId ?? 'default-user';
     const activeLesson = snapshot.lesson;
-    const targetNodeId = params.prerequisiteNodeId ?? 'softmax';
 
-    // 1. Check prerequisite candidates / probe decision
+    // 1. Resolve candidate prerequisites dynamically from knowledge graph
+    let candidatePrereqs: string[] = [];
+    if (params.prerequisiteNodeId) {
+      candidatePrereqs = [params.prerequisiteNodeId];
+    } else {
+      const rows = this.db
+        .prepare("SELECT from_node_id FROM knowledge_edges WHERE to_node_id = ? AND relation_type = 'prerequisite' ORDER BY created_at ASC")
+        .all(activeLesson.knowledgeNodeId) as Array<{ from_node_id: string }>;
+      candidatePrereqs = rows.map((r) => r.from_node_id);
+      if (candidatePrereqs.length === 0) {
+        candidatePrereqs = [activeLesson.knowledgeNodeId];
+      }
+    }
+
+    // 2. Check prerequisite candidates / probe decision
     const probeDecision = this.probeService.decideProbe({
       activeNodeId: activeLesson.knowledgeNodeId,
-      prerequisiteNodeIds: [targetNodeId],
+      prerequisiteNodeIds: candidatePrereqs,
       getKnowledgeState: (nodeId) => this.knowledgeService.getUserKnowledgeState(userId, nodeId),
-      getMisconceptions: (nodeId) => this.misconceptionRepo?.getUserMisconceptions(userId) ?? [],
+      getMisconceptions: (nodeId) => this.misconceptionRepo?.getUserMisconceptionsForNode(userId, nodeId) ?? [],
     });
 
-    // 2. Generate structured diagnostic QuizBlock
+    if (!probeDecision.shouldProbe || !probeDecision.targetKnowledgeNodeId) {
+      return {
+        success: true,
+        message: 'PROBE_NOT_REQUIRED',
+      };
+    }
+
+    const targetNodeId = probeDecision.targetKnowledgeNodeId;
+    let nodeTitle: string | undefined;
+    let nodeDescription: string | undefined;
+    try {
+      const nodeRow = this.db
+        .prepare('SELECT title, description FROM knowledge_nodes WHERE id = ?')
+        .get(targetNodeId) as { title: string; description: string } | undefined;
+      nodeTitle = nodeRow?.title;
+      nodeDescription = nodeRow?.description;
+    } catch {}
+
+    // 3. Generate structured diagnostic QuizBlock grounded in Living Knowledge
     const probeBlock = await this.probeGenerator.generateProbe({
-      targetKnowledgeNodeId: probeDecision.targetKnowledgeNodeId ?? targetNodeId,
+      targetKnowledgeNodeId: targetNodeId,
       probeType: probeDecision.probeType ?? 'concept',
       candidateMisconceptionIds: probeDecision.candidateMisconceptionIds,
+      nodeTitle,
+      nodeDescription,
     });
 
-    // 3. Patch the active lesson Canvas with the probe block
+    // 4. Patch the active lesson Canvas with the probe block
     const patchResult = this.lessonService.applyPatches(
       params.sessionId,
       activeLesson.id,
@@ -167,31 +200,16 @@ export class DiagnosticLearningCoordinator {
       throw new Error('BLOCK_NOT_ASSESSABLE');
     }
 
-    // 1. Execute assessment evaluation and learning transaction
-    const { assessment } = this.assessmentService.submitAnswer(input);
+    // 1. Execute assessment evaluation and learning transaction (Single Authority)
+    const result = this.assessmentService.submitAnswer(input);
+    const assessment = result.assessment;
+    const diagnosis = result.diagnosis ?? null;
 
-    let diagnosis: LearningDiagnosis | null = null;
     let replanAction: 'continue' | 'insert_detour' | 'review' = 'continue';
     let detourInserted = false;
     let detourResumed = false;
 
-    // 2. If block is a probe or has candidate misconceptions, evaluate diagnosis
-    const isProbe = block.assessmentKind === 'probe';
-    if (isProbe) {
-      diagnosis = this.diagnosisService.evaluateProbeResult({
-        sessionId: input.sessionId,
-        userId,
-        probeBlock: block,
-        assessmentResult: assessment,
-      });
-
-      if (diagnosis && this.diagnosisRepo) {
-        this.diagnosisRepo.createDiagnosis(diagnosis);
-        this.eventBus.publish(input.sessionId, 'diagnosis.updated', { diagnosis });
-      }
-    }
-
-    // 3. Check for automatic replan / detour authorization
+    // 2. Check for automatic replan / detour authorization
     const activeDiagnoses = this.diagnosisRepo?.listDiagnosesBySession(input.sessionId) ?? (diagnosis ? [diagnosis] : []);
     const replanDecision = this.replanPolicy.evaluateReplan({
       sessionId: input.sessionId,
@@ -214,12 +232,14 @@ export class DiagnosticLearningCoordinator {
             knowledgeNodeId: replanDecision.targetNodeId,
             title: detourTitle,
             note: replanDecision.reason,
+          },
+          {
+            diagnosisId: replanDecision.diagnosisId,
           }
         );
         detourInserted = true;
       }
     }
-
     // 4. Check if current active detour is mastered and can be resumed
     const updatedSnapshot = this.sessionService.getSnapshot(input.sessionId);
     // 4. If target knowledge node is mastered, resolve any active confirmed diagnoses for it

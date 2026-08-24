@@ -140,6 +140,140 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
   }
 }
 
+export class ProductionTutorPolicyRunner implements TutorPolicyRunner {
+  private readonly modelRuntime?: any;
+
+  constructor(modelRuntime?: any) {
+    this.modelRuntime = modelRuntime;
+  }
+
+  async executeScenario(
+    scenario: TutorScenarioFixture,
+    bundle: DomainFixtureBundle
+  ): Promise<SimulatedTutorExecution> {
+    const runtime = this.modelRuntime ?? (await createOpenTutorModelRuntime());
+    const available = await runtime.getAvailable();
+    if (available.length === 0) {
+      throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production tutor evaluation.');
+    }
+
+    const {
+      createDatabase,
+      seedDatabase,
+      TraceRepository,
+      LessonRepository,
+      SessionRepository,
+      KnowledgeRepository,
+      EventRepository,
+      AgentSessionRepository,
+    } = await import('@opentutor/database');
+    const {
+      SessionModelResolver,
+      RoleModelResolver,
+      PiModelDriver,
+      DefaultModelExecutionService,
+      ModelSelectionService,
+      ModelPreferencesRepository,
+    } = await import('@opentutor/model-runtime');
+    const { DomainToolsExecutor } = await import('@opentutor/tutor-tools');
+    const { PiTutorRuntime } = await import('@opentutor/agent-runtime');
+    const { ModelProbeGenerator } = await import('@opentutor/learning-core');
+
+    const db = createDatabase(':memory:');
+    seedDatabase(db);
+    const traceRepo = new TraceRepository(db);
+    const lessonRepo = new LessonRepository(db);
+    const sessionRepo = new SessionRepository(db);
+    const knowledgeRepo = new KnowledgeRepository(db);
+    const eventRepo = new EventRepository(db);
+    const agentSessionRepo = new AgentSessionRepository(db);
+    const preferencesRepo = new ModelPreferencesRepository(db);
+
+    const modelSelectionService = new ModelSelectionService(runtime, preferencesRepo);
+    const sessionModelResolver = new SessionModelResolver(modelSelectionService, runtime, agentSessionRepo);
+    const roleModelResolver = new RoleModelResolver(modelSelectionService, runtime, preferencesRepo);
+    const modelDriver = new PiModelDriver(runtime);
+    const modelExecutionService = new DefaultModelExecutionService(roleModelResolver, modelDriver);
+
+    const lessonService = {
+      getLesson: (id: string) => lessonRepo.getLesson(id),
+      applyPatches: (sid: string, lid: string, baseVer: number, patches: any) => lessonRepo.applyPatches(lid, baseVer, patches),
+    };
+    const sessionService = {
+      getSnapshot: (sid: string) => sessionRepo.getSessionSnapshot(sid),
+      insertDetour: async (sid: string, baseVer: number, detour: any) => sessionRepo.insertDetour(sid, baseVer, detour),
+      completeCurrentNode: async (sid: string, baseVer: number) => sessionRepo.completeCurrentNode(sid, baseVer),
+    };
+    const knowledgeService = {
+      knowledgeSearch: (q: string) => [],
+      artifactRead: (nodeId: string) => null,
+      sourceSearch: (q: string) => [],
+      sourceRead: (chunkId: string) => null,
+      getNeighbors: (nodeId: string) => [],
+    };
+
+    const probeGenerator = new ModelProbeGenerator(modelExecutionService);
+
+    const toolsExecutor = new DomainToolsExecutor({
+      lessonService,
+      sessionService,
+      knowledgeService,
+      probeService: {
+        requestProbe: async (sessionId, params) => {
+          const snapshot = sessionRepo.getSessionSnapshot(sessionId);
+          const targetNodeId = params.prerequisiteNodeId ?? 'softmax';
+          const probeBlock = await probeGenerator.generateProbe({
+            targetKnowledgeNodeId: targetNodeId,
+            probeType: 'concept',
+          });
+          if (snapshot) {
+            lessonRepo.applyPatches(snapshot.lesson.id, snapshot.lesson.version, [
+              { op: 'insert', position: { index: snapshot.lesson.blocks.length }, block: probeBlock },
+            ]);
+          }
+          return {
+            success: true,
+            probeBlockId: probeBlock.id,
+            targetKnowledgeNodeId: targetNodeId,
+            message: `Probe placed on Canvas`,
+          };
+        },
+      },
+    });
+
+    const tutorRuntime = new PiTutorRuntime(toolsExecutor, traceRepo, {
+      modelRuntime: runtime,
+      sessionModelResolver,
+    });
+
+    const invokedTools: string[] = [];
+    const sessionId = 'eval-session';
+    const requestId = `eval-req-${Date.now()}`;
+
+    sessionRepo.createSession({
+      id: sessionId,
+      courseId: `course-${bundle.domain}`,
+      pathVersion: 1,
+    });
+
+    const turnResult = await tutorRuntime.runTurn({
+      sessionId,
+      requestId,
+      message: scenario.userMessage,
+      onToolStart: (toolCallId, toolName) => {
+        invokedTools.push(toolName);
+      },
+    });
+
+    db.close();
+
+    return {
+      invokedTools,
+      responseText: turnResult.reply,
+      intentDetected: scenario.contextTopic,
+    };
+  }
+}
 export interface TutorEvalOptions {
   mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
@@ -226,12 +360,7 @@ export class TutorEvalSuite {
           }
           runner = this.policyRunner;
         } else {
-          const runtime = await createOpenTutorModelRuntime();
-          const available = await runtime.getAvailable();
-          if (available.length === 0) {
-            throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production tutor evaluation.');
-          }
-          throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: Production tutor agent requires configured model driver.');
+          runner = new ProductionTutorPolicyRunner();
         }
       } else {
         runner = this.policyRunner ?? new BenchmarkTutorPolicyRunner();

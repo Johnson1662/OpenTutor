@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AssessmentResult } from '@opentutor/protocol';
+import type { AssessmentResult, LearningDiagnosis, LearningEvidence, UserKnowledgeState } from '@opentutor/protocol';
 import { AssessmentEvaluator } from '@opentutor/assessment-core';
 import type { LessonService } from './lesson-service.ts';
 import type { KnowledgeService } from './knowledge-service.ts';
@@ -30,7 +30,7 @@ export class AssessmentService {
     this.evaluator = new AssessmentEvaluator();
   }
 
-  submitAnswer(input: SubmitAnswerInput): { assessment: AssessmentResult } {
+  submitAnswer(input: SubmitAnswerInput): { assessment: AssessmentResult; state?: UserKnowledgeState; evidence?: LearningEvidence; diagnosis?: LearningDiagnosis | null } {
     const lesson = this.lessonService.getLesson(input.lessonId);
     if (!lesson) {
       throw new Error(`Lesson ${input.lessonId} not found`);
@@ -154,6 +154,11 @@ export class AssessmentService {
     );
 
     this.progressService.onKnowledgeStateUpdated(input.sessionId, updatedState);
-    return { assessment };
+    return {
+      assessment,
+      state: updatedState,
+      evidence: updatedState.evidence,
+      diagnosis: updatedState.diagnosis,
+    };
   }
 }

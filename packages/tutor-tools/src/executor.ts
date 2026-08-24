@@ -35,7 +35,8 @@ export interface SessionServiceLike {
   insertDetour?(
     sessionId: string,
     baseVersion: number,
-    detour: { id: string; knowledgeNodeId: string; title: string; note?: string }
+    detour: { id: string; knowledgeNodeId: string; title: string; note?: string },
+    options?: { activeLessonId?: string; diagnosisId?: string }
   ): { path: LearningPathNode[]; newVersion: number } | Promise<{ path: LearningPathNode[]; newVersion: number }>;
   completeCurrentNode?(
     sessionId: string,
@@ -200,12 +201,19 @@ export class DomainToolsExecutor {
 
     const baseVersion = snapshot.pathVersion;
     const detourId = `detour-${targetNodeId}-${Date.now()}`;
-    const result = await this.services.sessionService.insertDetour(sessionId, baseVersion, {
-      id: detourId,
-      knowledgeNodeId: targetNodeId,
-      title: params.detourTitle || `Detour: ${targetNodeId}`,
-      note: params.note,
-    });
+    const result = await this.services.sessionService.insertDetour(
+      sessionId,
+      baseVersion,
+      {
+        id: detourId,
+        knowledgeNodeId: targetNodeId,
+        title: params.detourTitle || `Detour: ${targetNodeId}`,
+        note: params.note,
+      },
+      {
+        diagnosisId: params.diagnosisId,
+      }
+    );
 
     return {
       success: true,

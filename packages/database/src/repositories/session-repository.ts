@@ -484,6 +484,7 @@ export class SessionRepository {
     id?: string;
     parentPathNodeId: string;
     savedLessonId: string;
+    diagnosisId?: string | null;
    };
   }
  ): { path: LearningPathNode[]; newVersion: number; patches: LearningPathPatch[] } {
@@ -544,6 +545,7 @@ export class SessionRepository {
      detourPathNodeId: detourNode.id,
      parentPathNodeId: options.frame.parentPathNodeId,
      savedLessonId: options.frame.savedLessonId,
+     diagnosisId: options.frame.diagnosisId,
      depth,
     });
    }

@@ -3,23 +3,22 @@ import assert from 'node:assert/strict';
 import { createServerContext } from '../src/index.ts';
 import type { LearningPathNode, LearningSessionSnapshot, QuizBlock } from '@opentutor/protocol';
 
-test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc + Restart Durability', async (t) => {
+test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc + Real Restart Durability', async (t) => {
   process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
-  const dbPath = ':memory:';
-  let ctx = await createServerContext(dbPath);
+  const fs = await import('node:fs');
+  const { randomUUID } = await import('node:crypto');
+  const dbPath = `golden-path-${randomUUID().slice(0, 8)}.sqlite`;
 
-  const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
-  ctx.server.listen(0, '127.0.0.1', () => resolveListen());
-  await listenPromise;
+  try {
+    let ctx = await createServerContext(dbPath);
 
-  let address = ctx.server.address();
-  let port = typeof address === 'object' && address ? address.port : 8787;
-  let baseUrl = `http://127.0.0.1:${port}`;
+    const { promise: listenPromise, resolve: resolveListen } = Promise.withResolvers<void>();
+    ctx.server.listen(0, '127.0.0.1', () => resolveListen());
+    await listenPromise;
 
-  t.after(async () => {
-    await ctx.close();
-  });
-
+    let address = ctx.server.address();
+    let port = typeof address === 'object' && address ? address.port : 8787;
+    let baseUrl = `http://127.0.0.1:${port}`;
   const sessionId = 'prototype';
 
   // 1. Initial State: Self Attention Lesson active, Softmax mastery unknown
@@ -150,17 +149,46 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   assert.equal(restoredMainNode?.status, 'current', 'Self Attention main track node must be restored to current');
   assert.equal(resumedSnap.lesson.id, initialSnap.lesson.id, 'Canvas must restore original Self Attention lesson');
 
-  // 11. Durability & State Consistency: Verify state survives restart
-  const snapBeforeRestart = resumedSnap;
-  const softmaxState = ctx.context.knowledgeService?.getUserKnowledgeState('default-user', 'softmax');
-  assert.ok(softmaxState);
-  assert.equal(softmaxState.status, 'mastered');
-  assert.ok((softmaxState.effectiveEvidenceCount ?? 0) >= 3);
-  assert.ok((softmaxState.distinctSourceItemCount ?? 0) >= 2);
+    // 11. True Server Restart: Close server & SQLite connection, then reopen with a new ServerContext on same DB
+    await ctx.close();
 
-  // Verify diagnosis is resolved
-  const diagnoses = ctx.diagnosisRepo?.listDiagnosesBySession(sessionId) ?? [];
-  const softmaxDiag = diagnoses.find((d: any) => d.knowledgeNodeId === 'softmax');
-  assert.ok(softmaxDiag, 'Confirmed diagnosis must have been created and persisted for Softmax');
-  assert.equal(softmaxDiag.status, 'resolved', 'Diagnosis must be marked resolved upon detour mastery');
+    const restartedCtx = await createServerContext(dbPath);
+    const { promise: restartListenPromise, resolve: resolveRestartListen } = Promise.withResolvers<void>();
+    restartedCtx.server.listen(0, '127.0.0.1', () => resolveRestartListen());
+    await restartListenPromise;
+
+    const restartAddress = restartedCtx.server.address();
+    const restartPort = typeof restartAddress === 'object' && restartAddress ? restartAddress.port : 8787;
+    const restartBaseUrl = `http://127.0.0.1:${restartPort}`;
+
+    // 12. Verify all persistent state intact after restart via HTTP API
+    const postRestartSnapRes = await fetch(`${restartBaseUrl}/api/sessions/${sessionId}`);
+    assert.equal(postRestartSnapRes.status, 200);
+    const postRestartSnap = (await postRestartSnapRes.json()) as LearningSessionSnapshot;
+
+    const postRestartDetour = postRestartSnap.path.find((n) => n.knowledgeNodeId === 'softmax');
+    const postRestartMain = postRestartSnap.path.find((n) => n.id === initialActiveNode.id);
+
+    assert.equal(postRestartDetour?.status, 'completed', 'Completed detour status must survive server restart');
+    assert.equal(postRestartMain?.status, 'current', 'Current main node must survive server restart');
+    assert.equal(postRestartSnap.lesson.id, initialSnap.lesson.id, 'Resumed lesson ID must survive server restart');
+
+    const softmaxState = restartedCtx.context.knowledgeService?.getUserKnowledgeState('default-user', 'softmax');
+    assert.ok(softmaxState);
+    assert.equal(softmaxState.status, 'mastered');
+    assert.ok((softmaxState.effectiveEvidenceCount ?? 0) >= 3);
+    assert.ok((softmaxState.distinctSourceItemCount ?? 0) >= 2);
+
+    // Verify diagnosis resolution survived restart
+    const diagnoses = restartedCtx.diagnosisRepo?.listDiagnosesBySession(sessionId) ?? [];
+    const softmaxDiag = diagnoses.find((d: any) => d.knowledgeNodeId === 'softmax');
+    assert.ok(softmaxDiag, 'Confirmed diagnosis must have survived restart for Softmax');
+    assert.equal(softmaxDiag.status, 'resolved', 'Resolved diagnosis status must survive server restart');
+
+    await restartedCtx.close();
+  } finally {
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath);
+    }
+  }
 });

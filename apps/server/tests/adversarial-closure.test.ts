@@ -380,10 +380,17 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
   });
 
   await t.test('N. production eval -> cannot instantiate Benchmark* oracle adapters', async () => {
-    // In production eval runner, Benchmark adapters must not be used
-    const evalModule = await import('../../../packages/evaluation/src/index.ts');
-    assert.ok(evalModule.KnowledgeEvalSuite);
-    assert.ok(evalModule.LearnerEvalSuite);
+    // In production eval runner, Benchmark adapters are strictly prohibited
+    const { TutorEvalSuite, BenchmarkTutorPolicyRunner, loadAllDomainBundles } = await import('../../../packages/evaluation/src/index.ts');
+    const bundles = loadAllDomainBundles();
+    const transformerBundle = bundles['transformer']!;
+    const suite = new TutorEvalSuite({
+      mode: 'production',
+      policyRunner: new BenchmarkTutorPolicyRunner(),
+    });
+    const result = await suite.evaluateScenario(transformerBundle, transformerBundle.tutorScenarios[0]!);
+    assert.equal(result.passed, false);
+    assert.ok(result.hardFailures.some((f) => f.message.includes('PROHIBITED_ADAPTER') || f.rule === 'TUTOR_EXECUTION_ERROR'));
   });
 
   await t.test('O. production eval without credentials -> raises MODEL_SETUP_REQUIRED and never fallbacks fake', async () => {

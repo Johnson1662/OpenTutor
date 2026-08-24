@@ -182,6 +182,9 @@ importers:
       '@opentutor/knowledge-core':
         specifier: workspace:*
         version: link:../knowledge-core
+      '@opentutor/learning-core':
+        specifier: workspace:*
+        version: link:../learning-core
       '@opentutor/lesson-core':
         specifier: workspace:*
         version: link:../lesson-core

@@ -18,7 +18,7 @@
     "test:runtime:live": "node --test --experimental-strip-types packages/agent-runtime/tests/runtime-live.test.ts",
     "test:knowledge:live": "node --test --experimental-strip-types packages/knowledge-core/tests/knowledge-live.test.ts",
     "test:product:e2e": "node --test --experimental-strip-types apps/server/tests/product-e2e.test.ts",
-    "test:adversarial": "node --test --experimental-strip-types apps/server/tests/adversarial-v0.6.test.ts",
+    "test:adversarial": "node --test --experimental-strip-types apps/server/tests/adversarial*.test.ts",
     "check": "pnpm test && pnpm typecheck && pnpm build",
     "eval": "node --experimental-strip-types packages/evaluation/src/cli.ts",
     "eval:contract": "node --experimental-strip-types packages/evaluation/src/cli.ts --mode contract",

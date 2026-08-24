@@ -50,7 +50,8 @@ export class SessionService {
   async insertDetour(
     sessionId: string,
     baseVersion: number,
-    detour: { id: string; knowledgeNodeId: string; title: string; note?: string }
+    detour: { id: string; knowledgeNodeId: string; title: string; note?: string },
+    options?: { activeLessonId?: string; diagnosisId?: string }
   ): Promise<{ path: LearningPathNode[]; newVersion: number }> {
     const snapshot = this.sessionRepo.getSessionSnapshot(sessionId);
     if (!snapshot) {
@@ -71,18 +72,17 @@ export class SessionService {
       );
     }
 
-    // 2. Perform atomic domain transaction: validate pathVersion, push frame, switch active lesson, patch path
+    // 2. Perform atomic domain transaction: validate pathVersion, push frame with diagnosisId, switch active lesson, patch path
     const result = this.sessionRepo.insertDetour(sessionId, baseVersion, detour, {
-      activeLessonId: detourLesson?.id,
+      activeLessonId: options?.activeLessonId ?? detourLesson?.id,
       frame: activeNode
         ? {
           parentPathNodeId: activeNode.id,
           savedLessonId: snapshot.lesson.id,
+          diagnosisId: options?.diagnosisId ?? null,
         }
         : undefined,
     });
-
-    // 3. Publish events if and only if atomic transaction succeeded
     if (detourLesson) {
       const activatedEvent: LessonActivatedEventData = {
         lesson: detourLesson,

@@ -10,6 +10,7 @@ interface LearningEvidenceRow {
   source_item_id: string | null;
   attempt: number | null;
   outcome: string;
+  score: number | null;
   difficulty: number;
   confidence: number;
   weight: number;
@@ -28,6 +29,7 @@ function mapRowToLearningEvidence(row: LearningEvidenceRow): LearningEvidence {
     sourceItemId: row.source_item_id ?? undefined,
     attempt: row.attempt ?? 1,
     outcome: row.outcome as LearningEvidenceOutcome,
+    score: row.score !== null ? row.score : undefined,
     difficulty: row.difficulty,
     confidence: row.confidence,
     weight: row.weight,
@@ -46,14 +48,12 @@ export class LearningEvidenceRepository {
 
   recordEvidence(evidence: LearningEvidence): void {
     const createdAt = evidence.createdAt || new Date().toISOString();
-    const attempt = evidence.attempt ?? 1;
     this.db
       .prepare(`
         INSERT INTO learning_evidence (
           id, user_id, knowledge_node_id, type, source, source_item_id, attempt, outcome,
-          difficulty, confidence, weight, assessment_id, session_id, created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          score, difficulty, confidence, weight, assessment_id, session_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         evidence.id,
@@ -62,8 +62,9 @@ export class LearningEvidenceRepository {
         evidence.type,
         evidence.source,
         evidence.sourceItemId ?? null,
-        attempt,
+        evidence.attempt ?? 1,
         evidence.outcome,
+        evidence.score !== undefined ? evidence.score : null,
         evidence.difficulty,
         evidence.confidence,
         evidence.weight,
@@ -77,7 +78,7 @@ export class LearningEvidenceRepository {
     const rows = this.db
       .prepare(`
         SELECT id, user_id, knowledge_node_id, type, source, source_item_id, attempt, outcome,
-               difficulty, confidence, weight, assessment_id, session_id, created_at
+               score, difficulty, confidence, weight, assessment_id, session_id, created_at
         FROM learning_evidence
         WHERE user_id = ? AND knowledge_node_id = ?
         ORDER BY created_at ASC
@@ -92,7 +93,7 @@ export class LearningEvidenceRepository {
       const rows = this.db
         .prepare(`
           SELECT id, user_id, knowledge_node_id, type, source, source_item_id, attempt, outcome,
-                 difficulty, confidence, weight, assessment_id, session_id, created_at
+                 score, difficulty, confidence, weight, assessment_id, session_id, created_at
           FROM learning_evidence
           WHERE user_id = ?
           ORDER BY created_at DESC
@@ -105,7 +106,7 @@ export class LearningEvidenceRepository {
     const rows = this.db
       .prepare(`
         SELECT id, user_id, knowledge_node_id, type, source, source_item_id, attempt, outcome,
-               difficulty, confidence, weight, assessment_id, session_id, created_at
+               score, difficulty, confidence, weight, assessment_id, session_id, created_at
         FROM learning_evidence
         WHERE user_id = ?
         ORDER BY created_at DESC

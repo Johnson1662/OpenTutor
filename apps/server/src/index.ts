@@ -22,6 +22,7 @@ import { KnowledgeService } from './services/knowledge-service.ts';
 import { AssessmentService } from './services/assessment-service.ts';
 import { LearningProgressService } from './services/learning-progress-service.ts';
 import { DiagnosticLearningCoordinator } from './services/diagnostic-learning-coordinator.ts';
+import { ModelProbeGenerator } from '@opentutor/learning-core';
 import { CourseService } from './services/course-service.ts';
 import {
   SearchService,
@@ -152,6 +153,7 @@ export async function createServerContext(
     misconceptionRepo,
     diagnosisRepo,
     eventBus,
+    probeGenerator: new ModelProbeGenerator(modelExecutionService),
   });
   const courseService = new CourseService(
     courseRepo,

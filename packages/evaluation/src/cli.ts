@@ -12,6 +12,7 @@ import {
 } from './index.ts';
 
 interface ParsedCliArgs {
+  mode: string;
   suite: string;
   domain: string;
   out: string;
@@ -20,6 +21,7 @@ interface ParsedCliArgs {
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {
   const options = {
+    mode: { type: 'string' as const, short: 'm', default: 'contract' },
     suite: { type: 'string' as const, short: 's', default: 'all' },
     domain: { type: 'string' as const, short: 'd', default: 'all' },
     out: { type: 'string' as const, short: 'o', default: 'eval-report.json' },
@@ -36,6 +38,7 @@ Usage:
   node --experimental-strip-types packages/evaluation/src/cli.ts [options]
 
 Options:
+  --mode, -m    Evaluation mode: contract | production (default: contract)
   --suite, -s   Suite to run: all | knowledge | course | lesson | tutor | learner (default: all)
   --domain, -d  Domain to evaluate: all | transformer | csapp | cpp (default: all)
   --out, -o     Path to write JSON evaluation report (default: eval-report.json)
@@ -44,11 +47,18 @@ Options:
     return 0;
   }
 
+  const selectedMode = values.mode ?? 'contract';
   const selectedSuite = values.suite ?? 'all';
   const selectedDomain = values.domain ?? 'all';
   const outputPath = path.resolve(process.cwd(), values.out ?? 'eval-report.json');
 
-  console.log(`[OpenTutor Eval] Running suite: '${selectedSuite}' | domain: '${selectedDomain}'...`);
+  if (selectedMode === 'contract') {
+    console.log(`[OpenTutor Eval] Running deterministic contract evaluation suites against domain bundles | suite: '${selectedSuite}' | domain: '${selectedDomain}'...`);
+  } else if (selectedMode === 'production') {
+    console.log(`[OpenTutor Eval] Running production quality evaluation runner | suite: '${selectedSuite}' | domain: '${selectedDomain}'...`);
+  } else {
+    console.log(`[OpenTutor Eval] Running in '${selectedMode}' mode | suite: '${selectedSuite}' | domain: '${selectedDomain}'...`);
+  }
 
   const suiteResults: EvalSuiteResult[] = [];
 

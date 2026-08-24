@@ -4,7 +4,7 @@ import { createServerContext } from '../src/index.ts';
 
 test('Mastery Single Authority Integration - One-Answer Mastery Impossible & Multi-Evidence Path Advance', async (t) => {
   process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
-  const { context, sessionRepo, knowledgeRepo, close } = await createServerContext(':memory:');
+  const { context, sessionRepo, lessonRepo, close } = await createServerContext(':memory:');
 
   try {
     const sessionId = 'prototype';
@@ -17,13 +17,57 @@ test('Mastery Single Authority Integration - One-Answer Mastery Impossible & Mul
     const initialPathNode = initialSnap.path.find((n) => n.status === 'current')!;
     assert.equal(initialPathNode.knowledgeNodeId, 'self-attention');
 
-    // 2. Submit FIRST correct answer (easy/medium quiz)
+    // Insert quiz-2 and quiz-3 into the lesson for multi-item assessment testing
+    lessonRepo.applyPatches(initialSnap.lesson.id, initialSnap.lesson.version, [
+      {
+        op: 'insert',
+        position: { after: 'quiz' },
+        block: {
+          id: 'block-quiz-2',
+          type: 'quiz',
+          question: 'What is the dimension of the dot-product scaling factor sqrt(d_k)?',
+          answerType: 'single_choice',
+          options: [
+            { id: 'opt-1', text: 'Key vector dimension' },
+            { id: 'opt-2', text: 'Sequence length' },
+            { id: 'opt-3', text: 'Batch size' },
+          ],
+          answerSpec: {
+            type: 'single_choice',
+            correctOptionId: 'opt-1',
+          },
+          difficulty: 2.0,
+        },
+      },
+      {
+        op: 'insert',
+        position: { after: 'block-quiz-2' },
+        block: {
+          id: 'block-quiz-3',
+          type: 'quiz',
+          question: 'Why is softmax used in attention?',
+          answerType: 'single_choice',
+          options: [
+            { id: 'opt-a', text: 'To normalize attention weights into probabilities summing to 1' },
+            { id: 'opt-b', text: 'To speed up computation' },
+            { id: 'opt-c', text: 'To reduce memory' },
+          ],
+          answerSpec: {
+            type: 'single_choice',
+            correctOptionId: 'opt-a',
+          },
+          difficulty: 2.0,
+        },
+      },
+    ]);
+
+    // 2. Submit FIRST correct answer (on seeded 'quiz')
     const firstResult = context.assessmentService.submitAnswer({
       sessionId,
       userId,
       lessonId: initialSnap.lesson.id,
-      blockId: 'block-quiz-1',
-      answer: 'Scaled Dot-Product Attention',
+      blockId: 'quiz',
+      answer: 'Tokens need surrounding context and attention information to disambiguate words.',
     });
 
     assert.equal(firstResult.assessment.result, 'correct');
@@ -42,13 +86,13 @@ test('Mastery Single Authority Integration - One-Answer Mastery Impossible & Mul
     assert.equal(currentNodeAfter1.id, initialPathNode.id, 'Path must remain on current node after 1 answer');
     assert.equal(currentNodeAfter1.status, 'current');
 
-    // 3. Submit SECOND correct answer
+    // 3. Submit SECOND correct answer on distinct item (quiz-2)
     const secondResult = context.assessmentService.submitAnswer({
       sessionId,
       userId,
       lessonId: initialSnap.lesson.id,
-      blockId: 'block-quiz-1',
-      answer: 'Scaled Dot-Product Attention',
+      blockId: 'block-quiz-2',
+      answer: 'opt-1',
     });
     assert.equal(secondResult.assessment.result, 'correct');
 
@@ -62,16 +106,15 @@ test('Mastery Single Authority Integration - One-Answer Mastery Impossible & Mul
     const currentNodeAfter2 = snapAfter2.path.find((n) => n.status === 'current')!;
     assert.equal(currentNodeAfter2.id, initialPathNode.id, 'Path must still remain on current node after 2 answers');
 
-    // 4. Submit subsequent correct answers until Bayesian posterior crosses p >= 0.85 threshold
-    for (let i = 3; i <= 6; i++) {
-      context.assessmentService.submitAnswer({
-        sessionId,
-        userId,
-        lessonId: initialSnap.lesson.id,
-        blockId: 'block-quiz-1',
-        answer: 'Scaled Dot-Product Attention',
-      });
-    }
+    // 4. Submit THIRD correct answer on distinct item (quiz-3)
+    const thirdResult = context.assessmentService.submitAnswer({
+      sessionId,
+      userId,
+      lessonId: initialSnap.lesson.id,
+      blockId: 'block-quiz-3',
+      answer: 'opt-a',
+    });
+    assert.equal(thirdResult.assessment.result, 'correct');
 
     const stateAfterFinal = context.knowledgeService.getUserKnowledgeState(userId, 'self-attention');
     assert.ok(stateAfterFinal);
@@ -87,6 +130,96 @@ test('Mastery Single Authority Integration - One-Answer Mastery Impossible & Mul
     const newCurrentNode = snapFinal.path.find((n) => n.status === 'current');
     assert.ok(newCurrentNode, 'Path must advance to next upcoming node');
     assert.notEqual(newCurrentNode.id, initialPathNode.id);
+  } finally {
+    await close();
+  }
+});
+
+test('Evidence Integrity - Incorrect Answers, Attempt Decay & Invalid Block Rejection', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { context, sessionRepo, evidenceRepo, close } = await createServerContext(':memory:');
+
+  try {
+    const sessionId = 'prototype';
+    const userId = 'integrity-user';
+    const snapshot = sessionRepo.getSessionSnapshot(sessionId)!;
+    assert.ok(context.knowledgeService);
+
+    // 1. Rejection of non-existent block
+    assert.throws(
+      () => {
+        context.assessmentService.submitAnswer({
+          sessionId,
+          userId,
+          lessonId: snapshot.lesson.id,
+          blockId: 'block-non-existent-999',
+          answer: 'any answer',
+        });
+      },
+      (err: Error) => err.message.includes('BLOCK_NOT_FOUND'),
+      'Submitting to a non-existent block must throw BLOCK_NOT_FOUND'
+    );
+
+    // 2. Rejection of non-quiz block (e.g. TextBlock)
+    const textBlock = snapshot.lesson.blocks.find((b) => b.type === 'text');
+    assert.ok(textBlock, 'TextBlock must exist in lesson');
+
+    assert.throws(
+      () => {
+        context.assessmentService.submitAnswer({
+          sessionId,
+          userId,
+          lessonId: snapshot.lesson.id,
+          blockId: textBlock.id,
+          answer: 'any answer',
+        });
+      },
+      (err: Error) => err.message.includes('BLOCK_NOT_ASSESSABLE'),
+      'Submitting to a non-quiz block must throw BLOCK_NOT_ASSESSABLE'
+    );
+
+    // 3. Negative Evidence: Submitting an INCORRECT answer must add negative evidence (increase beta and lower probability)
+    // First answer: correct -> p increases
+    context.assessmentService.submitAnswer({
+      sessionId,
+      userId,
+      lessonId: snapshot.lesson.id,
+      blockId: 'quiz',
+      answer: 'Tokens need surrounding context and attention information to disambiguate words.',
+    });
+
+    const stateCorrect = context.knowledgeService.getUserKnowledgeState(userId, 'self-attention');
+    assert.ok(stateCorrect);
+    assert.ok(stateCorrect.alpha! > 1.0);
+    const probAfterCorrect = stateCorrect.masteryProbability!;
+    const betaBeforeWrong = stateCorrect.beta!;
+
+    // Second answer on quiz: INCORRECT answer -> beta increases and masteryProbability drops
+    const wrongResult = context.assessmentService.submitAnswer({
+      sessionId,
+      userId,
+      lessonId: snapshot.lesson.id,
+      blockId: 'quiz',
+      answer: 'Completely Wrong Answer with no keywords',
+    });
+
+    assert.equal(wrongResult.assessment.result, 'incorrect');
+
+    const stateAfterWrong = context.knowledgeService.getUserKnowledgeState(userId, 'self-attention');
+    assert.ok(stateAfterWrong);
+    assert.ok(
+      stateAfterWrong.beta! > betaBeforeWrong,
+      `Beta must increase after incorrect answer (before: ${betaBeforeWrong}, after: ${stateAfterWrong.beta})`
+    );
+    assert.ok(
+      stateAfterWrong.masteryProbability! < probAfterCorrect,
+      `Mastery probability must drop after incorrect answer (before: ${probAfterCorrect}, after: ${stateAfterWrong.masteryProbability})`
+    );
+    assert.equal(stateAfterWrong.incorrectCount, 1);
+
+    // 4. Attempt Diminishing Returns: Repeatedly answering the exact same quiz item yields diminishing weight
+    const attempts = evidenceRepo.countItemAttempts(userId, 'self-attention', 'quiz');
+    assert.equal(attempts, 2, 'Two attempts recorded for quiz');
   } finally {
     await close();
   }

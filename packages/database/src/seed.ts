@@ -46,6 +46,7 @@ export const INITIAL_LESSON: Lesson = {
     {
       id: 'quiz',
       type: 'quiz',
+      difficulty: 2.0,
       answerType: 'text',
       question: 'Why might a token need information from another token?',
       answerSpec: {
@@ -79,7 +80,7 @@ export const SOFTMAX_LESSON: Lesson = {
     {
       id: 'softmax-quiz',
       type: 'quiz',
-      difficulty: 2.5,
+      difficulty: 3.5,
       answerType: 'text',
       question: 'What does softmax ensure regarding the sum of output values?',
       answerSpec: {

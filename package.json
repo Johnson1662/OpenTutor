@@ -21,6 +21,8 @@
     "test:adversarial": "node --test --experimental-strip-types apps/server/tests/adversarial-v0.6.test.ts",
     "check": "pnpm test && pnpm typecheck && pnpm build",
     "eval": "node --experimental-strip-types packages/evaluation/src/cli.ts",
+    "eval:contract": "node --experimental-strip-types packages/evaluation/src/cli.ts --mode contract",
+    "eval:production": "node --experimental-strip-types packages/evaluation/src/cli.ts --mode production",
     "eval:knowledge": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite knowledge",
     "eval:course": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite course",
     "eval:lesson": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite lesson",

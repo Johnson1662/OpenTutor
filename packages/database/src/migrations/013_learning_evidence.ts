@@ -12,6 +12,8 @@ export const migration013: Migration = {
         knowledge_node_id TEXT NOT NULL,
         type TEXT NOT NULL,
         source TEXT NOT NULL,
+        source_item_id TEXT,
+        attempt INTEGER NOT NULL DEFAULT 1,
         outcome TEXT NOT NULL,
         difficulty REAL NOT NULL DEFAULT 1.0,
         confidence REAL NOT NULL DEFAULT 1.0,
@@ -23,8 +25,22 @@ export const migration013: Migration = {
       );
 
       CREATE INDEX IF NOT EXISTS idx_learning_evidence_user_node ON learning_evidence(user_id, knowledge_node_id);
+      CREATE INDEX IF NOT EXISTS idx_learning_evidence_source_item ON learning_evidence(user_id, knowledge_node_id, source_item_id);
       CREATE INDEX IF NOT EXISTS idx_learning_evidence_created ON learning_evidence(created_at);
     `);
+
+    // Safely add columns to learning_evidence if they do not already exist
+    const evidenceColumns = db
+      .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
+      .all() as Array<{ name: string }>;
+    const evidenceColumnNames = new Set(evidenceColumns.map((c) => c.name));
+
+    if (!evidenceColumnNames.has('source_item_id')) {
+      db.exec('ALTER TABLE learning_evidence ADD COLUMN source_item_id TEXT;');
+    }
+    if (!evidenceColumnNames.has('attempt')) {
+      db.exec('ALTER TABLE learning_evidence ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1;');
+    }
 
     // Safely add columns to user_knowledge_states if they do not already exist
     const columns = db

@@ -58,6 +58,8 @@ describe('Learning Evidence & User Knowledge State v2', () => {
       assert.ok(columnNames.has('knowledge_node_id'));
       assert.ok(columnNames.has('type'));
       assert.ok(columnNames.has('source'));
+      assert.ok(columnNames.has('source_item_id'));
+      assert.ok(columnNames.has('attempt'));
       assert.ok(columnNames.has('outcome'));
       assert.ok(columnNames.has('difficulty'));
       assert.ok(columnNames.has('confidence'));
@@ -158,6 +160,32 @@ describe('Learning Evidence & User Knowledge State v2', () => {
       assert.equal(limitedHistory.length, 2);
       assert.equal(limitedHistory[0].id, 'ev-3');
       assert.equal(limitedHistory[1].id, 'ev-2');
+    });
+
+    it('records sourceItemId and attempt and counts item attempts correctly', () => {
+      assert.equal(evidenceRepo.countItemAttempts('user-1', 'self-attention', 'item-q1'), 0);
+
+      evidenceRepo.recordEvidence({
+        ...evidence1,
+        id: 'ev-item-1',
+        sourceItemId: 'item-q1',
+        attempt: 1,
+      });
+      assert.equal(evidenceRepo.countItemAttempts('user-1', 'self-attention', 'item-q1'), 1);
+
+      evidenceRepo.recordEvidence({
+        ...evidence1,
+        id: 'ev-item-2',
+        sourceItemId: 'item-q1',
+        attempt: 2,
+      });
+      assert.equal(evidenceRepo.countItemAttempts('user-1', 'self-attention', 'item-q1'), 2);
+      assert.equal(evidenceRepo.countItemAttempts('user-1', 'self-attention', 'item-q2'), 0);
+
+      const retrieved = evidenceRepo.getEvidenceForNode('user-1', 'self-attention');
+      const item1 = retrieved.find((e) => e.id === 'ev-item-1');
+      assert.equal(item1?.sourceItemId, 'item-q1');
+      assert.equal(item1?.attempt, 1);
     });
   });
 

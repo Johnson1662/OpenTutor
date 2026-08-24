@@ -37,72 +37,82 @@ export class AssessmentService {
     }
 
     const block = lesson.blocks.find((b) => b.id === input.blockId);
+    if (!block) {
+      throw new Error('BLOCK_NOT_FOUND');
+    }
+    if (block.type !== 'quiz') {
+      throw new Error('BLOCK_NOT_ASSESSABLE');
+    }
+
     let evaluationResult: 'correct' | 'partial' | 'incorrect' = 'correct';
     let evaluationConfidence = 1.0;
     let feedback = '';
-    const difficulty = block && 'difficulty' in block && block.difficulty !== undefined ? block.difficulty : 'medium';
+    const difficulty = ('difficulty' in block && (typeof block.difficulty === 'number' || typeof block.difficulty === 'string')) ? block.difficulty : 'medium';
 
-    if (block && block.type === 'quiz') {
-      if (block.answerSpec) {
-        if (block.answerSpec.type === 'single_choice') {
-          const evalObj = this.evaluator.evaluateObjective(
-            { correctAnswer: block.answerSpec.correctOptionId },
-            input.answer
-          );
-          evaluationResult = evalObj.result;
-          evaluationConfidence = evalObj.confidence;
-          feedback = evalObj.feedback;
-        } else if (block.answerSpec.type === 'multiple_choice') {
-          const evalObj = this.evaluator.evaluateObjective(
-            { correctAnswers: block.answerSpec.correctOptionIds },
-            input.answer
-          );
-          evaluationResult = evalObj.result;
-          evaluationConfidence = evalObj.confidence;
-          feedback = evalObj.feedback;
-        } else if (block.answerSpec.type === 'open') {
-          const evalOpen = this.evaluator.evaluateOpenAnswer(
-            input.answer,
-            {
-              keywords: block.answerSpec.rubric.concepts,
-              referenceAnswer: block.answerSpec.rubric.referenceAnswer,
-              minScoreForCorrect: 0.25,
-            }
-          );
-          evaluationResult = evalOpen.result;
-          evaluationConfidence = evalOpen.confidence;
-          feedback = evalOpen.feedback;
-        }
-      } else if (block.options && block.options.length > 0) {
+    if (block.answerSpec) {
+      if (block.answerSpec.type === 'single_choice') {
         const evalObj = this.evaluator.evaluateObjective(
-          {
-            type: block.answerType === 'multiple_choice' ? 'multiple' : 'single',
-            correctAnswer: block.options[0]?.id ?? block.options[0]?.text,
-          },
+          { correctAnswer: block.answerSpec.correctOptionId },
           input.answer
         );
         evaluationResult = evalObj.result;
-        evaluationConfidence = evalObj.confidence;
+        evaluationConfidence = evalObj.evidenceConfidence ?? evalObj.confidence ?? 1.0;
         feedback = evalObj.feedback;
-      } else {
-        const keywords = input.lessonId.includes('softmax')
-          ? ['probability', 'sum', '1', 'softmax', 'positive']
-          : ['context', 'attention', 'token', 'tokens', 'information', 'surrounding', 'word'];
+      } else if (block.answerSpec.type === 'multiple_choice') {
+        const evalObj = this.evaluator.evaluateObjective(
+          { correctAnswers: block.answerSpec.correctOptionIds },
+          input.answer
+        );
+        evaluationResult = evalObj.result;
+        evaluationConfidence = evalObj.evidenceConfidence ?? evalObj.confidence ?? 1.0;
+        feedback = evalObj.feedback;
+      } else if (block.answerSpec.type === 'open') {
         const evalOpen = this.evaluator.evaluateOpenAnswer(
           input.answer,
           {
-            keywords,
+            keywords: block.answerSpec.rubric?.concepts,
+            referenceAnswer: block.answerSpec.rubric?.referenceAnswer,
             minScoreForCorrect: 0.25,
           }
         );
         evaluationResult = evalOpen.result;
-        evaluationConfidence = evalOpen.confidence;
+        evaluationConfidence = evalOpen.evidenceConfidence ?? evalOpen.confidence ?? 1.0;
         feedback = evalOpen.feedback;
       }
+    } else if (block.options && block.options.length > 0) {
+      const rawBlock = block as unknown as Record<string, unknown>;
+      const firstOption = block.options[0];
+      const correctVal =
+        (typeof rawBlock.correctAnswer === 'string' ? rawBlock.correctAnswer : undefined) ??
+        (typeof firstOption === 'string'
+          ? firstOption
+          : firstOption && typeof firstOption === 'object'
+            ? ('id' in firstOption && typeof firstOption.id === 'string' ? firstOption.id : ('text' in firstOption && typeof firstOption.text === 'string' ? firstOption.text : undefined))
+            : undefined);
+      const evalObj = this.evaluator.evaluateObjective(
+        {
+          type: block.answerType === 'multiple_choice' ? 'multiple' : 'single',
+          correctAnswer: correctVal,
+        },
+        input.answer
+      );
+      evaluationResult = evalObj.result;
+      evaluationConfidence = evalObj.evidenceConfidence ?? evalObj.confidence ?? 1.0;
+      feedback = evalObj.feedback;
     } else {
-      evaluationResult = input.answer.trim().length > 0 ? 'correct' : 'incorrect';
-      evaluationConfidence = evaluationResult === 'correct' ? 1.0 : 0.0;
-      feedback = evaluationResult === 'correct' ? 'Diagnostic evaluation accepted.' : 'Please provide a valid answer.';
+      const keywords = input.lessonId.includes('softmax')
+        ? ['probability', 'sum', '1', 'softmax', 'positive']
+        : ['context', 'attention', 'token', 'tokens', 'information', 'surrounding', 'word'];
+      const evalOpen = this.evaluator.evaluateOpenAnswer(
+        input.answer,
+        {
+          keywords,
+          minScoreForCorrect: 0.25,
+        }
+      );
+      evaluationResult = evalOpen.result;
+      evaluationConfidence = evalOpen.evidenceConfidence ?? evalOpen.confidence ?? 1.0;
+      feedback = evalOpen.feedback;
     }
 
     const userId = input.userId ?? 'default-user';
@@ -121,11 +131,10 @@ export class AssessmentService {
       input.sessionId,
       assessment,
       userId,
-      { difficulty, confidence: evaluationConfidence }
+      { difficulty, confidence: evaluationConfidence, sourceItemId: block.id }
     );
 
     this.progressService.onKnowledgeStateUpdated(input.sessionId, updatedState);
-
     return { assessment };
   }
 }

@@ -8,7 +8,9 @@ function makeEvidence(
   outcome: 'correct' | 'partial' | 'incorrect',
   difficulty: number | 'easy' | 'medium' | 'hard' = 'medium',
   confidence = 1.0,
-  createdAt = '2026-08-01T12:00:00.000Z'
+  createdAt = '2026-08-01T12:00:00.000Z',
+  attempt = 1,
+  sourceItemId?: string
 ): LearningEvidence {
   const diffNumber =
     typeof difficulty === 'number'
@@ -24,6 +26,8 @@ function makeEvidence(
     knowledgeNodeId: nodeId,
     type: 'quiz',
     source: 'quiz-1',
+    sourceItemId,
+    attempt,
     outcome,
     difficulty: diffNumber,
     confidence,
@@ -141,5 +145,49 @@ describe('BetaMasteryAggregator', () => {
     assert.ok(decayed.alpha > 1.0);
     assert.ok(decayed.masteryProbability < state.masteryProbability);
     assert.equal(decayed.status, 'learning');
+  });
+
+  it('Test 6: Attempt decay multiplier values (1.0, 0.4, 0.15, 0.05)', () => {
+    assert.equal(aggregator.attemptMultiplier(1), 1.0);
+    assert.equal(aggregator.attemptMultiplier(2), 0.4);
+    assert.equal(aggregator.attemptMultiplier(3), 0.15);
+    assert.equal(aggregator.attemptMultiplier(4), 0.05);
+    assert.equal(aggregator.attemptMultiplier(5), 0.05);
+    assert.equal(aggregator.attemptMultiplier(undefined), 1.0);
+  });
+
+  it('Test 7: Repeated attempts on same item yield diminishing returns', () => {
+    let state: UserKnowledgeStateV2 | null = null;
+
+    // Attempt 1: weight = 1.0 * 1.0 * 1.0 = 1.0 -> alpha = 1 + 1 = 2.0
+    state = aggregator.updateMastery(state, makeEvidence('node-item', 'correct', 1.0, 1.0, undefined, 1, 'item-1'));
+    assert.equal(state.alpha, 2.0);
+
+    // Attempt 2: weight = 1.0 * 1.0 * 0.4 = 0.4 -> alpha = 2.0 + 0.4 = 2.4
+    state = aggregator.updateMastery(state, makeEvidence('node-item', 'correct', 1.0, 1.0, undefined, 2, 'item-1'));
+    assert.equal(Math.round(state.alpha * 100) / 100, 2.4);
+
+    // Attempt 3: weight = 1.0 * 1.0 * 0.15 = 0.15 -> alpha = 2.4 + 0.15 = 2.55
+    state = aggregator.updateMastery(state, makeEvidence('node-item', 'correct', 1.0, 1.0, undefined, 3, 'item-1'));
+    assert.equal(Math.round(state.alpha * 100) / 100, 2.55);
+
+    // Attempt 4: weight = 1.0 * 1.0 * 0.05 = 0.05 -> alpha = 2.55 + 0.05 = 2.60
+    state = aggregator.updateMastery(state, makeEvidence('node-item', 'correct', 1.0, 1.0, undefined, 4, 'item-1'));
+    assert.equal(Math.round(state.alpha * 100) / 100, 2.6);
+  });
+
+  it('Test 8: Incorrect answer with evidenceConfidence = 1.0 increases beta and decreases mastery probability', () => {
+    // Start with 1 correct answer: alpha = 2.0, beta = 1.0, p = 0.667
+    let state = aggregator.updateMastery(null, makeEvidence('node-x', 'correct', 'medium', 1.0));
+    const initialProb = state.masteryProbability;
+    assert.equal(state.alpha, 2.0);
+    assert.equal(state.beta, 1.0);
+
+    // Incorrect answer: weight = 1.0 -> beta = 2.0, alpha = 2.0, p = 0.50
+    state = aggregator.updateMastery(state, makeEvidence('node-x', 'incorrect', 'medium', 1.0));
+    assert.equal(state.beta, 2.0);
+    assert.equal(state.incorrectCount, 1);
+    assert.ok(state.masteryProbability < initialProb);
+    assert.equal(state.masteryProbability, 0.5);
   });
 });

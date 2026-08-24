@@ -91,7 +91,8 @@ export interface ObjectiveQuestion {
 export interface AssessmentEvaluation {
   result: AssessmentOutcome;
   score: number;
-  confidence: number;
+  evidenceConfidence: number;
+  confidence?: number;
   feedback: string;
 }
 
@@ -112,16 +113,16 @@ export class AssessmentEvaluator {
     const normalizedExpected = expected.map(normalizeAnswer);
     const normalizedActual = actual.map(normalizeAnswer);
     const exact = normalizedExpected.length === normalizedActual.length && normalizedExpected.every((value, index) => value === normalizedActual[index]);
-    if (exact) return evaluation('correct', 1, 'Correct.');
-    if (!multiple) return evaluation('incorrect', 0, 'That answer is not correct.');
+    if (exact) return evaluation('correct', 1, 'Correct.', 1.0);
+    if (!multiple) return evaluation('incorrect', 0, 'That answer is not correct.', 1.0);
 
     const expectedSet = new Set(normalizedExpected);
     const actualSet = new Set(normalizedActual);
     const overlap = normalizedActual.filter((value) => expectedSet.has(value)).length;
     const wrong = normalizedActual.some((value) => !expectedSet.has(value));
     const score = expectedSet.size === 0 ? 0 : overlap / expectedSet.size;
-    if (score > 0 && !wrong) return evaluation('partial', score, 'Partially correct; include all correct choices.');
-    return evaluation('incorrect', score, 'That selection is not correct.');
+    if (score > 0 && !wrong) return evaluation('partial', score, 'Partially correct; include all correct choices.', 1.0);
+    return evaluation('incorrect', score, 'That selection is not correct.', 1.0);
   }
 
   evaluateOpenAnswer(answer: string, rubric: OpenAnswerRubric = {}): AssessmentEvaluation {
@@ -132,9 +133,9 @@ export class AssessmentEvaluator {
     const score = expected.length === 0 ? (text.length > 0 ? 1 : 0) : matched.length / expected.length;
     const correctAt = rubric.minScoreForCorrect ?? 0.8;
     const partialAt = rubric.minScoreForPartial ?? 0.4;
-    if (score >= correctAt) return evaluation('correct', score, 'Your answer addresses the key ideas.');
-    if (score >= partialAt) return evaluation('partial', score, 'Your answer addresses some key ideas; add the missing ones.');
-    return evaluation('incorrect', score, 'Your answer is missing the key ideas.');
+    if (score >= correctAt) return evaluation('correct', score, 'Your answer addresses the key ideas.', 1.0);
+    if (score >= partialAt) return evaluation('partial', score, 'Your answer addresses some key ideas; add the missing ones.', 1.0);
+    return evaluation('incorrect', score, 'Your answer is missing the key ideas.', 1.0);
   }
 
   evaluate(question: ObjectiveQuestion | OpenAnswerRubric, answer: unknown): AssessmentEvaluation {
@@ -157,8 +158,13 @@ function extractKeywords(reference: string): string[] {
   return [...new Set(normalizeText(reference).split(/[^a-z0-9]+/).filter((word) => word.length > 2))];
 }
 
-function evaluation(result: AssessmentOutcome, score: number, feedback: string): AssessmentEvaluation {
-  return { result, score, confidence: score, feedback };
+function evaluation(
+  result: AssessmentOutcome,
+  score: number,
+  feedback: string,
+  evidenceConfidence: number = 1.0
+): AssessmentEvaluation {
+  return { result, score, evidenceConfidence, confidence: evidenceConfidence, feedback };
 }
 
 export interface KnowledgeNodeLike {

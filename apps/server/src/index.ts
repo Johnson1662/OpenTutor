@@ -67,6 +67,7 @@ export async function createServerContext(
   sessionRepo: SessionRepository;
   lessonRepo: LessonRepository;
   knowledgeRepo: KnowledgeRepository;
+  evidenceRepo: LearningEvidenceRepository;
   courseRepo: CourseRepository;
   courseService: CourseService;
   preferencesRepo: ModelPreferencesRepository;
@@ -128,7 +129,7 @@ export async function createServerContext(
   const sessionService = new SessionService(sessionRepo, eventBus, learningSessionCoordinator);
   const lessonService = new LessonService(lessonRepo, eventBus);
   const searchService = new SearchService(db);
-  const knowledgeService = new KnowledgeService(knowledgeRepo, searchService, eventBus, learningEvidenceRepo);
+  const knowledgeService = new KnowledgeService(knowledgeRepo, searchService, eventBus, learningEvidenceRepo, undefined, db);
   const learningProgressService = new LearningProgressService(sessionService, eventBus);
   const assessmentService = new AssessmentService(lessonService, knowledgeService, learningProgressService);
 
@@ -187,6 +188,7 @@ export async function createServerContext(
     sessionRepo,
     lessonRepo,
     knowledgeRepo,
+    evidenceRepo: learningEvidenceRepo,
     courseRepo,
     courseService,
     preferencesRepo,

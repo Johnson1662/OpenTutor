@@ -10,6 +10,8 @@ export interface LearningEvidence {
   knowledgeNodeId: string;
   type: LearningEvidenceType;
   source: string;
+  sourceItemId?: string;
+  attempt?: number;
   outcome: LearningEvidenceOutcome;
   difficulty: number;
   confidence: number;

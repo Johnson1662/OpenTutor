@@ -21,12 +21,7 @@ export class LearningProgressService {
     const isMatchingNode = currentNode.knowledgeNodeId === state.knowledgeNodeId;
     if (!isMatchingNode) return;
 
-    const isDetour = currentNode.type === 'detour';
-    const isSatisfied = isDetour
-      ? state.status === 'mastered' ||
-        ((state.masteryProbability ?? 0) >= 0.85 && (state.evidenceCount ?? 0) >= 2)
-      : state.status === 'mastered';
-
+    const isSatisfied = state.status === 'mastered';
     if (isSatisfied) {
       this.sessionService.completeCurrentNode(sessionId, snapshot.pathVersion);
     }

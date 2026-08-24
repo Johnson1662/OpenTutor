@@ -6,7 +6,7 @@ import type {
   LearningEvidence,
   UserKnowledgeState,
 } from '@opentutor/protocol';
-import type { KnowledgeRepository, LearningEvidenceRepository } from '@opentutor/database';
+import type { Database, KnowledgeRepository, LearningEvidenceRepository } from '@opentutor/database';
 import { BetaMasteryAggregator, type UserKnowledgeStateV2 } from '@opentutor/assessment-core';
 import type {
   SearchService,
@@ -23,19 +23,24 @@ export class KnowledgeService {
   private readonly searchService: SearchService;
   private readonly eventBus: EventBus;
   private readonly aggregator: BetaMasteryAggregator;
+  private readonly db?: Database;
 
   constructor(
     knowledgeRepo: KnowledgeRepository,
     searchService: SearchService,
     eventBus: EventBus,
     evidenceRepo?: LearningEvidenceRepository,
-    aggregator?: BetaMasteryAggregator
+    aggregator?: BetaMasteryAggregator,
+    db?: Database
   ) {
     this.knowledgeRepo = knowledgeRepo;
     this.evidenceRepo = evidenceRepo;
     this.searchService = searchService;
     this.eventBus = eventBus;
     this.aggregator = aggregator ?? new BetaMasteryAggregator();
+    const repoWithDb = knowledgeRepo as unknown as { db?: Database };
+    const evidenceRepoWithDb = evidenceRepo as unknown as { db?: Database };
+    this.db = db ?? repoWithDb?.db ?? evidenceRepoWithDb?.db;
   }
 
   getUserKnowledgeState(userId: string, knowledgeNodeId: string): UserKnowledgeState | null {
@@ -46,7 +51,11 @@ export class KnowledgeService {
     sessionId: string,
     assessment: AssessmentResult,
     userId: string = 'default-user',
-    options?: { difficulty?: number | 'easy' | 'medium' | 'hard'; confidence?: number }
+    options?: {
+      difficulty?: number | 'easy' | 'medium' | 'hard';
+      confidence?: number;
+      sourceItemId?: string;
+    }
   ): UserKnowledgeStateV2 {
     const now = new Date().toISOString();
     const rawDifficulty = options?.difficulty ?? 1.0;
@@ -55,12 +64,17 @@ export class KnowledgeService {
     const weight = diffWeight * confidence;
     const numericDifficulty = typeof rawDifficulty === 'number' ? rawDifficulty : diffWeight;
 
+    const previousAttempts = this.evidenceRepo?.countItemAttempts?.(userId, assessment.knowledgeNodeId, options?.sourceItemId ?? '') ?? 0;
+    const attempt = previousAttempts + 1;
+
     const evidence: LearningEvidence = {
       id: `ev-${randomUUID()}`,
       userId,
       knowledgeNodeId: assessment.knowledgeNodeId,
       type: 'quiz',
       source: assessment.lessonId || 'assessment',
+      sourceItemId: options?.sourceItemId,
+      attempt,
       outcome: assessment.result,
       difficulty: numericDifficulty,
       confidence,
@@ -70,15 +84,25 @@ export class KnowledgeService {
       createdAt: now,
     };
 
-    if (this.evidenceRepo) {
-      this.evidenceRepo.recordEvidence(evidence);
-    }
-
     const currentState = this.knowledgeRepo.getUserKnowledgeState(userId, assessment.knowledgeNodeId);
     const updatedState = this.aggregator.updateMastery(currentState, evidence, now);
 
-    this.knowledgeRepo.setUserKnowledgeState(userId, updatedState);
-    this.knowledgeRepo.recordAssessment(assessment, userId);
+    if (this.db) {
+      const recordTx = this.db.transaction(() => {
+        if (this.evidenceRepo) {
+          this.evidenceRepo.recordEvidence(evidence);
+        }
+        this.knowledgeRepo.setUserKnowledgeState(userId, updatedState);
+        this.knowledgeRepo.recordAssessment(assessment, userId);
+      });
+      recordTx();
+    } else {
+      if (this.evidenceRepo) {
+        this.evidenceRepo.recordEvidence(evidence);
+      }
+      this.knowledgeRepo.setUserKnowledgeState(userId, updatedState);
+      this.knowledgeRepo.recordAssessment(assessment, userId);
+    }
 
     const asmtEvent: AssessmentCompletedEventData = {
       assessment,

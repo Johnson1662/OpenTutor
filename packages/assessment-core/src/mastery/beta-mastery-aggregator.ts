@@ -45,6 +45,14 @@ export class BetaMasteryAggregator {
     return 1.0;
   }
 
+  attemptMultiplier(attempt?: number): number {
+    const att = typeof attempt === 'number' && Number.isFinite(attempt) && attempt > 0 ? Math.floor(attempt) : 1;
+    if (att <= 1) return 1.0;
+    if (att === 2) return 0.4;
+    if (att === 3) return 0.15;
+    return 0.05;
+  }
+
   computeStatus(p: number, evidenceCount: number): KnowledgeStatus {
     if (evidenceCount < 1) {
       return 'unknown';
@@ -108,8 +116,8 @@ export class BetaMasteryAggregator {
 
     const difficultyWeight = this.computeDifficultyWeight(evidence.difficulty);
     const confidence = typeof evidence.confidence === 'number' ? evidence.confidence : 1.0;
-    const weight = difficultyWeight * confidence;
-
+    const attemptMult = this.attemptMultiplier(evidence.attempt);
+    const weight = difficultyWeight * confidence * attemptMult;
     let alpha = base.alpha ?? this.priorAlpha;
     let beta = base.beta ?? this.priorBeta;
     let correctCount = base.correctCount ?? 0;

@@ -27,11 +27,20 @@ export async function createOpenTutorModelRuntime(
 
   const inMemoryAuth = inMemory;
   const authPath = inMemoryAuth ? undefined : (options.authPath ?? join(piDir, 'auth.json'));
-  const modelsPath = inMemory ? null : (options.modelsPath ?? join(piDir, 'models.json'));
+  const modelsPath = resolveModelsJsonPath(options);
 
   return await ModelRuntime.create({
     credentials: inMemoryAuth ? new InMemoryCredentialStore() : undefined,
     authPath,
     modelsPath,
   });
+}
+
+/** Persistent location of the pi models.json custom-provider file, or null for in-memory runs. */
+export function resolveModelsJsonPath(options: OpenTutorModelRuntimeOptions = {}): string | null {
+  const dataDir = options.dataDir ?? process.env.OPENTUTOR_DATA_DIR ?? join(homedir(), '.opentutor');
+  const inMemory = dataDir === ':memory:' || options.authPath === ':memory:' || options.modelsPath === ':memory:';
+  if (inMemory) return null;
+  const piDir = join(dataDir, 'pi');
+  return options.modelsPath ?? join(piDir, 'models.json');
 }

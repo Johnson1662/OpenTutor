@@ -120,30 +120,6 @@ interface LessonRow {
   updated_at: string;
 }
 
-interface LessonVersionRow {
-  id: number;
-  lesson_id: string;
-  version: number;
-  title: string;
-  objective: string | null;
-  status: string;
-  blocks: string;
-  patches: string | null;
-  created_at: string;
-}
-
-export interface LessonVersionRecord {
-  id: number;
-  lessonId: string;
-  version: number;
-  title: string;
-  objective?: string;
-  status: Lesson['status'];
-  blocks: LessonBlock[];
-  patches?: LessonPatch[];
-  createdAt: string;
-}
-
 export class LessonRepository {
   private readonly db: Database.Database;
 
@@ -265,25 +241,5 @@ export class LessonRepository {
     });
 
     return applyTx();
-  }
-
-  getLessonVersions(lessonId: string): LessonVersionRecord[] {
-    const rows = this.db
-      .prepare(
-        'SELECT id, lesson_id, version, title, objective, status, blocks, patches, created_at FROM lesson_versions WHERE lesson_id = ? ORDER BY version ASC'
-      )
-      .all(lessonId) as LessonVersionRow[];
-
-    return rows.map((row) => ({
-      id: row.id,
-      lessonId: row.lesson_id,
-      version: row.version,
-      title: row.title,
-      objective: row.objective ?? undefined,
-      status: row.status as Lesson['status'],
-      blocks: JSON.parse(row.blocks) as LessonBlock[],
-      patches: row.patches ? (JSON.parse(row.patches) as LessonPatch[]) : undefined,
-      createdAt: row.created_at,
-    }));
   }
 }

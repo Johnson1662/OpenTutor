@@ -10,7 +10,6 @@ import {
   LearnerEvalSuite,
   runCli,
   loadAllDomainBundles,
-  loadDomainBundle,
 } from '../src/index.ts';
 
 test('Benchmark Fixtures load accurately for 3 domains', () => {
@@ -136,18 +135,4 @@ test('CLI runner executes suites and generates eval-report.json output', async (
   }
 });
 
-test('Production mode without model credentials exits with MODEL_SETUP_REQUIRED', async () => {
-  const previousDataDir = process.env.OPENTUTOR_DATA_DIR;
-  const previousOffline = process.env.PI_OFFLINE;
-  process.env.OPENTUTOR_DATA_DIR = ':memory:';
-  process.env.PI_OFFLINE = '1';
-  try {
-    const exitCode = await runCli(['--mode', 'production', '--suite', 'knowledge', '--domain', 'transformer']);
-    assert.equal(exitCode, 1, 'Production mode without configured live models should exit with 1 (MODEL_SETUP_REQUIRED)');
-  } finally {
-    if (previousDataDir === undefined) delete process.env.OPENTUTOR_DATA_DIR;
-    else process.env.OPENTUTOR_DATA_DIR = previousDataDir;
-    if (previousOffline === undefined) delete process.env.PI_OFFLINE;
-    else process.env.PI_OFFLINE = previousOffline;
-  }
-});
+

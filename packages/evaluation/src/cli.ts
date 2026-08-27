@@ -9,12 +9,8 @@ import {
   formatTerminalReport,
   generateJsonReport,
   type EvalSuiteResult,
-  type EvalMode,
-  ModelSetupRequiredError,
-  MODEL_SETUP_REQUIRED,
 } from './index.ts';
 interface ParsedCliArgs {
-  mode: string;
   suite: string;
   domain: string;
   out: string;
@@ -23,7 +19,6 @@ interface ParsedCliArgs {
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {
   const options = {
-    mode: { type: 'string' as const, short: 'm', default: 'contract' },
     suite: { type: 'string' as const, short: 's', default: 'all' },
     domain: { type: 'string' as const, short: 'd', default: 'all' },
     out: { type: 'string' as const, short: 'o', default: 'eval-report.json' },
@@ -40,7 +35,6 @@ Usage:
   node --experimental-strip-types packages/evaluation/src/cli.ts [options]
 
 Options:
-  --mode, -m    Evaluation mode: contract | production (default: contract)
   --suite, -s   Suite to run: all | knowledge | course | lesson | tutor | learner (default: all)
   --domain, -d  Domain to evaluate: all | transformer | csapp | cpp (default: all)
   --out, -o     Path to write JSON evaluation report (default: eval-report.json)
@@ -49,67 +43,52 @@ Options:
     return 0;
   }
 
-  const selectedMode = (values.mode ?? 'contract') as EvalMode;
   const selectedSuite = values.suite ?? 'all';
   const selectedDomain = values.domain ?? 'all';
   const outputPath = path.resolve(process.cwd(), values.out ?? 'eval-report.json');
 
-  if (selectedMode === 'contract') {
-    console.log(`[OpenTutor Eval] Running deterministic contract evaluation suites against domain bundles | suite: '${selectedSuite}' | domain: '${selectedDomain}'...`);
-  } else if (selectedMode === 'production') {
-    console.log(`[OpenTutor Eval] Running production quality evaluation runner | suite: '${selectedSuite}' | domain: '${selectedDomain}'...`);
-  } else {
-    console.log(`[OpenTutor Eval] Running in '${selectedMode}' mode | suite: '${selectedSuite}' | domain: '${selectedDomain}'...`);
-  }
+  console.log(`[OpenTutor Eval] Running deterministic evaluation suites against domain bundles | suite: '${selectedSuite}' | domain: '${selectedDomain}'...`);
 
   const suiteResults: EvalSuiteResult[] = [];
 
-  try {
-    // 1. Knowledge Compiler Suite
-    if (selectedSuite === 'all' || selectedSuite === 'knowledge') {
-      console.log(`[Eval] Executing Knowledge Compiler Evaluation Suite...`);
-      const knowledgeSuite = new KnowledgeEvalSuite({ mode: selectedMode });
-      const result = await knowledgeSuite.runSuite(selectedDomain);
-      suiteResults.push(result);
-    }
+  // 1. Knowledge Compiler Suite
+  if (selectedSuite === 'all' || selectedSuite === 'knowledge') {
+    console.log(`[Eval] Executing Knowledge Compiler Evaluation Suite...`);
+    const knowledgeSuite = new KnowledgeEvalSuite();
+    const result = await knowledgeSuite.runSuite(selectedDomain);
+    suiteResults.push(result);
+  }
 
-    // 2. Course Compiler Suite
-    if (selectedSuite === 'all' || selectedSuite === 'course') {
-      console.log(`[Eval] Executing Course Compiler Evaluation Suite...`);
-      const courseSuite = new CourseEvalSuite({ mode: selectedMode });
-      const result = await courseSuite.runSuite(selectedDomain);
-      suiteResults.push(result);
-    }
+  // 2. Course Compiler Suite
+  if (selectedSuite === 'all' || selectedSuite === 'course') {
+    console.log(`[Eval] Executing Course Compiler Evaluation Suite...`);
+    const courseSuite = new CourseEvalSuite();
+    const result = await courseSuite.runSuite(selectedDomain);
+    suiteResults.push(result);
+  }
 
-    // 3. Lesson Quality Suite
-    if (selectedSuite === 'all' || selectedSuite === 'lesson') {
-      console.log(`[Eval] Executing Lesson Quality Evaluation Suite...`);
-      const lessonSuite = new LessonEvalSuite({ mode: selectedMode });
-      const result = await lessonSuite.runSuite(selectedDomain);
-      suiteResults.push(result);
-    }
+  // 3. Lesson Quality Suite
+  if (selectedSuite === 'all' || selectedSuite === 'lesson') {
+    console.log(`[Eval] Executing Lesson Quality Evaluation Suite...`);
+    const lessonSuite = new LessonEvalSuite();
+    const result = await lessonSuite.runSuite(selectedDomain);
+    suiteResults.push(result);
+  }
 
-    // 4. Tutor Behavior Suite
-    if (selectedSuite === 'all' || selectedSuite === 'tutor') {
-      console.log(`[Eval] Executing Tutor Behavior Evaluation Suite...`);
-      const tutorSuite = new TutorEvalSuite({ mode: selectedMode });
-      const result = await tutorSuite.runSuite(selectedDomain);
-      suiteResults.push(result);
-    }
+  // 4. Tutor Behavior Suite
+  if (selectedSuite === 'all' || selectedSuite === 'tutor') {
+    console.log(`[Eval] Executing Tutor Behavior Evaluation Suite...`);
+    const tutorSuite = new TutorEvalSuite();
+    const result = await tutorSuite.runSuite(selectedDomain);
+    suiteResults.push(result);
+  }
 
-    // 5. Learner Model v2 Suite
-    if (selectedSuite === 'all' || selectedSuite === 'learner') {
-      console.log(`[Eval] Executing Learner Model v2 Evaluation Suite...`);
-      const learnerSuite = new LearnerEvalSuite({ mode: selectedMode });
-      const result = await learnerSuite.runSuite(selectedDomain);
-      suiteResults.push(result);
-    }
-  } catch (err: unknown) {
-    if (err instanceof ModelSetupRequiredError || (err instanceof Error && err.message.includes(MODEL_SETUP_REQUIRED))) {
-      console.error(`\n[OpenTutor Eval Fatal Error]: MODEL_SETUP_REQUIRED - ${err instanceof Error ? err.message : String(err)}`);
-      return 1;
-    }
-    throw err;
+  // 5. Learner Model v2 Suite
+  if (selectedSuite === 'all' || selectedSuite === 'learner') {
+    console.log(`[Eval] Executing Learner Model v2 Evaluation Suite...`);
+    const learnerSuite = new LearnerEvalSuite();
+    const result = await learnerSuite.runSuite(selectedDomain);
+    suiteResults.push(result);
   }
   // Formatted terminal output
   const terminalReport = formatTerminalReport(suiteResults);

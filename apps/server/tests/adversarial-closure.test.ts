@@ -29,6 +29,12 @@ import {
 } from '@opentutor/database';
 import { BetaMasteryAggregator } from '@opentutor/assessment-core';
 import { DomainToolsExecutor } from '@opentutor/tutor-tools';
+import {
+  ModelExecutionService,
+  ModelExecutionError,
+  createOpenTutorModelRuntime,
+  ModelPreferencesRepository,
+} from '@opentutor/model-runtime';
 import type { QuizBlock } from '@opentutor/protocol';
 
 test('Adversarial & Closure Matrix (A - O)', async (t) => {
@@ -448,33 +454,16 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
       }
     }
   });
-
-  await t.test('N. production eval -> cannot instantiate Benchmark* oracle adapters', async () => {
-    // In production eval runner, Benchmark adapters are strictly prohibited
-    const { TutorEvalSuite, BenchmarkTutorPolicyRunner, loadAllDomainBundles } = await import('../../../packages/evaluation/src/index.ts');
-    const bundles = loadAllDomainBundles();
-    const transformerBundle = bundles['transformer']!;
-    const suite = new TutorEvalSuite({
-      mode: 'production',
-      policyRunner: new BenchmarkTutorPolicyRunner(),
-    });
-    const result = await suite.evaluateScenario(transformerBundle, transformerBundle.tutorScenarios[0]!);
-    assert.equal(result.passed, false);
-    assert.ok(result.hardFailures.some((f) => f.message.includes('PROHIBITED_ADAPTER') || f.rule === 'TUTOR_EXECUTION_ERROR'));
-  });
-
-  await t.test('O. production eval without credentials -> raises MODEL_SETUP_REQUIRED and never fallbacks fake', async () => {
-    // Check that when no model driver/auth exists, production ModelExecutionService throws MODEL_SETUP_REQUIRED
-    const { DefaultModelExecutionService, ModelExecutionError } = await import('../../../packages/model-runtime/src/index.ts');
-    const roleResolver = {
-      resolveRoleModel: async () => ({ provider: 'anthropic', model: 'claude-3-7-sonnet', thinkingLevel: 'medium' as const }),
-    };
+  await t.test('O. model execution without credentials -> raises MODEL_SETUP_REQUIRED and never fallbacks fake', async () => {
+    // A driver that reports missing credentials must surface MODEL_SETUP_REQUIRED — never silent fake fallback.
+    const runtime = await createOpenTutorModelRuntime({ dataDir: ':memory:', authPath: ':memory:', modelsPath: ':memory:' });
+    const prefsRepo = new ModelPreferencesRepository(createDatabase(':memory:'));
     const brokenDriver = {
       complete: async () => {
         throw new ModelExecutionError('MODEL_SETUP_REQUIRED', 'No credentials found');
       },
     };
-    const executionService = new DefaultModelExecutionService(roleResolver as any, brokenDriver as any);
+    const executionService = new ModelExecutionService(runtime, prefsRepo, brokenDriver as any);
     await assert.rejects(
       async () => {
         await executionService.completeText({

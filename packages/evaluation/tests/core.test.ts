@@ -2,21 +2,14 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
   loadAllDomainBundles,
-  loadDomainBundle,
-  runEvalCase,
-  runEvalSuite,
   assertNoForbiddenMerges,
   assertAcyclic,
   assertPrerequisiteClosure,
   calculatePrecision,
   calculateRecall,
-  calculateF1,
   calculateTopologicalValidity,
-  calculateGroundingScore,
   createMetric,
   formatTerminalReport,
-  generateJsonReport,
-  createValidator,
 } from '../src/index.ts';
 
 describe('@opentutor/evaluation core framework', () => {
@@ -95,12 +88,6 @@ describe('@opentutor/evaluation core framework', () => {
     const recall = calculateRecall(['a', 'b', 'c'], ['b', 'c', 'd']);
     assert.equal(Number(recall.toFixed(4)), 0.6667);
 
-    const f1 = calculateF1(precision, recall);
-    assert.equal(Number(f1.toFixed(4)), 0.6667);
-
-    const grounding = calculateGroundingScore([true, true, false, true]);
-    assert.equal(grounding, 0.75);
-
     const topologicalOrder = ['A', 'B', 'C'];
     const validEdges = [{ from: 'A', to: 'B' }, { from: 'B', to: 'C' }];
     assert.equal(calculateTopologicalValidity(topologicalOrder, validEdges), 1.0);
@@ -109,63 +96,6 @@ describe('@opentutor/evaluation core framework', () => {
     assert.equal(calculateTopologicalValidity(invalidOrder, validEdges), 0.0);
   });
 
-  it('runs eval cases and suites with report generation', async () => {
-    const testCases = [
-      {
-        id: 'test-case-1',
-        domain: 'transformer',
-        input: { query: 'attention' },
-        expected: { target: 'self-attention' },
-      },
-      {
-        id: 'test-case-2',
-        domain: 'transformer',
-        input: { query: 'softmax' },
-        expected: { target: 'softmax-normalization' },
-      },
-    ];
-
-    const executor = (input: { query: string }) => {
-      return { output: input.query === 'attention' ? 'self-attention' : 'softmax-normalization' };
-    };
-
-    const validator = createValidator<{ output: string }, { target: string }>(
-      'TARGET_MATCH',
-      (actual, expected) => {
-        if (actual.output !== expected.target) {
-          return [{ rule: 'TARGET_MATCH', message: `Expected ${expected.target}, got ${actual.output}` }];
-        }
-        return [];
-      }
-    );
-
-    const suiteResult = await runEvalSuite(
-      'Test Suite',
-      testCases,
-      executor,
-      {
-        validators: [validator],
-        metricCalculators: [
-          (actual, expected) => [createMetric('accuracy', actual.output === expected.target ? 1.0 : 0.0, 1.0)],
-        ],
-      }
-    );
-
-    assert.equal(suiteResult.passed, true);
-    assert.equal(suiteResult.totalCases, 2);
-    assert.equal(suiteResult.passedCases, 2);
-    assert.equal(suiteResult.hardFailureCount, 0);
-    assert.equal(suiteResult.metrics.accuracy, 1.0);
-
-    const terminalReport = formatTerminalReport([suiteResult]);
-    assert.ok(terminalReport.includes('OPENTUTOR EVALUATION REPORT'));
-    assert.ok(terminalReport.includes('Test Suite'));
-
-    const jsonReport = generateJsonReport([suiteResult]);
-    const parsed = JSON.parse(jsonReport);
-    assert.equal(parsed.passed, true);
-    assert.equal(parsed.totalCases, 2);
-  });
 
   it('evaluates directional metric expectations (gte, lte, eq, gt, lt)', () => {
     // gte

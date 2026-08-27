@@ -17,6 +17,7 @@ export interface ProviderInfo {
   name: string;
   configured: boolean;
   modelCount?: number;
+  custom?: boolean;
   auth?: {
     apiKey?: ProviderAuthMethod;
     oauth?: ProviderAuthMethod;
@@ -101,6 +102,42 @@ export async function loginWithApiKey(providerId: string, apiKey: string): Promi
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error ?? 'Failed to login with API key');
+  }
+}
+
+export interface CustomProviderModelInput {
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+export async function addCustomProvider(input: {
+  id: string;
+  name?: string;
+  baseUrl: string;
+  apiKey?: string;
+  api?: string;
+  models: CustomProviderModelInput[];
+}): Promise<ProviderInfo> {
+  const res = await fetch('/api/ai/providers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? '添加自定义 Provider 失败');
+  }
+  return res.json();
+}
+
+export async function removeCustomProvider(providerId: string): Promise<void> {
+  const res = await fetch(`/api/ai/providers/${providerId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? '移除 Provider 失败');
   }
 }
 
@@ -267,11 +304,6 @@ export async function listCourseSources(courseId: string): Promise<CourseSourceI
   return data.sources ?? [];
 }
 
-export async function deleteCourseSource(courseId: string, sourceId: string): Promise<void> {
-  const res = await fetch(`/api/courses/${courseId}/sources/${sourceId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to delete material');
-}
-
 export async function compileCourse(courseId: string, learningGoal: string): Promise<{ course: CourseSummary; snapshot: LearningSessionSnapshot }> {
   const res = await fetch(`/api/courses/${courseId}/compile`, {
     method: 'POST',
@@ -374,9 +406,6 @@ export function subscribeToLearningEvents(
 
   const types = [
     'agent.started',
-    'agent.text.delta',
-    'agent.tool.started',
-    'agent.tool.completed',
     'agent.completed',
     'lesson.patch',
     'lesson.updated',

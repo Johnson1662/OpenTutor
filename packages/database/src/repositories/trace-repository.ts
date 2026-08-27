@@ -22,16 +22,6 @@ export interface AgentToolCallRecord {
  completedAt?: string;
 }
 
-export interface CompilationTraceRecord {
- id: string;
- courseId: string;
- status: string;
- stage: string;
- progress: number;
- errorMessage?: string;
- createdAt: string;
- updatedAt: string;
-}
 
 export class TraceRepository {
  private readonly db: Database.Database;
@@ -137,57 +127,5 @@ export class TraceRepository {
    startedAt: r.started_at,
    completedAt: r.completed_at ?? undefined,
   }));
- }
-
- recordCompilationTrace(trace: {
-  id: string;
-  courseId: string;
-  status: string;
-  stage: string;
-  progress: number;
-  errorMessage?: string;
- }): void {
-  const now = new Date().toISOString();
-  this.db
-   .prepare(
-    `INSERT INTO course_compile_jobs (id, course_id, status, stage, progress, error_message, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           status = excluded.status,
-           stage = excluded.stage,
-           progress = excluded.progress,
-           error_message = excluded.error_message,
-           updated_at = excluded.updated_at`
-   )
-   .run(
-    trace.id,
-    trace.courseId,
-    trace.status,
-    trace.stage,
-    trace.progress,
-    trace.errorMessage ?? null,
-    now,
-    now
-   );
- }
-
- getCompilationTrace(jobId: string): CompilationTraceRecord | null {
-  const row = this.db
-   .prepare(
-    'SELECT id, course_id, status, stage, progress, error_message, created_at, updated_at FROM course_compile_jobs WHERE id = ?'
-   )
-   .get(jobId) as any;
-
-  if (!row) return null;
-  return {
-   id: row.id,
-   courseId: row.course_id,
-   status: row.status,
-   stage: row.stage,
-   progress: row.progress,
-   errorMessage: row.error_message ?? undefined,
-   createdAt: row.created_at,
-   updatedAt: row.updated_at,
-  };
- }
+}
 }

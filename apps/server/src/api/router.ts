@@ -4,7 +4,6 @@ import { handleAiRoutes, type AiRouteContext } from './ai-routes.ts';
 import { handleAuthRoutes, type AuthRouteContext } from './auth-routes.ts';
 import { handleCourseRoutes, type CourseRouteContext } from './course-routes.ts';
 import { handleSessionRoutes, type SessionRouteContext } from './session-routes.ts';
-import { handleLessonRoutes, type LessonRouteContext } from './lesson-routes.ts';
 import { handleAssessmentRoutes, type AssessmentRouteContext } from './assessment-routes.ts';
 import { handleEventRoutes, type EventRouteContext } from './event-routes.ts';
 
@@ -15,7 +14,6 @@ export type RouteContext = AiRouteContext &
   AuthRouteContext &
   CourseRouteContext &
   SessionRouteContext &
-  LessonRouteContext &
   AssessmentRouteContext &
   EventRouteContext & {
     knowledgeService?: KnowledgeService;
@@ -55,7 +53,6 @@ export async function handleRequest(
   if (await handleAuthRoutes(req, res, url, ctx)) return;
   if (await handleCourseRoutes(req, res, url, ctx)) return;
   if (await handleSessionRoutes(req, res, url, ctx)) return;
-  if (await handleLessonRoutes(req, res, url, ctx)) return;
   if (await handleAssessmentRoutes(req, res, url, ctx)) return;
   if (await handleEventRoutes(req, res, url, ctx)) return;
 

@@ -1,9 +1,12 @@
+import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import type { Model } from '@earendil-works/pi-ai';
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { parseJsonWithRepair } from '@earendil-works/pi-ai';
-import type { RoleModelResolver, ResolvedRoleModel } from './role-model-resolver.ts';
-import type { AiRole } from './preferences/model-preferences-repository.ts';
+import type { AiRole, ModelPreferencesRepository } from './preferences/model-preferences-repository.ts';
 import type { ModelDriver } from './drivers/model-driver.ts';
+import { PiModelDriver } from './drivers/pi-model-driver.ts';
 
 export type ModelExecutionErrorCode =
   | 'MODEL_SETUP_REQUIRED'
@@ -40,30 +43,119 @@ export interface ModelExecutionRequest<T = unknown> {
   schema?: TSchema;
 }
 
-export interface ModelExecutionService {
-  completeText(input: {
-    role: AiRole;
-    userId?: string;
-    system?: string;
-    prompt: string;
-  }): Promise<string>;
-
-  completeStructured<T>(input: {
-    role: AiRole;
-    userId?: string;
-    system?: string;
-    prompt: string;
-    schema: TSchema;
-  }): Promise<T>;
+export interface SelectedModelResult {
+  providerId: string;
+  modelId: string;
+  thinkingLevel: ThinkingLevel;
+  model?: Model<any>;
+  isConfigured: boolean;
 }
 
-export class DefaultModelExecutionService implements ModelExecutionService {
-  private readonly resolver: RoleModelResolver;
+export interface ResolvedRoleModel {
+  role: AiRole;
+  providerId: string;
+  modelId: string;
+  thinkingLevel?: ThinkingLevel;
+  model?: Model<any>;
+  isRoleSpecific: boolean;
+}
+
+/** Resolve the user's globally selected model from preferences, env, then built-in defaults. */
+export async function resolveSelectedModel(
+  runtime: ModelRuntime,
+  preferencesRepo: ModelPreferencesRepository,
+  userId: string = 'default-user'
+): Promise<SelectedModelResult> {
+  const prefs = preferencesRepo.getPreferences(userId);
+
+  const providerId = prefs?.defaultProviderId ?? process.env.OPENTUTOR_DEFAULT_PROVIDER ?? 'anthropic';
+  const modelId = prefs?.defaultModelId ?? process.env.OPENTUTOR_DEFAULT_MODEL ?? 'claude-3-7-sonnet-20250219';
+  const rawThinking = prefs?.thinkingLevel ?? 'medium';
+  const thinkingLevel: ThinkingLevel =
+    rawThinking === 'off' || rawThinking === 'low' || rawThinking === 'medium' || rawThinking === 'high'
+      ? rawThinking
+      : 'medium';
+
+  const model = runtime.getModel(providerId, modelId);
+  const isConfigured = runtime.hasConfiguredAuth(providerId);
+
+  return {
+    providerId,
+    modelId,
+    thinkingLevel,
+    model: model ?? undefined,
+    isConfigured,
+  };
+}
+
+export class ModelExecutionService {
+  private readonly modelRuntime: ModelRuntime;
+  private readonly preferencesRepo: ModelPreferencesRepository;
   private readonly driver: ModelDriver;
 
-  constructor(resolver: RoleModelResolver, driver: ModelDriver) {
-    this.resolver = resolver;
-    this.driver = driver;
+  constructor(
+    modelRuntime: ModelRuntime,
+    preferencesRepo: ModelPreferencesRepository,
+    driver?: ModelDriver
+  ) {
+    this.modelRuntime = modelRuntime;
+    this.preferencesRepo = preferencesRepo;
+    this.driver = driver ?? new PiModelDriver(modelRuntime);
+  }
+
+  async resolveRoleModel(userId: string = 'default-user', role: AiRole): Promise<ResolvedRoleModel> {
+    // 1. Check role-specific preference
+    const rolePref = this.preferencesRepo.getRolePreference(userId, role);
+    if (rolePref && rolePref.providerId && rolePref.modelId) {
+      const model = this.modelRuntime.getModel(rolePref.providerId, rolePref.modelId);
+      return {
+        role,
+        providerId: rolePref.providerId,
+        modelId: rolePref.modelId,
+        thinkingLevel: rolePref.thinkingLevel as ThinkingLevel,
+        model: model ?? undefined,
+        isRoleSpecific: true,
+      };
+    }
+
+    // 2. Fall back to global default preference
+    const defaultSelection = await resolveSelectedModel(this.modelRuntime, this.preferencesRepo, userId);
+    if (defaultSelection && defaultSelection.providerId && defaultSelection.modelId) {
+      const model = this.modelRuntime.getModel(defaultSelection.providerId, defaultSelection.modelId);
+      const allModels = this.modelRuntime.getModels();
+      if (!model && allModels.length === 0) {
+        throw new Error(
+          `MODEL_SETUP_REQUIRED: No AI model configured for role '${role}'. Please configure an AI Provider in Settings.`
+        );
+      }
+
+      return {
+        role,
+        providerId: defaultSelection.providerId,
+        modelId: defaultSelection.modelId,
+        thinkingLevel: defaultSelection.thinkingLevel,
+        model: model ?? defaultSelection.model,
+        isRoleSpecific: false,
+      };
+    }
+
+    // 3. Fallback to first available configured model if runtime has any
+    const allModels = this.modelRuntime.getModels();
+    if (allModels.length > 0) {
+      const fallback = allModels[0] as any;
+      return {
+        role,
+        providerId: fallback.providerId ?? fallback.provider,
+        modelId: fallback.id,
+        thinkingLevel: 'medium',
+        model: fallback,
+        isRoleSpecific: false,
+      };
+    }
+
+    throw new Error(
+      `MODEL_SETUP_REQUIRED: No AI model configured for role '${role}'. Please configure an AI Provider in Settings.`
+    );
   }
 
   async completeText(input: {
@@ -76,7 +168,7 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     let resolved: ResolvedRoleModel;
 
     try {
-      resolved = await this.resolver.resolveRoleModel(userId, input.role);
+      resolved = await this.resolveRoleModel(userId, input.role);
     } catch (err: unknown) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       if (errorObj.message.includes('MODEL_SETUP_REQUIRED')) {
@@ -103,7 +195,7 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     let resolved: ResolvedRoleModel;
 
     try {
-      resolved = await this.resolver.resolveRoleModel(userId, input.role);
+      resolved = await this.resolveRoleModel(userId, input.role);
     } catch (err: unknown) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       if (errorObj.message.includes('MODEL_SETUP_REQUIRED')) {

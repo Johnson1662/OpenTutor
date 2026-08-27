@@ -1,7 +1,7 @@
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { contentText, type Context } from '@earendil-works/pi-ai';
 import type { ModelDriver } from './model-driver.ts';
-import type { ResolvedRoleModel } from '../role-model-resolver.ts';
+import type { ResolvedRoleModel } from '../model-execution-service.ts';
 import { ModelExecutionError } from '../model-execution-service.ts';
 
 let debugRequestSequence = 0;

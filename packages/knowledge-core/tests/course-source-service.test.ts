@@ -5,7 +5,6 @@ import {
   LivingKnowledgeCompiler,
   CourseSourceService,
   ArtifactSupportEvaluator,
-  KnowledgeVisibilityPolicy,
   computeSha256,
 } from '../src/index.ts';
 
@@ -199,8 +198,7 @@ test('packages/knowledge-core - CourseSourceService & Ref-Counted Deletion', asy
     assert.deepEqual(originDeletedNeighbors, [], 'Deleted origin node must return empty list on graphNeighbors');
   });
 
-  await t.test('6. ArtifactSupportEvaluator and KnowledgeVisibilityPolicy verify section-level artifact grounding and node visibility', () => {
-    const policy = new KnowledgeVisibilityPolicy(db);
+  await t.test('6. ArtifactSupportEvaluator and retrieval verify section-level grounding and node visibility', () => {
     const evaluator = new ArtifactSupportEvaluator(db);
 
     const activeNode = livingCompiler.resolver.resolve('Active Concept');
@@ -213,8 +211,8 @@ test('packages/knowledge-core - CourseSourceService & Ref-Counted Deletion', asy
     const claim = livingCompiler.claims.recordClaim(activeNode.id, 'Active statement.');
     livingCompiler.evidence.linkEvidence(claim.id, chunkId, 'supports', 1.0, true);
 
-    // Active node is visible
-    assert.equal(policy.isNodeVisible(activeNode.id), true);
+    // Active node is visible through the retrieval interface
+    assert.ok(livingCompiler.retrieval.knowledgeSearch('Active Concept').some((item) => item.nodeId === activeNode.id));
 
     // Fully supported artifact
     const supportedArtifact = {
@@ -243,7 +241,6 @@ test('packages/knowledge-core - CourseSourceService & Ref-Counted Deletion', asy
 
     // Stale artifact on deleted node
     const deletedNode = livingCompiler.resolver.resolve('Self Attention');
-    assert.equal(policy.isNodeVisible(deletedNode.id), false);
 
     const staleArtifact = {
       nodeId: deletedNode.id,

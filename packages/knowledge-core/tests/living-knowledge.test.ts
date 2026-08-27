@@ -8,8 +8,6 @@ import {
   EvidenceService,
   ClaimReconciler,
   ModelKnowledgeAnalyzer,
-  RetrievalTracker,
-  RetrievalBudgetLevel,
   parseMarkdown,
   computeSha256,
 } from '../src/index.ts';
@@ -123,21 +121,6 @@ test('packages/knowledge-core - Living Knowledge Compiler & Agentic Retrieval', 
 
     const chunkResults = livingCompiler.retrieval.sourceSearch('logits');
     assert.ok(chunkResults.length > 0);
-  });
-
-  await t.test('7. RetrievalTracker enforces budget limits', () => {
-    const tracker = new RetrievalTracker(RetrievalBudgetLevel.Standard);
-    assert.equal(tracker.remaining, 2);
-
-    tracker.consumeStep('knowledge_search', 'attention', 2);
-    assert.equal(tracker.remaining, 1);
-
-    tracker.consumeStep('artifact_read', 'self-attention', 1);
-    assert.equal(tracker.remaining, 0);
-
-    assert.throws(() => {
-      tracker.consumeStep('source_search', 'logits');
-    }, /Retrieval budget exceeded/);
   });
 
   await t.test('8. EntityResolver maintains distinct nodes for different concepts and links with related edge', () => {

@@ -1,13 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDatabase, seedDatabase } from '@opentutor/database';
-import {
-  FakeGoalAnalyzer,
-  PrerequisiteResolver,
-  GraphBuilder,
-  PathPlanner,
-  CourseCompiler,
-} from '../src/index.ts';
+import { FakeGoalAnalyzer, CourseCompiler } from '../src/index.ts';
 
 test('packages/course-core - Course Domain & Compilation Pipeline', async (t) => {
   const db = createDatabase(':memory:');
@@ -22,36 +16,26 @@ test('packages/course-core - Course Domain & Compilation Pipeline', async (t) =>
     assert.equal(analysis.depth, 'beginner');
   });
 
-  await t.test('2. PrerequisiteResolver computes transitive closure and topological ordering', () => {
-    const resolver = new PrerequisiteResolver(db);
-    // In seed database, self-attention has prerequisite embedding
-    const closure = resolver.resolveClosure(['self-attention']);
+  await t.test('2. CourseCompiler orders prerequisites and persists the course graph', async () => {
+    const compiler = new CourseCompiler(db, {
+      async analyzeGoal() {
+        return { targetConcepts: ['Self Attention'], depth: 'beginner' };
+      },
+    });
+    const result = await compiler.compileCourse({
+      courseId: 'course-test-1',
+      title: 'Understanding Attention',
+      learningGoal: 'Learn self attention',
+    });
 
-    assert.ok(closure.orderedNodeIds.includes('self-attention'));
-    assert.ok(closure.orderedNodeIds.includes('embedding'));
-    // embedding should come before self-attention in topological order
-    const embeddingIdx = closure.orderedNodeIds.indexOf('embedding');
-    const selfAttnIdx = closure.orderedNodeIds.indexOf('self-attention');
+    const embeddingIdx = result.courseGraph.nodes.findIndex((node) => node.knowledgeNodeId === 'embedding');
+    const selfAttnIdx = result.courseGraph.nodes.findIndex((node) => node.knowledgeNodeId === 'self-attention');
+    assert.ok(embeddingIdx >= 0);
+    assert.ok(selfAttnIdx >= 0);
     assert.ok(embeddingIdx < selfAttnIdx);
-    assert.equal(closure.hasCycle, false);
-  });
+    assert.equal(result.courseGraph.nodes[embeddingIdx]?.role, 'prerequisite');
+    assert.equal(result.courseGraph.nodes[selfAttnIdx]?.role, 'core');
 
-  await t.test('3. GraphBuilder projects closure into CourseGraph and persists into SQLite', () => {
-    const builder = new GraphBuilder(db);
-    const graph = builder.buildCourseGraph(
-      'course-test-1',
-      'Understanding Attention',
-      ['softmax', 'self-attention'],
-      ['self-attention'],
-      new Map([['self-attention', ['softmax']]])
-    );
-
-    assert.equal(graph.courseId, 'course-test-1');
-    assert.equal(graph.nodes.length, 2);
-    assert.equal(graph.nodes[0]?.role, 'prerequisite');
-    assert.equal(graph.nodes[1]?.role, 'core');
-
-    // Verify database tables
     const dbNodes = db.prepare('SELECT * FROM course_nodes WHERE course_id = ?').all('course-test-1');
     assert.equal(dbNodes.length, 2);
 
@@ -59,29 +43,56 @@ test('packages/course-core - Course Domain & Compilation Pipeline', async (t) =>
     assert.equal(dbEdges.length, 1);
   });
 
-  await t.test('4. PathPlanner creates active path and skips user-mastered nodes', () => {
-    const planner = new PathPlanner();
-    const mockGraph = {
-      courseId: 'course-test-2',
-      title: 'Test Course',
-      nodes: [
-        { courseId: 'c1', knowledgeNodeId: 'softmax', title: 'Softmax', role: 'prerequisite' as const, position: 1 },
-        { courseId: 'c1', knowledgeNodeId: 'self-attention', title: 'Self-Attention', role: 'core' as const, position: 2 },
-        { courseId: 'c1', knowledgeNodeId: 'multi-head-attention', title: 'Multi-Head Attention', role: 'core' as const, position: 3 },
-      ],
-      edges: [],
-    };
+  await t.test('3. CourseCompiler plans around mastered prerequisites', async () => {
+    db.prepare(
+      `INSERT INTO user_knowledge_states (user_id, knowledge_node_id, status, confidence, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`
+    ).run('path-user', 'embedding', 'mastered', 0.9);
 
-    // User has already mastered softmax
-    const userStates = [
-      { knowledgeNodeId: 'softmax', status: 'mastered' as const, confidence: 0.9 },
-    ];
+    const compiler = new CourseCompiler(db, {
+      async analyzeGoal() {
+        return { targetConcepts: ['Self Attention'], depth: 'beginner' };
+      },
+    });
+    const result = await compiler.compileCourse({
+      courseId: 'course-test-path',
+      learningGoal: 'Learn self attention',
+      userId: 'path-user',
+    });
 
-    const path = planner.planInitialPath(mockGraph, userStates);
-    assert.equal(path.length, 3);
-    assert.equal(path[0]?.status, 'completed');
-    assert.equal(path[1]?.status, 'current');
-    assert.equal(path[2]?.status, 'upcoming');
+    const embedding = result.initialPath.find((node) => node.knowledgeNodeId === 'embedding');
+    const selfAttention = result.initialPath.find((node) => node.knowledgeNodeId === 'self-attention');
+    assert.equal(embedding?.status, 'completed');
+    assert.equal(selfAttention?.status, 'current');
+  });
+
+  await t.test('4. CourseCompiler keeps every node when prerequisites contain a cycle', async () => {
+    db.prepare(
+      `INSERT OR REPLACE INTO knowledge_nodes (id, title, description, created_at)
+       VALUES ('cycle-a', 'Cycle A', '', datetime('now')),
+              ('cycle-b', 'Cycle B', '', datetime('now'))`
+    ).run();
+    db.prepare(
+      `INSERT OR REPLACE INTO knowledge_edges (from_node_id, to_node_id, relation_type, created_at)
+       VALUES ('cycle-a', 'cycle-b', 'prerequisite', datetime('now')),
+              ('cycle-b', 'cycle-a', 'prerequisite', datetime('now'))`
+    ).run();
+
+    const compiler = new CourseCompiler(db, {
+      async analyzeGoal() {
+        return { targetConcepts: ['Cycle A'], depth: 'beginner' };
+      },
+    });
+    const result = await compiler.compileCourse({
+      courseId: 'course-cycle',
+      learningGoal: 'Learn cycle A',
+    });
+
+    assert.deepEqual(
+      result.courseGraph.nodes.map((node) => node.knowledgeNodeId).sort(),
+      ['cycle-a', 'cycle-b']
+    );
+    assert.equal(result.courseGraph.edges.length, 2);
   });
 
   await t.test('5. CourseCompiler executes full compilation pipeline', async () => {

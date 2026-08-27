@@ -43,20 +43,7 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 4. PATCH /api/courses/:id
-  if (method === 'PATCH' && getCourseMatch) {
-    const courseId = getCourseMatch[1]!;
-    const body = await readJson<{ title?: string; description?: string }>(req);
-    const updated = ctx.courseService.updateCourse(courseId, body);
-    if (!updated) {
-      json(res, 404, { error: 'COURSE_NOT_FOUND' }, req);
-      return true;
-    }
-    json(res, 200, { course: updated }, req);
-    return true;
-  }
-
-  // 5. POST /api/courses/:id/sources
+  // 4. POST /api/courses/:id/sources
   const sourcesMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/sources$/);
   if (method === 'POST' && sourcesMatch) {
     const courseId = sourcesMatch[1]!;
@@ -71,7 +58,7 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 6. GET /api/courses/:id/sources
+  // 5. GET /api/courses/:id/sources
   if (method === 'GET' && sourcesMatch) {
     const courseId = sourcesMatch[1]!;
     const sources = ctx.courseService.listSources(courseId);
@@ -79,7 +66,7 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 7. DELETE /api/courses/:id/sources/:sourceId
+  // 6. DELETE /api/courses/:id/sources/:sourceId
   const deleteSourceMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/sources\/([a-zA-Z0-9_-]+)$/);
   if (method === 'DELETE' && deleteSourceMatch) {
     const courseId = deleteSourceMatch[1]!;
@@ -89,7 +76,7 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 8. POST /api/courses/:id/compile
+  // 7. POST /api/courses/:id/compile
   const compileMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/compile$/);
   if (method === 'POST' && compileMatch) {
     const courseId = compileMatch[1]!;
@@ -106,7 +93,7 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 9. GET /api/courses/:id/map
+  // 8. GET /api/courses/:id/map
   const mapMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/map$/);
   if (method === 'GET' && mapMatch) {
     const courseId = mapMatch[1]!;
@@ -115,7 +102,7 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 10. GET /api/courses/:id/evidence
+  // 9. GET /api/courses/:id/evidence
   const evidenceMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/evidence$/);
   if (method === 'GET' && evidenceMatch) {
     const courseId = evidenceMatch[1]!;
@@ -124,7 +111,7 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 11. POST /api/courses/:id/sessions
+  // 10. POST /api/courses/:id/sessions
   const sessionMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/sessions$/);
   if (method === 'POST' && sessionMatch) {
     const courseId = sessionMatch[1]!;

@@ -69,5 +69,43 @@ export async function handleAiRoutes(
     return true;
   }
 
+  // 5. POST /api/ai/providers — register a custom model provider
+  if (method === 'POST' && path === '/api/ai/providers') {
+    const body = await readJson<{
+      id?: string;
+      name?: string;
+      baseUrl?: string;
+      apiKey?: string;
+      api?: string;
+      models?: Array<{ id: string; name?: string; reasoning?: boolean; contextWindow?: number; maxTokens?: number }>;
+    }>(req);
+    try {
+      const provider = await ctx.providerService.addCustomProvider({
+        id: body.id ?? '',
+        name: body.name,
+        baseUrl: body.baseUrl ?? '',
+        apiKey: body.apiKey,
+        api: body.api,
+        models: body.models ?? [],
+      });
+      json(res, 201, provider, req);
+    } catch (err: any) {
+      json(res, 400, { error: err.message ?? String(err) }, req);
+    }
+    return true;
+  }
+
+  // 6. DELETE /api/ai/providers/:id — remove a custom provider
+  const deleteProviderMatch = path.match(/^\/api\/ai\/providers\/([a-zA-Z0-9_-]+)$/);
+  if (method === 'DELETE' && deleteProviderMatch) {
+    try {
+      await ctx.providerService.removeCustomProvider(deleteProviderMatch[1]!);
+      json(res, 200, { ok: true }, req);
+    } catch (err: any) {
+      json(res, 400, { error: err.message ?? String(err) }, req);
+    }
+    return true;
+  }
+
   return false;
 }

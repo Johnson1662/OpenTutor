@@ -9,3 +9,7 @@ models-store.json
 *.sqlite*
 .opentutor/
 eval-report.json
+
+# local reference material and scratch planning, not part of the product
+docs/references/
+.scratch/

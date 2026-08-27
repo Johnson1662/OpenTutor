@@ -105,11 +105,11 @@ describe('@opentutor/database', () => {
       assert.equal(persisted.version, 2);
       assert.equal(persisted.blocks.length, 5);
 
-      // Verify version history
-      const versions = lessonRepo.getLessonVersions('lesson-self-attention');
-      assert.equal(versions.length, 2);
-      assert.equal(versions[0].version, 1);
-      assert.equal(versions[1].version, 2);
+      // Verify version writes remain intact
+      const versions = db
+        .prepare('SELECT version FROM lesson_versions WHERE lesson_id = ? ORDER BY version ASC')
+        .all('lesson-self-attention') as Array<{ version: number }>;
+      assert.deepEqual(versions.map((version) => version.version), [1, 2]);
     });
 
     it('rejects patch with VersionConflictError when baseVersion is stale', () => {
@@ -338,10 +338,11 @@ describe('@opentutor/database', () => {
       const state = knowledgeRepo.getUserKnowledgeState('default-user', 'self-attention');
       assert.equal(state, null);
 
-      const assessments = knowledgeRepo.getAssessments('default-user', 'lesson-self-attention');
-      assert.equal(assessments.length, 1);
-      assert.equal(assessments[0].id, 'asmt-1');
-      assert.equal(assessments[0].result, 'correct');
+      const assessmentRow = db
+        .prepare('SELECT id, result FROM assessments WHERE user_id = ? AND lesson_id = ?')
+        .get('default-user', 'lesson-self-attention') as { id: string; result: string } | undefined;
+      assert.equal(assessmentRow?.id, 'asmt-1');
+      assert.equal(assessmentRow?.result, 'correct');
     });
 
     it('sets and retrieves user knowledge state via setUserKnowledgeState', () => {
@@ -362,10 +363,6 @@ describe('@opentutor/database', () => {
       assert.equal(state.status, 'mastered');
       assert.equal(state.confidence, 0.88);
       assert.equal(state.evidenceCount, 3);
-
-      const allStates = knowledgeRepo.getAllUserKnowledgeStates('default-user');
-      assert.equal(allStates.length, 1);
-      assert.equal(allStates[0].knowledgeNodeId, 'self-attention');
     });
   });
 

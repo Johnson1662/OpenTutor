@@ -1,20 +1,11 @@
-import { createDatabase, type Database } from '@opentutor/database';
-import { EntityResolver, LivingKnowledgeCompiler, ModelKnowledgeAnalyzer, type KnowledgeAnalyzer } from '@opentutor/knowledge-core';
+import { createDatabase } from '@opentutor/database';
+import { EntityResolver, LivingKnowledgeCompiler } from '@opentutor/knowledge-core';
 import {
   CourseCompiler,
-  ModelGoalAnalyzer,
   type CourseGoalAnalysis,
   type CourseGraph,
   type GoalAnalyzer,
 } from '@opentutor/course-core';
-import {
-  createOpenTutorModelRuntime,
-  ModelSelectionService,
-  RoleModelResolver,
-  PiModelDriver,
-  DefaultModelExecutionService,
-  ModelPreferencesRepository,
-} from '@opentutor/model-runtime';
 import type { LearningPathNode } from '@opentutor/protocol';
 import type {
   CourseCaseFixture,
@@ -23,7 +14,6 @@ import type {
   EvalSuiteResult,
   HardFailure,
   MetricResult,
-  EvalMode,
 } from '../core/index.ts';
 import {
   assertAcyclic,
@@ -31,8 +21,6 @@ import {
   calculateTopologicalValidity,
   createMetric,
   loadAllDomainBundles,
-  ModelSetupRequiredError,
-  MODEL_SETUP_REQUIRED,
 } from '../core/index.ts';
 import { BenchmarkDomainKnowledgeAnalyzer } from '../knowledge/knowledge-eval-suite.ts';
 export class BenchmarkGoalAnalyzer implements GoalAnalyzer {
@@ -81,17 +69,14 @@ export class BenchmarkGoalAnalyzer implements GoalAnalyzer {
 }
 
 export interface CourseEvalOptions {
-  mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
   evalsDir?: string;
 }
 
 export class CourseEvalSuite {
-  readonly mode: EvalMode;
   private readonly bundles: Record<string, DomainFixtureBundle>;
 
   constructor(options: CourseEvalOptions = {}) {
-    this.mode = options.mode ?? 'contract';
     this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
   }
   async runSuite(targetDomain?: string): Promise<EvalSuiteResult> {
@@ -154,39 +139,8 @@ export class CourseEvalSuite {
 
     // 1. Initialize SQLite database and populate compiled knowledge graph
     const db = createDatabase(':memory:');
-    let knowledgeAnalyzer: KnowledgeAnalyzer;
-    let goalAnalyzer: GoalAnalyzer;
-
-    if (this.mode === 'production') {
-      const runtime = await createOpenTutorModelRuntime();
-      const available = await runtime.getAvailable();
-      if (available.length === 0) {
-        throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production course evaluation.');
-      }
-      const prefsRepo = new ModelPreferencesRepository(db);
-      const preferredProvider = process.env.OPENTUTOR_DEFAULT_PROVIDER;
-      const preferredModel = process.env.OPENTUTOR_DEFAULT_MODEL;
-      const first = available.find((model) =>
-        (!preferredProvider || model.provider === preferredProvider) &&
-        (!preferredModel || model.id === preferredModel)
-      ) ?? available[0];
-      if (first) {
-        prefsRepo.setPreferences('default-user', {
-          defaultProviderId: first.provider,
-          defaultModelId: first.id,
-          thinkingLevel: 'off',
-        });
-      }
-      const selectionService = new ModelSelectionService(runtime, prefsRepo);
-      const roleResolver = new RoleModelResolver(selectionService, runtime, prefsRepo);
-      const driver = new PiModelDriver(runtime);
-      const executionService = new DefaultModelExecutionService(roleResolver, driver);
-      knowledgeAnalyzer = new ModelKnowledgeAnalyzer(executionService);
-      goalAnalyzer = new ModelGoalAnalyzer(executionService);
-    } else {
-      knowledgeAnalyzer = new BenchmarkDomainKnowledgeAnalyzer(bundle);
-      goalAnalyzer = new BenchmarkGoalAnalyzer(bundle);
-    }
+    const knowledgeAnalyzer = new BenchmarkDomainKnowledgeAnalyzer(bundle);
+    const goalAnalyzer = new BenchmarkGoalAnalyzer(bundle);
 
     const knowledgeCompiler = new LivingKnowledgeCompiler(db, knowledgeAnalyzer);
 

@@ -88,33 +88,6 @@ export class LearningEvidenceRepository {
     return rows.map(mapRowToLearningEvidence);
   }
 
-  getEvidenceHistory(userId: string, limit?: number): LearningEvidence[] {
-    if (limit !== undefined) {
-      const rows = this.db
-        .prepare(`
-          SELECT id, user_id, knowledge_node_id, type, source, source_item_id, attempt, outcome,
-                 score, difficulty, confidence, weight, assessment_id, session_id, created_at
-          FROM learning_evidence
-          WHERE user_id = ?
-          ORDER BY created_at DESC
-          LIMIT ?
-        `)
-        .all(userId, limit) as LearningEvidenceRow[];
-      return rows.map(mapRowToLearningEvidence);
-    }
-
-    const rows = this.db
-      .prepare(`
-        SELECT id, user_id, knowledge_node_id, type, source, source_item_id, attempt, outcome,
-               score, difficulty, confidence, weight, assessment_id, session_id, created_at
-        FROM learning_evidence
-        WHERE user_id = ?
-        ORDER BY created_at DESC
-      `)
-      .all(userId) as LearningEvidenceRow[];
-    return rows.map(mapRowToLearningEvidence);
-  }
-
  countEvidence(userId: string, nodeId: string): number {
   const result = this.db
    .prepare(`
@@ -135,18 +108,6 @@ export class LearningEvidenceRepository {
         WHERE user_id = ? AND knowledge_node_id = ? AND source_item_id = ?
       `)
       .get(userId, nodeId, sourceItemId) as { count: number } | undefined;
-
-    return result?.count ?? 0;
-  }
-
-  countDistinctItems(userId: string, nodeId: string): number {
-    const result = this.db
-      .prepare(`
-        SELECT COUNT(DISTINCT source_item_id) as count
-        FROM learning_evidence
-        WHERE user_id = ? AND knowledge_node_id = ? AND source_item_id IS NOT NULL
-      `)
-      .get(userId, nodeId) as { count: number } | undefined;
 
     return result?.count ?? 0;
   }

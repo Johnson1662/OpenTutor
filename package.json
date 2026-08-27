@@ -22,13 +22,11 @@
     "test:adversarial": "node --test --experimental-strip-types apps/server/tests/adversarial*.test.ts",
     "check": "pnpm test && pnpm typecheck && pnpm build",
     "eval": "node --experimental-strip-types packages/evaluation/src/cli.ts",
-    "eval:contract": "node --experimental-strip-types packages/evaluation/src/cli.ts --mode contract",
-    "eval:production": "node --experimental-strip-types packages/evaluation/src/cli.ts --mode production",
     "eval:knowledge": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite knowledge",
     "eval:course": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite course",
     "eval:lesson": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite lesson",
     "eval:tutor": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite tutor",
-    "eval:learner": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite learner --mode contract"
+    "eval:learner": "node --experimental-strip-types packages/evaluation/src/cli.ts --suite learner"
   },
   "dependencies": {
     "typebox": "^1.3.17"

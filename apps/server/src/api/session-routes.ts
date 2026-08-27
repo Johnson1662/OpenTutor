@@ -5,14 +5,12 @@ import { json, readJson } from './http-utils.ts';
 import type { SessionService } from '../services/session-service.ts';
 import type { LearningProgressService } from '../services/learning-progress-service.ts';
 import type { TutorRuntime } from '@opentutor/agent-runtime';
-import type { TraceRepository } from '@opentutor/database';
 import type { EventBus } from '../events/event-bus.ts';
 
 export interface SessionRouteContext {
   sessionService: SessionService;
   learningProgressService?: LearningProgressService;
   tutorRuntime: TutorRuntime;
-  traceRepo: TraceRepository;
   eventBus: EventBus;
 }
 
@@ -224,20 +222,6 @@ export async function handleSessionRoutes(
 
     const accepted: AcceptedResponse = { accepted: true, requestId };
     json(res, 202, accepted, req);
-    return true;
-  }
-
-  // 4. GET /api/sessions/:id/traces
-  const tracesMatch = path.match(/^\/api\/sessions\/([a-zA-Z0-9_-]+)\/traces$/);
-  if (method === 'GET' && tracesMatch) {
-    const sessionId = tracesMatch[1]!;
-    if (!ctx.sessionService.getSnapshot(sessionId)) {
-      json(res, 404, { error: 'SESSION_NOT_FOUND' }, req);
-      return true;
-    }
-    const runs = ctx.traceRepo.getRuns(sessionId);
-    const toolCalls = runs.flatMap((r) => ctx.traceRepo.getToolCalls(r.id));
-    json(res, 200, { runs, toolCalls }, req);
     return true;
   }
 

@@ -1,52 +1,5 @@
 import type { HardFailure } from './eval-case.ts';
 
-export interface ValidationContext {
-  caseId?: string;
-  domain?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface HardValidator<TActual = unknown, TExpected = unknown> {
-  name: string;
-  validate(actual: TActual, expected: TExpected, context?: ValidationContext): Promise<HardFailure[]> | HardFailure[];
-}
-
-export function createValidator<TActual, TExpected>(
-  name: string,
-  validateFn: (actual: TActual, expected: TExpected, context?: ValidationContext) => HardFailure[] | Promise<HardFailure[]>
-): HardValidator<TActual, TExpected> {
-  return {
-    name,
-    validate: validateFn,
-  };
-}
-
-export async function runHardValidators<TActual, TExpected>(
-  validators: HardValidator<TActual, TExpected>[],
-  actual: TActual,
-  expected: TExpected,
-  context?: ValidationContext
-): Promise<HardFailure[]> {
-  const failures: HardFailure[] = [];
-
-  for (const validator of validators) {
-    try {
-      const result = await validator.validate(actual, expected, context);
-      if (Array.isArray(result) && result.length > 0) {
-        failures.push(...result);
-      }
-    } catch (err: unknown) {
-      failures.push({
-        rule: validator.name,
-        message: `Validator threw an unhandled exception: ${err instanceof Error ? err.message : String(err)}`,
-        details: err,
-      });
-    }
-  }
-
-  return failures;
-}
-
 export function assertNoForbiddenMerges(
   mergedEntities: Array<Iterable<string> | string[]>,
   forbiddenPairs: Array<[string, string] | string[]>

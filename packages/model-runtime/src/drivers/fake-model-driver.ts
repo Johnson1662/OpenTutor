@@ -1,5 +1,5 @@
 import type { ModelDriver } from './model-driver.ts';
-import type { ResolvedRoleModel } from '../role-model-resolver.ts';
+import type { ResolvedRoleModel } from '../model-execution-service.ts';
 
 export type FakeResponseGenerator = (
   resolved: ResolvedRoleModel,

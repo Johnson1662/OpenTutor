@@ -7,7 +7,7 @@ import {
   LearningEvidenceRepository,
   MisconceptionRepository,
   DiagnosisRepository,
-  SessionFrameRepository,
+  SessionRepository,
 } from '../src/index.ts';
 import type { LearningEvidence } from '@opentutor/protocol';
 
@@ -115,26 +115,25 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 
 
     assert.equal(evidenceRepo.countEvidence('user-legacy', 'attention-head'), 2);
     assert.equal(evidenceRepo.countItemAttempts('user-legacy', 'attention-head', 'item-q1'), 1);
-    assert.equal(evidenceRepo.countDistinctItems('user-legacy', 'attention-head'), 1);
 
     // 5. Verify MisconceptionRepository (migration 015)
     const miscRepo = new MisconceptionRepository(db);
-    const misconception = miscRepo.createMisconception({
-      knowledgeNodeId: 'attention-head',
-      title: 'Confusing Query and Key roles',
-      description: 'Learner confuses query projections with key projections',
-      correctionStrategy: 'Contrast Query and Key vector transformations with a visual probe',
-    });
-    assert.ok(misconception.id);
-    assert.equal(misconception.knowledgeNodeId, 'attention-head');
-
-    const fetchedMisc = miscRepo.getMisconception(misconception.id);
-    assert.ok(fetchedMisc);
-    assert.equal(fetchedMisc.title, 'Confusing Query and Key roles');
+    const misconceptionId = 'misc-attention-head';
+    db.prepare(
+      `INSERT INTO misconceptions (id, knowledge_node_id, title, description, correction_strategy, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      misconceptionId,
+      'attention-head',
+      'Confusing Query and Key roles',
+      'Learner confuses query projections with key projections',
+      'Contrast Query and Key vector transformations with a visual probe',
+      now
+    );
 
     const userMisc = miscRepo.setUserMisconception({
       userId: 'user-legacy',
-      misconceptionId: misconception.id,
+      misconceptionId,
       confidence: 0.7,
       status: 'suspected',
     });
@@ -145,17 +144,9 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 
     assert.equal(userMiscDetails.length, 1);
     assert.equal(userMiscDetails[0].misconception.title, 'Confusing Query and Key roles');
 
-    miscRepo.incrementEvidenceCount('user-legacy', misconception.id, 0.85);
-    const updatedUserMisc = miscRepo.getUserMisconception('user-legacy', misconception.id);
-    assert.ok(updatedUserMisc);
-    assert.equal(updatedUserMisc.evidenceCount, 1);
-    assert.equal(updatedUserMisc.status, 'confirmed');
-
-    miscRepo.resolveUserMisconception('user-legacy', misconception.id);
-    const resolvedUserMisc = miscRepo.getUserMisconception('user-legacy', misconception.id);
-    assert.ok(resolvedUserMisc);
-    assert.equal(resolvedUserMisc.status, 'resolved');
-    assert.ok(resolvedUserMisc.resolvedAt);
+    const fetchedUserMisc = miscRepo.getUserMisconception('user-legacy', misconceptionId);
+    assert.ok(fetchedUserMisc);
+    assert.equal(fetchedUserMisc.confidence, 0.7);
 
     // 6. Verify DiagnosisRepository (migration 015)
     const diagRepo = new DiagnosisRepository(db);
@@ -181,9 +172,14 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 
     assert.equal(resolvedDiag.status, 'resolved');
     assert.ok(resolvedDiag.resolvedAt);
 
-    // 7. Verify SessionFrameRepository and detour diagnosis link (migration 016)
-    const frameRepo = new SessionFrameRepository(db);
-    const frame = frameRepo.pushFrame({
+    // 7. Verify migration 016 adds the detour diagnosis link
+    const frameColumns = db
+      .prepare("SELECT name FROM pragma_table_info('learning_session_frames')")
+      .all() as Array<{ name: string }>;
+    assert.ok(frameColumns.some((column) => column.name === 'diagnosis_id'));
+
+    const sessionRepo = new SessionRepository(db);
+    const frame = sessionRepo.pushFrame({
       sessionId: 'session-1',
       detourPathNodeId: 'detour-node-1',
       parentPathNodeId: 'main-node-1',
@@ -195,12 +191,12 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 
     assert.equal(frame.diagnosisId, diagnosis.id);
     assert.equal(frame.status, 'active');
 
-    const activeFrame = frameRepo.peekActiveFrame('session-1');
+    const activeFrame = sessionRepo.peekActiveFrame('session-1');
     assert.ok(activeFrame);
     assert.equal(activeFrame.id, frame.id);
     assert.equal(activeFrame.diagnosisId, diagnosis.id);
 
-    const poppedFrame = frameRepo.popActiveFrame('session-1');
+    const poppedFrame = sessionRepo.popActiveFrame('session-1');
     assert.ok(poppedFrame);
     assert.equal(poppedFrame.status, 'completed');
 

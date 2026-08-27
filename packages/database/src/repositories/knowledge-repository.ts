@@ -19,18 +19,6 @@ interface UserKnowledgeStateRow {
  updated_at: string;
 }
 
-interface AssessmentRow {
- id: string;
- user_id: string;
- knowledge_node_id: string;
- lesson_id: string;
- block_id: string | null;
- result: string;
- confidence: number;
- feedback: string;
- created_at: string;
-}
-
 function mapRowToUserKnowledgeState(row: UserKnowledgeStateRow): UserKnowledgeState {
  return {
   userId: row.user_id,
@@ -95,20 +83,6 @@ export class KnowledgeRepository {
   return mapRowToUserKnowledgeState(row);
  }
 
- getAllUserKnowledgeStates(userId: string = 'default-user'): UserKnowledgeState[] {
-  const rows = this.db
-   .prepare(`
-        SELECT user_id, knowledge_node_id, status, confidence,
-               mastery_probability, alpha, beta, evidence_count,
-               correct_count, incorrect_count, stability, difficulty,
-               last_assessed_at, last_reviewed_at, updated_at
-        FROM user_knowledge_states
-        WHERE user_id = ?
-      `)
-   .all(userId) as UserKnowledgeStateRow[];
-
-  return rows.map(mapRowToUserKnowledgeState);
- }
 
  setUserKnowledgeState(userId: string, state: UserKnowledgeState): void {
   const now = new Date().toISOString();
@@ -164,29 +138,5 @@ export class KnowledgeRepository {
     lastReviewedAt,
     now
    );
- }
-
- getAssessments(userId: string = 'default-user', lessonId?: string): AssessmentResult[] {
-  let query = 'SELECT id, knowledge_node_id, lesson_id, block_id, result, confidence, feedback FROM assessments WHERE user_id = ?';
-  const params: (string | number)[] = [userId];
-
-  if (lessonId) {
-   query += ' AND lesson_id = ?';
-   params.push(lessonId);
-  }
-
-  query += ' ORDER BY created_at ASC';
-
-  const rows = this.db.prepare(query).all(...params) as AssessmentRow[];
-
-  return rows.map((r) => ({
-   id: r.id,
-   knowledgeNodeId: r.knowledge_node_id,
-   lessonId: r.lesson_id,
-   blockId: r.block_id ?? undefined,
-   result: r.result as AssessmentResult['result'],
-   confidence: r.confidence,
-   feedback: r.feedback,
-  }));
  }
 }

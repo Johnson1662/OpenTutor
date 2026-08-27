@@ -5,11 +5,14 @@ import {
   getAiPreferences,
   updateAiPreferences,
   loginWithApiKey,
+  addCustomProvider,
+  removeCustomProvider,
   startAuthSession,
   cancelAuthSession,
   respondAuthSession,
   subscribeToAuthEvents,
   type ProviderInfo,
+  type CustomProviderModelInput,
   type UserAiPreferences,
   type AuthUrlEventData,
   type AuthDeviceCodeEventData,
@@ -40,6 +43,13 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
   const [modalProvider, setModalProvider] = useState<ProviderInfo | null>(null);
   const [activeTab, setActiveTab] = useState<ModalTab>('api_key');
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
+  const [npId, setNpId] = useState('');
+  const [npName, setNpName] = useState('');
+  const [npBaseUrl, setNpBaseUrl] = useState('');
+  const [npApi, setNpApi] = useState('openai-completions');
+  const [npApiKey, setNpApiKey] = useState('');
+  const [npModels, setNpModels] = useState('');
 
   // OAuth Session State
   const [authSessionId, setAuthSessionId] = useState<string | null>(null);
@@ -304,6 +314,59 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     }
   }
 
+  function parseModels(text: string): CustomProviderModelInput[] {
+    return text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [id, name] = line.split('|').map((part) => part.trim());
+        return { id: id ?? '', ...(name ? { name } : {}) };
+      });
+  }
+
+  async function handleAddProvider(e: React.FormEvent) {
+    e.preventDefault();
+    const models = parseModels(npModels);
+    try {
+      setSaving(true);
+      const provider = await addCustomProvider({
+        id: npId.trim().toLowerCase(),
+        name: npName.trim() || undefined,
+        baseUrl: npBaseUrl.trim(),
+        apiKey: npApiKey.trim() || undefined,
+        api: npApi,
+        models,
+      });
+      onFlash(`自定义 Provider「${provider.name}」已添加`);
+      setAddOpen(false);
+      setNpId(''); setNpName(''); setNpBaseUrl(''); setNpApiKey(''); setNpModels('');
+      await loadData();
+      setPrefs((previous) => previous ? { ...previous, defaultProviderId: provider.id, defaultModelId: models[0]?.id } : previous);
+    } catch (err: unknown) {
+      onFlash(`添加失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemoveProvider(providerId: string) {
+    if (!window.confirm(`移除自定义 Provider「${providerId}」？`)) return;
+    try {
+      setSaving(true);
+      await removeCustomProvider(providerId);
+      onFlash(`已移除「${providerId}」`);
+      await loadData();
+      setPrefs((previous) => previous?.defaultProviderId === providerId
+        ? { ...previous, defaultProviderId: providers[0]?.id, defaultModelId: undefined }
+        : previous);
+    } catch (err: unknown) {
+      onFlash(`移除失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) {
     return <div className="page-shell"><div className="loading-spinner">正在加载 AI 设置…</div></div>;
   }
@@ -336,6 +399,7 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
             <div className="settings-auth-block"><span className="settings-field-label">认证方式</span><div className="settings-auth-tabs"><button type="button" className={hasApiKey ? 'active' : ''} disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>API Key</button><button type="button" className={!hasApiKey && hasOAuth ? 'active' : ''} disabled={!selectedProvider || !hasOAuth} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'oauth', event.currentTarget)}>OAuth / 订阅登录</button></div></div>
             <div className="credential-row"><div><span className="settings-field-label">API Key</span><p>密钥仅保存在本地设备，OpenTutor 不会写入数据库。</p></div><button type="button" className="credential-display" disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>{selectedProvider?.configured ? '••••••••••••••••' : '点击配置 API Key'}<span aria-hidden="true">⌁</span></button></div>
             <div className="settings-model-actions"><span>当前状态：<strong className={selectedProvider?.configured ? 'settings-connected' : 'settings-disconnected'}>{selectedProvider?.configured ? '已连接 ✓' : '未连接'}</strong></span><div><button type="button" className="btn-secondary" disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>测试连接</button><button type="submit" className="btn-primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button></div></div>
+            <div className="settings-model-actions"><span>当前状态：<strong className={selectedProvider?.configured ? 'settings-connected' : 'settings-disconnected'}>{selectedProvider?.configured ? '已连接 ✓' : '未连接'}</strong></span><div>{selectedProvider?.custom && <button type="button" className="btn-secondary" disabled={saving} onClick={() => handleRemoveProvider(selectedProvider.id)}>移除 Provider</button>}<button type="button" className="btn-secondary" onClick={() => setAddOpen(true)}>＋ 自定义 Provider</button><button type="button" className="btn-secondary" disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>测试连接</button><button type="submit" className="btn-primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button></div></div>
             {selectedProvider?.configured && <div className="connection-success"><span className="success-mark">✓</span><div><strong>连接成功</strong><small>模型服务可用，响应正常。</small></div><button type="button" className="btn-secondary btn-sm" onClick={(event) => openConnectModal(selectedProvider, hasOAuth ? 'oauth' : 'api_key', event.currentTarget)}>重新测试</button></div>}
           </section>
 
@@ -632,6 +696,44 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {addOpen && (
+        <div className="modal-backdrop">
+          <div className="modal-box" role="dialog" aria-modal="true" aria-labelledby="add-provider-title" style={{ maxWidth: '480px', width: '90%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 id="add-provider-title" style={{ margin: 0 }}>添加自定义 Provider</h3>
+              <button type="button" className="btn-secondary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => setAddOpen(false)} aria-label="关闭">✕</button>
+            </div>
+            <form onSubmit={handleAddProvider} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <label style={{ fontSize: '13px' }}>Provider ID（小写字母/数字/连字符）
+                <input className="modal-input" value={npId} onChange={(e) => setNpId(e.target.value)} placeholder="my-deepseek" required autoFocus />
+              </label>
+              <label style={{ fontSize: '13px' }}>显示名称
+                <input className="modal-input" value={npName} onChange={(e) => setNpName(e.target.value)} placeholder="My DeepSeek" />
+              </label>
+              <label style={{ fontSize: '13px' }}>Base URL（OpenAI 兼容端点）
+                <input className="modal-input" value={npBaseUrl} onChange={(e) => setNpBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" required />
+              </label>
+              <label style={{ fontSize: '13px' }}>接口类型
+                <select className="modal-input" value={npApi} onChange={(e) => setNpApi(e.target.value)}>
+                  <option value="openai-completions">OpenAI Completions（默认）</option>
+                  <option value="openai-responses">OpenAI Responses</option>
+                  <option value="anthropic-messages">Anthropic Messages</option>
+                </select>
+              </label>
+              <label style={{ fontSize: '13px' }}>API Key（可选，仅存本地 models.json）
+                <input className="modal-input" type="password" value={npApiKey} onChange={(e) => setNpApiKey(e.target.value)} placeholder="sk-..." />
+              </label>
+              <label style={{ fontSize: '13px' }}>模型列表（每行一个：model-id 或 model-id | 显示名）
+                <textarea className="modal-input" value={npModels} onChange={(e) => setNpModels(e.target.value)} placeholder={'deepseek-chat | DeepSeek V3\ndeepseek-reasoner | DeepSeek R1'} rows={3} required />
+              </label>
+              <div className="modal-buttons">
+                <button type="button" className="btn-secondary" onClick={() => setAddOpen(false)}>取消</button>
+                <button type="submit" className="btn-primary" disabled={saving}>{saving ? '添加中…' : '添加并连接'}</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

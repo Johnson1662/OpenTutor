@@ -70,9 +70,6 @@ export class CourseService {
     return this.courseRepo.listCourses();
   }
 
-  updateCourse(id: string, changes: Partial<CourseRecord>): CourseRecord | null {
-    return this.courseRepo.updateCourse(id, changes);
-  }
 
   addSource(courseId: string, title: string, content: string): CourseSourceRecord {
     return this.courseSourceService.addSource(courseId, title, content);

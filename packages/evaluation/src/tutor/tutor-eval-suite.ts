@@ -1,4 +1,3 @@
-import { createOpenTutorModelRuntime } from '@opentutor/model-runtime';
 import type {
   DomainFixtureBundle,
   EvalResult,
@@ -6,32 +5,17 @@ import type {
   HardFailure,
   MetricResult,
   TutorScenarioFixture,
-  EvalMode,
 } from '../core/index.ts';
 import {
   createMetric,
   loadAllDomainBundles,
-  ModelSetupRequiredError,
-  MODEL_SETUP_REQUIRED,
 } from '../core/index.ts';
-import { createProductionTutorEvalEnvironment } from '../production/production-eval-environment.ts';
 export interface SimulatedTutorExecution {
   invokedTools: string[];
   successfulTools?: string[];
   toolExecutions?: Array<{ toolName: string; success: boolean; error?: string }>;
   responseText: string;
   intentDetected: string;
-}
-
-export interface ProductionTutorScenarioInput {
-  id: string;
-  userMessage: string;
-  contextTopic: string;
-}
-
-export interface ProductionTutorDomainInput {
-  domain: string;
-  sourceText: string;
 }
 
 export interface TutorPolicyRunner {
@@ -164,81 +148,16 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
     };
   }
 }
-
-export class ProductionTutorPolicyRunner {
-  private readonly modelRuntime?: any;
-  private readonly knowledgePreparation: 'real' | 'fixture';
-
-  constructor(modelRuntime?: any, knowledgePreparation: 'real' | 'fixture' = 'real') {
-    this.modelRuntime = modelRuntime;
-    this.knowledgePreparation = knowledgePreparation;
-  }
-
-  async executeScenario(
-    scenario: ProductionTutorScenarioInput,
-    bundle: ProductionTutorDomainInput
-  ): Promise<SimulatedTutorExecution> {
-    const runtime = this.modelRuntime ?? (await createOpenTutorModelRuntime());
-    const available = await runtime.getAvailable();
-    if (available.length === 0) {
-      throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production tutor evaluation.');
-    }
-
-    const environment = await createProductionTutorEvalEnvironment({
-      bundle,
-      scenario,
-      modelRuntime: runtime,
-      knowledgePreparation: this.knowledgePreparation,
-    });
-    const invokedTools: string[] = [];
-    const successfulTools: string[] = [];
-    const toolExecutions: Array<{ toolName: string; success: boolean; error?: string }> = [];
-
-    try {
-      const turnResult = await environment.tutorRuntime.runTurn({
-        sessionId: environment.sessionId,
-        requestId: `eval-req-${Date.now()}`,
-        message: scenario.userMessage,
-        onToolStart: (_toolCallId, toolName) => {
-          invokedTools.push(toolName);
-        },
-        onToolEnd: (_toolCallId: string, toolName: string, success: boolean) => {
-          if (success) {
-            successfulTools.push(toolName);
-          }
-          toolExecutions.push({ toolName, success });
-        },
-      });
-
-      return {
-        invokedTools,
-        successfulTools,
-        toolExecutions,
-        responseText: turnResult.reply,
-        intentDetected: scenario.contextTopic,
-      };
-    } finally {
-      await environment.dispose();
-    }
-  }
-}
-
 export interface TutorEvalOptions {
-  mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
   evalsDir?: string;
-  policyRunner?: TutorPolicyRunner | ProductionTutorPolicyRunner;
 }
 
 export class TutorEvalSuite {
-  readonly mode: EvalMode;
   private readonly bundles: Record<string, DomainFixtureBundle>;
-  private readonly policyRunner?: TutorPolicyRunner | ProductionTutorPolicyRunner;
 
   constructor(options: TutorEvalOptions = {}) {
-    this.mode = options.mode ?? 'contract';
     this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
-    this.policyRunner = options.policyRunner;
   }
 
   async runSuite(targetDomain?: string): Promise<EvalSuiteResult> {
@@ -302,38 +221,9 @@ export class TutorEvalSuite {
     // 1. Run simulation through tutor policy runner
     let execution: SimulatedTutorExecution;
     try {
-      if (this.mode === 'production') {
-        const runner = this.policyRunner ?? new ProductionTutorPolicyRunner();
-        if (runner instanceof BenchmarkTutorPolicyRunner || runner.constructor.name === 'BenchmarkTutorPolicyRunner') {
-          throw new Error('PROHIBITED_ADAPTER: BenchmarkTutorPolicyRunner is strictly prohibited in production mode.');
-        }
-
-        const sanitizedScenario: ProductionTutorScenarioInput = {
-          id: scenario.id,
-          userMessage: scenario.userMessage,
-          contextTopic: scenario.contextTopic,
-        };
-        const sanitizedBundle: ProductionTutorDomainInput = {
-          domain: bundle.domain,
-          sourceText: bundle.sourceText,
-        };
-
-        if (runner instanceof ProductionTutorPolicyRunner) {
-          execution = await runner.executeScenario(sanitizedScenario, sanitizedBundle);
-        } else {
-          execution = await (runner as TutorPolicyRunner).executeScenario(
-            sanitizedScenario as TutorScenarioFixture,
-            sanitizedBundle as DomainFixtureBundle
-          );
-        }
-      } else {
-        const runner = (this.policyRunner as TutorPolicyRunner | undefined) ?? new BenchmarkTutorPolicyRunner();
-        execution = await runner.executeScenario(scenario, bundle);
-      }
+      const runner = new BenchmarkTutorPolicyRunner();
+      execution = await runner.executeScenario(scenario, bundle);
     } catch (err: unknown) {
-      if (err instanceof ModelSetupRequiredError || (err instanceof Error && err.message.includes(MODEL_SETUP_REQUIRED))) {
-        throw err;
-      }
       hardFailures.push({
         rule: 'TUTOR_EXECUTION_ERROR',
         message: `Tutor execution failed for scenario '${scenario.id}': ${err instanceof Error ? err.message : String(err)}`,
@@ -348,21 +238,8 @@ export class TutorEvalSuite {
         durationMs: Date.now() - startTime,
       };
     }
-    const toolExecutions = execution.toolExecutions ?? [];
-    if (
-      this.mode === 'production' &&
-      (execution.successfulTools === undefined || execution.toolExecutions === undefined)
-    ) {
-      hardFailures.push({
-        rule: 'TUTOR_EXECUTION_CONFIGURATION_ERROR',
-        message: `Production tutor execution must report successfulTools and toolExecutions for scenario '${scenario.id}'.`,
-        details: { execution },
-      });
-    }
     const invokedSet = new Set(execution.invokedTools);
-    const successfulSet = this.mode === 'production'
-      ? new Set(toolExecutions.filter((tool) => tool.success).map((tool) => tool.toolName))
-      : new Set(execution.successfulTools ?? execution.invokedTools);
+    const successfulSet = new Set(execution.successfulTools ?? execution.invokedTools);
 
     // 2. Hard Validator & Metric: Forbidden Tools (WrongToolRate)
     let forbiddenCount = 0;

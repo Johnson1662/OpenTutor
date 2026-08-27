@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import { createDatabase } from '@opentutor/database';
 import {
   createOpenTutorModelRuntime,
-  ModelSelectionService,
-  RoleModelResolver,
   PiModelDriver,
-  DefaultModelExecutionService,
+  ModelExecutionService,
   ModelPreferencesRepository,
 } from '@opentutor/model-runtime';
 import {
@@ -47,10 +45,8 @@ test('packages/knowledge-core - Live Knowledge Compiler Integration Test', {
     });
   }
 
-  const selectionService = new ModelSelectionService(runtime, prefsRepo);
-  const roleResolver = new RoleModelResolver(selectionService, runtime, prefsRepo);
   const driver = new PiModelDriver(runtime);
-  const executionService = new DefaultModelExecutionService(roleResolver, driver);
+  const executionService = new ModelExecutionService(runtime, prefsRepo, driver);
 
   const analyzer = new ModelKnowledgeAnalyzer(executionService);
   const synthesizer = new ModelArtifactSynthesizer(executionService);

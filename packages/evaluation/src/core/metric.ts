@@ -28,33 +28,7 @@ export function calculateRecall(retrieved: Iterable<string>, groundTruth: Iterab
   return hits / truthArray.length;
 }
 
-export function calculateF1(precision: number, recall: number): number {
-  if (precision + recall === 0) return 0.0;
-  return (2 * (precision * recall)) / (precision + recall);
-}
 
-export function calculateJaccard(setA: Iterable<string>, setB: Iterable<string>): number {
-  const a = new Set(Array.from(setA).map((s) => s.trim().toLowerCase()));
-  const b = new Set(Array.from(setB).map((s) => s.trim().toLowerCase()));
-  if (a.size === 0 && b.size === 0) return 1.0;
-
-  let intersection = 0;
-  for (const item of a) {
-    if (b.has(item)) intersection++;
-  }
-  const union = new Set([...a, ...b]).size;
-  return union === 0 ? 1.0 : intersection / union;
-}
-
-export function calculateGroundingScore(claims: Array<{ grounded: boolean } | boolean>): number {
-  if (claims.length === 0) return 1.0;
-  let groundedCount = 0;
-  for (const c of claims) {
-    const isGrounded = typeof c === 'boolean' ? c : c.grounded;
-    if (isGrounded) groundedCount++;
-  }
-  return groundedCount / claims.length;
-}
 
 export function calculateTopologicalValidity(
   orderedNodes: string[],

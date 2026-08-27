@@ -5,10 +5,8 @@ import { createDatabase, seedDatabase } from '@opentutor/database';
 import {
   createOpenTutorModelRuntime,
   ModelPreferencesRepository,
-  ModelSelectionService,
-  RoleModelResolver,
   PiModelDriver,
-  DefaultModelExecutionService,
+ ModelExecutionService,
 } from '../src/index.ts';
 
 test('packages/model-runtime - Live AI Model Integration Test', {
@@ -45,10 +43,8 @@ test('packages/model-runtime - Live AI Model Integration Test', {
     });
   }
 
-  const selectionService = new ModelSelectionService(modelRuntime, prefsRepo);
-  const roleResolver = new RoleModelResolver(selectionService, modelRuntime, prefsRepo);
   const driver = new PiModelDriver(modelRuntime);
-  const executionService = new DefaultModelExecutionService(roleResolver, driver);
+  const executionService = new ModelExecutionService(modelRuntime, prefsRepo, driver);
 
   await t.test('1. completeText returns real response from available model', async () => {
     const response = await executionService.completeText({

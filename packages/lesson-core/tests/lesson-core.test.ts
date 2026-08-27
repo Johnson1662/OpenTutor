@@ -11,7 +11,6 @@ import {
   LessonValidator,
   FakeLessonGenerator,
   LearningSessionCoordinator,
-  ReplanPolicy,
 } from '../src/index.ts';
 
 test('packages/lesson-core - Dynamic Lesson Core & Lifecycle Coordinator', async (t) => {
@@ -124,19 +123,6 @@ test('packages/lesson-core - Dynamic Lesson Core & Lifecycle Coordinator', async
     assert.ok(resumeResult.resumedLesson);
     assert.equal(resumeResult.resumedLesson?.id, mainLesson.id);
     assert.equal(resumeResult.resumedNodeId, 'path-node-self-attention');
-  });
-
-  await t.test('4. ReplanPolicy evaluates mastery and produces resume decision', () => {
-    const policy = new ReplanPolicy();
-    const detourPath = [
-      { id: 'p1', knowledgeNodeId: 'self-attention', title: 'Self Attention', type: 'main' as const, status: 'upcoming' as const, position: 1 },
-      { id: 'p2', knowledgeNodeId: 'softmax', title: 'Softmax', type: 'detour' as const, status: 'current' as const, position: 0 },
-    ];
-
-    const decision = policy.evaluateAssessment(detourPath, 'softmax', 'mastered', 0.9);
-    assert.equal(decision.action, 'resume_main');
-    assert.equal(decision.patches.length, 1);
-    assert.equal(decision.patches[0]?.op, 'update_node');
   });
 
   await t.test('5. LearningSessionCoordinator persists nested detour frames across instances (simulating server restart)', async () => {

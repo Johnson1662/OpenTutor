@@ -107,7 +107,19 @@ interface LessonRow {
  blocks: string;
 }
 
-import type { LearningSessionFrame } from './session-frame-repository.ts';
+export type SessionFrameStatus = 'active' | 'completed' | 'cancelled';
+
+export interface LearningSessionFrame {
+ id: string;
+ sessionId: string;
+ detourPathNodeId: string;
+ parentPathNodeId: string;
+ savedLessonId: string;
+ depth: number;
+ status: SessionFrameStatus;
+ diagnosisId?: string | null;
+ createdAt: string;
+}
 
 export interface CreateSessionParams {
  id: string;

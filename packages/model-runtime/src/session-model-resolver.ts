@@ -2,7 +2,8 @@ import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import type { Model } from '@earendil-works/pi-ai';
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { AgentSessionRepository } from '@opentutor/database';
-import type { ModelSelectionService } from './model-selection-service.ts';
+import type { ModelPreferencesRepository } from './preferences/model-preferences-repository.ts';
+import { resolveSelectedModel } from './model-execution-service.ts';
 
 export interface ResolvedSessionModel {
   providerId: string;
@@ -13,17 +14,17 @@ export interface ResolvedSessionModel {
 }
 
 export class SessionModelResolver {
-  private readonly modelSelectionService: ModelSelectionService;
   private readonly modelRuntime: ModelRuntime;
+  private readonly preferencesRepo: ModelPreferencesRepository;
   private readonly agentSessionRepo: AgentSessionRepository;
 
   constructor(
-    modelSelectionService: ModelSelectionService,
     modelRuntime: ModelRuntime,
+    preferencesRepo: ModelPreferencesRepository,
     agentSessionRepo: AgentSessionRepository
   ) {
-    this.modelSelectionService = modelSelectionService;
     this.modelRuntime = modelRuntime;
+    this.preferencesRepo = preferencesRepo;
     this.agentSessionRepo = agentSessionRepo;
   }
 
@@ -50,7 +51,7 @@ export class SessionModelResolver {
       };
     }
 
-    const selected = await this.modelSelectionService.resolveSelectedModel(userId);
+    const selected = await resolveSelectedModel(this.modelRuntime, this.preferencesRepo, userId);
     const sessionId = `agent-session-${learningSessionId}`;
 
     const sessionRecord = this.agentSessionRepo.getOrCreate({

@@ -17,9 +17,6 @@ export interface AssessmentResult {
 
 export type LearningEventType =
   | 'agent.started'
-  | 'agent.text.delta'
-  | 'agent.tool.started'
-  | 'agent.tool.completed'
   | 'agent.completed'
   | 'lesson.patch'
   | 'lesson.updated'

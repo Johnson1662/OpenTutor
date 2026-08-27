@@ -12,7 +12,6 @@ import {
   CourseRepository,
   MisconceptionRepository,
   DiagnosisRepository,
-  SessionFrameRepository,
   LessonProgressRepository,
   type Database,
 } from '@opentutor/database';
@@ -48,10 +47,8 @@ import {
   ProviderService,
   AuthService,
   ModelPreferencesRepository,
-  ModelSelectionService,
   SessionModelResolver,
-  RoleModelResolver,
-  DefaultModelExecutionService,
+  ModelExecutionService,
   PiModelDriver,
   FakeModelDriver,
 } from '@opentutor/model-runtime';
@@ -65,7 +62,7 @@ const DB_PATH = process.env.OPENTUTOR_DB_PATH ?? 'opentutor.sqlite';
 
 export interface ServerContext {
   server: http.Server;
-  context: RouteContext;
+  context: RouteContext & { lessonService: LessonService };
   db: Database;
   sessionRepo: SessionRepository;
   lessonRepo: LessonRepository;
@@ -99,7 +96,6 @@ export async function createServerContext(
   const preferencesRepo = new ModelPreferencesRepository(db);
   const misconceptionRepo = new MisconceptionRepository(db);
   const diagnosisRepo = new DiagnosisRepository(db);
-  const sessionFrameRepo = new SessionFrameRepository(db);
   const modelRuntime = await createOpenTutorModelRuntime({
     dataDir: dbPath === ':memory:' ? ':memory:' : undefined,
     authPath: dbPath === ':memory:' ? ':memory:' : undefined,
@@ -108,12 +104,10 @@ export async function createServerContext(
 
   const providerService = new ProviderService(modelRuntime);
   const authService = new AuthService(modelRuntime);
-  const modelSelectionService = new ModelSelectionService(modelRuntime, preferencesRepo);
-  const sessionModelResolver = new SessionModelResolver(modelSelectionService, modelRuntime, agentSessionRepo);
-  const roleModelResolver = new RoleModelResolver(modelSelectionService, modelRuntime, preferencesRepo);
   const isTestOrFake = process.env.OPENTUTOR_RUNTIME_MODE === 'fake' || process.env.NODE_ENV === 'test';
   const modelDriver = isTestOrFake ? new FakeModelDriver() : new PiModelDriver(modelRuntime);
-  const modelExecutionService = new DefaultModelExecutionService(roleModelResolver, modelDriver);
+  const sessionModelResolver = new SessionModelResolver(modelRuntime, preferencesRepo, agentSessionRepo);
+  const modelExecutionService = new ModelExecutionService(modelRuntime, preferencesRepo, modelDriver);
 
   const knowledgeAnalyzer = isTestOrFake
     ? new FakeKnowledgeAnalyzer()
@@ -193,7 +187,7 @@ export async function createServerContext(
       sessionModelResolver,
     });
 
-  const context: RouteContext = {
+  const context: RouteContext & { lessonService: LessonService } = {
     sessionService,
     lessonService,
     knowledgeService,
@@ -206,7 +200,6 @@ export async function createServerContext(
     preferencesRepo,
     tutorRuntime,
     eventBus,
-    traceRepo,
   };
 
   const server = http.createServer(async (req, res) => {

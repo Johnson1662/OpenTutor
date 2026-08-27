@@ -3,16 +3,14 @@ import assert from 'node:assert/strict';
 import { Type } from 'typebox';
 import { createDatabase, seedDatabase, CourseRepository, SessionRepository, VersionConflictError, EventRepository } from '@opentutor/database';
 import {
- DefaultModelExecutionService,
+ ModelExecutionService,
+ createOpenTutorModelRuntime,
  FakeModelDriver,
  ModelExecutionError,
- RoleModelResolver,
- ModelSelectionService,
  ModelPreferencesRepository,
 } from '@opentutor/model-runtime';
 import {
  ModelKnowledgeAnalyzer,
- ClaimComparator,
  ClaimReconciler,
  ClaimService,
  EvidenceService,
@@ -25,9 +23,7 @@ import {
  LessonValidator,
  LearningSessionCoordinator,
 } from '@opentutor/lesson-core';
-import {
- PrerequisiteResolver,
-} from '@opentutor/course-core';
+import { CourseCompiler } from '@opentutor/course-core';
 import { SessionService } from '../src/services/session-service.ts';
 import { EventBus } from '../src/events/event-bus.ts';
 
@@ -37,17 +33,15 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
  const prefsRepo = new ModelPreferencesRepository(db);
 
  await t.test('1. AI: ModelExecutionService rejects invalid JSON after repair attempt exhausted', async () => {
-  const mockRoleResolver = {
-   resolveRoleModel: async () => ({
-    role: 'knowledge_compiler' as const,
-    providerId: 'anthropic',
-    modelId: 'claude-3-7-sonnet',
-    isRoleSpecific: false,
-   }),
-  } as any;
+  const runtime = await createOpenTutorModelRuntime({
+   dataDir: ':memory:',
+   authPath: ':memory:',
+   modelsPath: ':memory:',
+  });
 
-  const brokenService = new DefaultModelExecutionService(
-   mockRoleResolver,
+  const brokenService = new ModelExecutionService(
+   runtime,
+   prefsRepo,
    new FakeModelDriver(async () => {
     return '<html>Internal Server Error 502</html>';
    })
@@ -170,9 +164,8 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
   assert.ok(res.errors.some((e) => e.includes('mandatory \'answerSpec\'')));
  });
 
- await t.test('5. Course: PrerequisiteResolver handles graph cycles safely without hanging', () => {
+ await t.test('5. CourseCompiler handles graph cycles safely without hanging', async () => {
   // Insert a cycle: node-A -> node-B -> node-A
-  const resolver = new PrerequisiteResolver(db);
 
   db.prepare(
    `INSERT OR REPLACE INTO knowledge_nodes (id, title, description, created_at)
@@ -186,10 +179,20 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
               ('cycle-b', 'cycle-a', 'prerequisite', datetime('now'))`
   ).run();
 
-  const closure = resolver.resolveClosure(['cycle-a']);
-  assert.equal(closure.hasCycle, true);
-  assert.ok(closure.orderedNodeIds.includes('cycle-a'));
-  assert.ok(closure.orderedNodeIds.includes('cycle-b'));
+  const compiler = new CourseCompiler(db, {
+   async analyzeGoal() {
+    return { targetConcepts: ['Cycle A'], depth: 'beginner' };
+   },
+  });
+  const result = await compiler.compileCourse({
+   courseId: 'course-cycle',
+   learningGoal: 'Learn cycle A',
+  });
+  assert.deepEqual(
+   result.courseGraph.nodes.map((node) => node.knowledgeNodeId).sort(),
+   ['cycle-a', 'cycle-b']
+  );
+  assert.equal(result.courseGraph.edges.length, 2);
  });
 
  await t.test('6. Course Sources: Documents uploaded to Course A are strictly isolated from Course B', () => {
@@ -241,9 +244,7 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
    hasConfiguredAuth: () => false,
   } as any;
 
-  const selectionService = new ModelSelectionService(emptyRuntime, prefsRepo);
-  const roleResolver = new RoleModelResolver(selectionService, emptyRuntime, prefsRepo);
-  const execService = new DefaultModelExecutionService(roleResolver, new FakeModelDriver());
+  const execService = new ModelExecutionService(emptyRuntime, prefsRepo, new FakeModelDriver());
 
   await assert.rejects(
    async () => {

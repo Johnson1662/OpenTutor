@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 
 export interface Misconception {
@@ -27,15 +26,6 @@ export interface UserMisconceptionWithDetails extends UserMisconception {
   misconception: Misconception;
 }
 
-export interface CreateMisconceptionParams {
-  id?: string;
-  knowledgeNodeId: string;
-  title: string;
-  description: string;
-  correctionStrategy?: string;
-  createdAt?: string;
-}
-
 export interface SetUserMisconceptionParams {
   userId: string;
   misconceptionId: string;
@@ -45,15 +35,6 @@ export interface SetUserMisconceptionParams {
   createdAt?: string;
   updatedAt?: string;
   resolvedAt?: string | null;
-}
-
-interface MisconceptionRow {
-  id: string;
-  knowledge_node_id: string;
-  title: string;
-  description: string;
-  correction_strategy: string | null;
-  created_at: string;
 }
 
 interface UserMisconceptionRow {
@@ -76,17 +57,6 @@ interface UserMisconceptionWithDetailsRow extends UserMisconceptionRow {
   m_created_at: string;
 }
 
-function mapRowToMisconception(row: MisconceptionRow): Misconception {
-  return {
-    id: row.id,
-    knowledgeNodeId: row.knowledge_node_id,
-    title: row.title,
-    description: row.description,
-    correctionStrategy: row.correction_strategy ?? undefined,
-    createdAt: row.created_at,
-  };
-}
-
 function mapRowToUserMisconception(row: UserMisconceptionRow): UserMisconception {
   return {
     userId: row.user_id,
@@ -105,61 +75,6 @@ export class MisconceptionRepository {
 
   constructor(db: Database.Database) {
     this.db = db;
-  }
-
-  createMisconception(params: CreateMisconceptionParams): Misconception {
-    const id = params.id ?? `misc-${randomUUID()}`;
-    const createdAt = params.createdAt ?? new Date().toISOString();
-
-    this.db
-      .prepare(
-        `INSERT INTO misconceptions (id, knowledge_node_id, title, description, correction_strategy, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        params.knowledgeNodeId,
-        params.title,
-        params.description,
-        params.correctionStrategy ?? null,
-        createdAt
-      );
-
-    return {
-      id,
-      knowledgeNodeId: params.knowledgeNodeId,
-      title: params.title,
-      description: params.description,
-      correctionStrategy: params.correctionStrategy,
-      createdAt,
-    };
-  }
-
-  getMisconception(id: string): Misconception | null {
-    const row = this.db
-      .prepare('SELECT id, knowledge_node_id, title, description, correction_strategy, created_at FROM misconceptions WHERE id = ?')
-      .get(id) as MisconceptionRow | undefined;
-
-    if (!row) return null;
-    return mapRowToMisconception(row);
-  }
-
-  getMisconceptionsForNode(knowledgeNodeId: string): Misconception[] {
-    const rows = this.db
-      .prepare(
-        'SELECT id, knowledge_node_id, title, description, correction_strategy, created_at FROM misconceptions WHERE knowledge_node_id = ? ORDER BY created_at ASC'
-      )
-      .all(knowledgeNodeId) as MisconceptionRow[];
-
-    return rows.map(mapRowToMisconception);
-  }
-
-  listMisconceptions(): Misconception[] {
-    const rows = this.db
-      .prepare('SELECT id, knowledge_node_id, title, description, correction_strategy, created_at FROM misconceptions ORDER BY created_at ASC')
-      .all() as MisconceptionRow[];
-
-    return rows.map(mapRowToMisconception);
   }
 
   setUserMisconception(params: SetUserMisconceptionParams): UserMisconception {
@@ -218,31 +133,6 @@ export class MisconceptionRepository {
     return mapRowToUserMisconception(row);
   }
 
-  getUserMisconceptions(userId: string, status?: UserMisconceptionStatus): UserMisconception[] {
-    if (status !== undefined) {
-      const rows = this.db
-        .prepare(
-          `SELECT user_id, misconception_id, confidence, evidence_count, status, created_at, updated_at, resolved_at
-           FROM user_misconceptions
-           WHERE user_id = ? AND status = ?
-           ORDER BY updated_at DESC`
-        )
-        .all(userId, status) as UserMisconceptionRow[];
-      return rows.map(mapRowToUserMisconception);
-    }
-
-    const rows = this.db
-      .prepare(
-        `SELECT user_id, misconception_id, confidence, evidence_count, status, created_at, updated_at, resolved_at
-         FROM user_misconceptions
-         WHERE user_id = ?
-         ORDER BY updated_at DESC`
-      )
-      .all(userId) as UserMisconceptionRow[];
-
-    return rows.map(mapRowToUserMisconception);
-  }
-
   getUserMisconceptionsForNode(userId: string, knowledgeNodeId: string): UserMisconceptionWithDetails[] {
     const rows = this.db
       .prepare(
@@ -275,59 +165,5 @@ export class MisconceptionRepository {
         createdAt: row.m_created_at,
       },
     }));
-  }
-
-  resolveUserMisconception(userId: string, misconceptionId: string, resolvedAt?: string): void {
-    const now = new Date().toISOString();
-    const resolved = resolvedAt ?? now;
-
-    this.db
-      .prepare(
-        `UPDATE user_misconceptions
-         SET status = 'resolved', resolved_at = ?, updated_at = ?
-         WHERE user_id = ? AND misconception_id = ?`
-      )
-      .run(resolved, now, userId, misconceptionId);
-  }
-
-  incrementEvidenceCount(userId: string, misconceptionId: string, confidence?: number): UserMisconception {
-    const existing = this.getUserMisconception(userId, misconceptionId);
-    const now = new Date().toISOString();
-
-    if (!existing) {
-      return this.setUserMisconception({
-        userId,
-        misconceptionId,
-        confidence: confidence ?? 0.6,
-        evidenceCount: 1,
-        status: 'suspected',
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    const newConfidence = confidence !== undefined ? confidence : existing.confidence;
-    const newCount = existing.evidenceCount + 1;
-    const newStatus: UserMisconceptionStatus =
-      newCount >= 3 || newConfidence >= 0.8 ? 'confirmed' : existing.status;
-
-    this.db
-      .prepare(
-        `UPDATE user_misconceptions
-         SET evidence_count = ?, confidence = ?, status = ?, updated_at = ?
-         WHERE user_id = ? AND misconception_id = ?`
-      )
-      .run(newCount, newConfidence, newStatus, now, userId, misconceptionId);
-
-    return {
-      userId,
-      misconceptionId,
-      confidence: newConfidence,
-      evidenceCount: newCount,
-      status: newStatus,
-      createdAt: existing.createdAt,
-      updatedAt: now,
-      resolvedAt: existing.resolvedAt,
-    };
   }
 }

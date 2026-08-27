@@ -9,7 +9,6 @@ import type {
   EvalSuiteResult,
   HardFailure,
   MetricResult,
-  EvalMode,
 } from '../core/index.ts';
 import {
   createMetric,
@@ -17,18 +16,15 @@ import {
 } from '../core/index.ts';
 
 export interface LearnerEvalOptions {
-  mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
   evalsDir?: string;
 }
 
 export class LearnerEvalSuite {
-  readonly mode: EvalMode;
   private readonly bundles: Record<string, DomainFixtureBundle>;
   private readonly aggregator: BetaMasteryAggregator;
 
   constructor(options: LearnerEvalOptions = {}) {
-    this.mode = options.mode ?? 'contract';
     this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
     this.aggregator = new BetaMasteryAggregator();
   }

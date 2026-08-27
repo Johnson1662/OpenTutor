@@ -6,7 +6,6 @@ import { EvidenceService } from '../claims/evidence-service.ts';
 import { RelationResolver } from '../resolution/relation-resolver.ts';
 import type { SourceChunk } from '../source/markdown-parser.ts';
 import { normalizeText } from '../source/source-hash.ts';
-import { KnowledgeVisibilityPolicy } from './knowledge-visibility-policy.ts';
 
 export interface KnowledgeSearchResultItem {
  nodeId: string;
@@ -25,12 +24,10 @@ export interface NeighborResult {
 export class SearchService {
  private readonly db: Database;
  private readonly artifactCompiler: ArtifactCompiler;
- private readonly visibilityPolicy: KnowledgeVisibilityPolicy;
 
  constructor(
   db: Database,
-  artifactCompiler?: ArtifactCompiler,
-  visibilityPolicy?: KnowledgeVisibilityPolicy
+  artifactCompiler?: ArtifactCompiler
  ) {
   this.db = db;
   this.artifactCompiler =
@@ -41,7 +38,6 @@ export class SearchService {
     new EvidenceService(db),
     new RelationResolver(db)
    );
-  this.visibilityPolicy = visibilityPolicy ?? new KnowledgeVisibilityPolicy(db);
  }
 
  // 1. knowledge_search
@@ -87,7 +83,7 @@ export class SearchService {
   const results: KnowledgeSearchResultItem[] = [];
 
   for (const nodeId of nodeIds) {
-   if (!this.visibilityPolicy.isNodeVisible(nodeId)) {
+   if (!this.isNodeVisible(nodeId)) {
     continue;
    }
 
@@ -129,7 +125,7 @@ export class SearchService {
 
  // 2. artifact_read
  artifactRead(nodeId: string): KnowledgeArtifact | null {
-  if (!this.visibilityPolicy.isNodeVisible(nodeId)) {
+  if (!this.isNodeVisible(nodeId)) {
    return null;
   }
 
@@ -221,7 +217,7 @@ export class SearchService {
 
  // 5. graph_neighbors
  graphNeighbors(nodeId: string, direction: 'prerequisites' | 'successors' | 'all' = 'all'): NeighborResult[] {
-  if (!this.visibilityPolicy.isNodeVisible(nodeId)) {
+  if (!this.isNodeVisible(nodeId)) {
    return [];
   }
 
@@ -238,7 +234,7 @@ export class SearchService {
     .all(nodeId) as Array<{ id: string; title: string; relation_type: string }>;
 
    for (const p of prereqs) {
-    if (this.visibilityPolicy.isNodeVisible(p.id)) {
+    if (this.isNodeVisible(p.id)) {
      results.push({ nodeId: p.id, title: p.title, relation: p.relation_type });
     }
    }
@@ -255,12 +251,39 @@ export class SearchService {
     .all(nodeId) as Array<{ id: string; title: string; relation_type: string }>;
 
    for (const s of successors) {
-    if (this.visibilityPolicy.isNodeVisible(s.id)) {
+    if (this.isNodeVisible(s.id)) {
      results.push({ nodeId: s.id, title: s.title, relation: s.relation_type });
     }
    }
   }
 
   return results;
+ }
+
+ private isNodeVisible(nodeId: string): boolean {
+  const activeEvidence = (
+   this.db
+    .prepare(
+     "SELECT count(*) AS total FROM claim_evidence ce " +
+      "JOIN claims c ON c.id = ce.claim_id " +
+      "WHERE c.knowledge_node_id = ? AND ce.is_active = 1"
+    )
+    .get(nodeId) as { total: number } | undefined
+  )?.total ?? 0;
+
+  if (activeEvidence > 0) {
+   return true;
+  }
+
+  const activeClaims = (
+   this.db
+    .prepare(
+     "SELECT count(*) AS total FROM claims " +
+      "WHERE knowledge_node_id = ? AND status != 'deprecated'"
+    )
+    .get(nodeId) as { total: number } | undefined
+  )?.total ?? 0;
+
+  return activeClaims > 0;
  }
 }

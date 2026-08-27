@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServerContext } from '../src/index.ts';
 import { KnowledgeCompiler } from '@opentutor/knowledge-core';
-import { CourseCompiler } from '@opentutor/assessment-core';
 import type { LearningPathNode, LearningSessionSnapshot } from '@opentutor/protocol';
 
 test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Application/HTTP Boundary)', async (t) => {
@@ -43,23 +42,6 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
     content: `# Background\n\nAttention mechanisms compute representations using scaled dot-product attention.\n\n# Softmax Function\n\nSoftmax converts logits into normalized probability distribution.`,
   });
   assert.ok(doc.chunks.length >= 2);
-
-  // 2. Course Roadmap Compilation (via CourseCompiler)
-  const courseCompiler = new CourseCompiler();
-  const compiledPlan = courseCompiler.compile(
-    [
-      { id: 'vector-math', title: 'Vector Math' },
-      { id: 'softmax', title: 'Softmax Activation' },
-      { id: 'self-attention', title: 'Self-Attention' },
-    ],
-    [
-      { from: 'vector-math', to: 'softmax' },
-      { from: 'softmax', to: 'self-attention' },
-    ],
-    ['self-attention'],
-    new Set(['vector-math']),
-  );
-  assert.deepEqual(compiledPlan.nodeIds, ['softmax', 'self-attention']);
 
   // 3. Learning Room Initial Snapshot (HTTP GET)
   const initialSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);

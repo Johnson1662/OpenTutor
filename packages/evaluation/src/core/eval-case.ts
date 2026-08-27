@@ -1,12 +1,3 @@
-export type EvalMode = 'contract' | 'production';
-export const MODEL_SETUP_REQUIRED = 'MODEL_SETUP_REQUIRED';
-
-export class ModelSetupRequiredError extends Error {
-  constructor(message: string = 'MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production evaluation.') {
-    super(message);
-    this.name = 'ModelSetupRequiredError';
-  }
-}
 
 export interface EvalCase<TInput = unknown, TExpected = unknown> {
   id: string;

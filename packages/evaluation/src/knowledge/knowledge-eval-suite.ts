@@ -1,30 +1,17 @@
-import { createDatabase, type Database } from '@opentutor/database';
+import { createDatabase } from '@opentutor/database';
 import {
   LivingKnowledgeCompiler,
   ArtifactSupportEvaluator,
-  ModelKnowledgeAnalyzer,
-  ModelArtifactSynthesizer,
   type KnowledgeAnalyzer,
   type KnowledgeCandidate,
   type CompiledArtifact,
-  type ArtifactSynthesizer,
 } from '@opentutor/knowledge-core';
-import {
-  createOpenTutorModelRuntime,
-  ModelSelectionService,
-  RoleModelResolver,
-  PiModelDriver,
-  DefaultModelExecutionService,
-  ModelPreferencesRepository,
-} from '@opentutor/model-runtime';
 import type {
   DomainFixtureBundle,
-  EvalCase,
   EvalResult,
   EvalSuiteResult,
   HardFailure,
   MetricResult,
-  EvalMode,
 } from '../core/index.ts';
 import {
   createMetric,
@@ -32,8 +19,6 @@ import {
   calculateRecall,
   calculatePrecision,
   loadAllDomainBundles,
-  ModelSetupRequiredError,
-  MODEL_SETUP_REQUIRED,
 } from '../core/index.ts';
 export class BenchmarkDomainKnowledgeAnalyzer implements KnowledgeAnalyzer {
   private readonly bundle: DomainFixtureBundle;
@@ -102,21 +87,15 @@ export class BenchmarkDomainKnowledgeAnalyzer implements KnowledgeAnalyzer {
 }
 
 export interface KnowledgeEvalOptions {
-  mode?: EvalMode;
   bundles?: Record<string, DomainFixtureBundle>;
   evalsDir?: string;
-  customAnalyzerFactory?: (bundle: DomainFixtureBundle) => KnowledgeAnalyzer;
 }
 
 export class KnowledgeEvalSuite {
-  readonly mode: EvalMode;
   private readonly bundles: Record<string, DomainFixtureBundle>;
-  private readonly customAnalyzerFactory?: (bundle: DomainFixtureBundle) => KnowledgeAnalyzer;
 
   constructor(options: KnowledgeEvalOptions = {}) {
-    this.mode = options.mode ?? 'contract';
     this.bundles = options.bundles ?? loadAllDomainBundles(options.evalsDir);
-    this.customAnalyzerFactory = options.customAnalyzerFactory;
   }
   async runSuite(targetDomain?: string): Promise<EvalSuiteResult> {
     const startTime = Date.now();
@@ -173,49 +152,8 @@ export class KnowledgeEvalSuite {
 
     // 1. Spin up fresh in-memory database
     const db = createDatabase(':memory:');
-    let analyzer: KnowledgeAnalyzer;
-    let synthesizer: ArtifactSynthesizer | undefined;
-
-    if (this.mode === 'production') {
-      if (this.customAnalyzerFactory) {
-        analyzer = this.customAnalyzerFactory(bundle);
-        if (analyzer instanceof BenchmarkDomainKnowledgeAnalyzer || analyzer.constructor.name === 'BenchmarkDomainKnowledgeAnalyzer') {
-          throw new Error('PROHIBITED_ADAPTER: BenchmarkDomainKnowledgeAnalyzer is strictly prohibited in production mode.');
-        }
-      } else {
-        const runtime = await createOpenTutorModelRuntime();
-        const available = await runtime.getAvailable();
-        if (available.length === 0) {
-          throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production knowledge evaluation.');
-        }
-        const prefsRepo = new ModelPreferencesRepository(db);
-        const preferredProvider = process.env.OPENTUTOR_DEFAULT_PROVIDER;
-        const preferredModel = process.env.OPENTUTOR_DEFAULT_MODEL;
-        const first = available.find((model) =>
-          (!preferredProvider || model.provider === preferredProvider) &&
-          (!preferredModel || model.id === preferredModel)
-        ) ?? available[0];
-        if (first) {
-          prefsRepo.setPreferences('default-user', {
-            defaultProviderId: first.provider,
-            defaultModelId: first.id,
-            thinkingLevel: 'off',
-          });
-        }
-        const selectionService = new ModelSelectionService(runtime, prefsRepo);
-        const roleResolver = new RoleModelResolver(selectionService, runtime, prefsRepo);
-        const driver = new PiModelDriver(runtime);
-        const executionService = new DefaultModelExecutionService(roleResolver, driver);
-        analyzer = new ModelKnowledgeAnalyzer(executionService);
-        synthesizer = new ModelArtifactSynthesizer(executionService);
-      }
-    } else {
-      analyzer = this.customAnalyzerFactory
-        ? this.customAnalyzerFactory(bundle)
-        : new BenchmarkDomainKnowledgeAnalyzer(bundle);
-    }
-
-    const compiler = new LivingKnowledgeCompiler(db, analyzer, synthesizer);
+    const analyzer = new BenchmarkDomainKnowledgeAnalyzer(bundle);
+    const compiler = new LivingKnowledgeCompiler(db, analyzer);
 
     // 2. Ingest and compile domain source markdown
     let compilationResult: { compiledArtifacts: CompiledArtifact[] };

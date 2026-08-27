@@ -145,23 +145,6 @@ describe('Learning Evidence & User Knowledge State v2', () => {
       assert.equal(nodeEvidence[1].assessmentId, undefined);
     });
 
-    it('retrieves evidence history with and without limit', () => {
-      evidenceRepo.recordEvidence(evidence1);
-      evidenceRepo.recordEvidence(evidence2);
-      evidenceRepo.recordEvidence(evidence3);
-
-      const allHistory = evidenceRepo.getEvidenceHistory('user-1');
-      assert.equal(allHistory.length, 3);
-      assert.equal(allHistory[0].id, 'ev-3'); // Newest first
-      assert.equal(allHistory[1].id, 'ev-2');
-      assert.equal(allHistory[2].id, 'ev-1');
-
-      const limitedHistory = evidenceRepo.getEvidenceHistory('user-1', 2);
-      assert.equal(limitedHistory.length, 2);
-      assert.equal(limitedHistory[0].id, 'ev-3');
-      assert.equal(limitedHistory[1].id, 'ev-2');
-    });
-
     it('records sourceItemId and attempt and counts item attempts correctly', () => {
       assert.equal(evidenceRepo.countItemAttempts('user-1', 'self-attention', 'item-q1'), 0);
 
@@ -261,7 +244,7 @@ describe('Learning Evidence & User Knowledge State v2', () => {
       assert.equal(fetched.lastReviewedAt, undefined);
     });
 
-    it('retrieves all user knowledge states with v2 fields', () => {
+    it('retrieves user knowledge states with v2 fields', () => {
       const state1: UserKnowledgeState = {
         userId: 'user-2',
         knowledgeNodeId: 'self-attention',
@@ -295,18 +278,14 @@ describe('Learning Evidence & User Knowledge State v2', () => {
       knowledgeRepo.setUserKnowledgeState('user-2', state1);
       knowledgeRepo.setUserKnowledgeState('user-2', state2);
 
-      const states = knowledgeRepo.getAllUserKnowledgeStates('user-2');
-      assert.equal(states.length, 2);
-
-      const nodeMap = new Map(states.map((s) => [s.knowledgeNodeId, s]));
-      const fetched1 = nodeMap.get('self-attention')!;
+      const fetched1 = knowledgeRepo.getUserKnowledgeState('user-2', 'self-attention');
       assert.ok(fetched1);
       assert.equal(fetched1.status, 'mastered');
       assert.equal(fetched1.masteryProbability, 0.92);
       assert.equal(fetched1.alpha, 4.0);
       assert.equal(fetched1.evidenceCount, 5);
 
-      const fetched2 = nodeMap.get('multi-head')!;
+      const fetched2 = knowledgeRepo.getUserKnowledgeState('user-2', 'multi-head');
       assert.ok(fetched2);
       assert.equal(fetched2.status, 'learning');
       assert.equal(fetched2.masteryProbability, 0.55);

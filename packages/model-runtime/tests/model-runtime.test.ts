@@ -12,6 +12,7 @@ import {
  ModelExecutionService,
  FakeModelDriver,
  ModelExecutionError,
+ resolveSelectedModel,
 } from '../src/index.ts';
 
 test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t) => {
@@ -97,18 +98,18 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
   assert.equal(initial, null);
 
   const saved = prefsRepo.setPreferences('default-user', {
-   defaultProviderId: 'anthropic',
-   defaultModelId: 'claude-3-7-sonnet-20250219',
+   defaultProviderId: 'openai',
+   defaultModelId: 'gpt-4',
    thinkingLevel: 'high',
   });
 
-  assert.equal(saved.defaultProviderId, 'anthropic');
-  assert.equal(saved.defaultModelId, 'claude-3-7-sonnet-20250219');
+  assert.equal(saved.defaultProviderId, 'openai');
+  assert.equal(saved.defaultModelId, 'gpt-4');
   assert.equal(saved.thinkingLevel, 'high');
 
   const retrieved = prefsRepo.getPreferences('default-user');
   assert.ok(retrieved);
-  assert.equal(retrieved?.defaultProviderId, 'anthropic');
+  assert.equal(retrieved?.defaultProviderId, 'openai');
   assert.equal(retrieved?.thinkingLevel, 'high');
  });
 
@@ -148,52 +149,52 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
               ('session-102', 'default-user', 'transformer', datetime('now'), datetime('now'))`
   ).run();
 
-  // Initial resolution creates binding using current preference (anthropic / claude-3-7-sonnet-20250219)
+  // Initial resolution creates binding using current preference (openai / gpt-4)
   const initialResolution = await sessionResolver.resolveSessionModel('session-101', 'default-user');
-  assert.equal(initialResolution.providerId, 'anthropic');
-  assert.equal(initialResolution.modelId, 'claude-3-7-sonnet-20250219');
+  assert.equal(initialResolution.providerId, 'openai');
+  assert.equal(initialResolution.modelId, 'gpt-4');
   assert.equal(initialResolution.thinkingLevel, 'high');
 
   // User changes global preference to another model
   prefsRepo.setPreferences('default-user', {
    defaultProviderId: 'openai-codex',
-   defaultModelId: 'gpt-4o',
+   defaultModelId: 'gpt-5.4',
    thinkingLevel: 'low',
   });
 
   // Existing session-101 must remain frozen to original model binding
   const frozenResolution = await sessionResolver.resolveSessionModel('session-101', 'default-user');
-  assert.equal(frozenResolution.providerId, 'anthropic');
-  assert.equal(frozenResolution.modelId, 'claude-3-7-sonnet-20250219');
+  assert.equal(frozenResolution.providerId, 'openai');
+  assert.equal(frozenResolution.modelId, 'gpt-4');
   assert.equal(frozenResolution.thinkingLevel, 'high');
   assert.equal(frozenResolution.isBound, true);
 
   // New session-102 picks up the new global preference
   const newSessionResolution = await sessionResolver.resolveSessionModel('session-102', 'default-user');
   assert.equal(newSessionResolution.providerId, 'openai-codex');
-  assert.equal(newSessionResolution.modelId, 'gpt-4o');
+  assert.equal(newSessionResolution.modelId, 'gpt-5.4');
   assert.equal(newSessionResolution.thinkingLevel, 'low');
  });
 
  await t.test('7. RoleModelResolver resolves role-specific model over global preference', async () => {
   const executionService = new ModelExecutionService(runtime, prefsRepo);
 
-  // Global preference is currently openai-codex / gpt-4o
+  // Global preference is currently openai-codex / gpt-5.4
   const tutorModel = await executionService.resolveRoleModel('default-user', 'tutor');
   assert.equal(tutorModel.providerId, 'openai-codex');
-  assert.equal(tutorModel.modelId, 'gpt-4o');
+  assert.equal(tutorModel.modelId, 'gpt-5.4');
   assert.equal(tutorModel.isRoleSpecific, false);
 
-  // Set role-specific preference for knowledge_compiler to claude-3-7-sonnet-20250219
+  // Set role-specific preference for knowledge_compiler to claude-opus-4-5
   prefsRepo.setRolePreference('default-user', 'knowledge_compiler', {
    providerId: 'anthropic',
-   modelId: 'claude-3-7-sonnet-20250219',
+   modelId: 'claude-opus-4-5',
    thinkingLevel: 'high',
   });
 
   const compilerModel = await executionService.resolveRoleModel('default-user', 'knowledge_compiler');
   assert.equal(compilerModel.providerId, 'anthropic');
-  assert.equal(compilerModel.modelId, 'claude-3-7-sonnet-20250219');
+  assert.equal(compilerModel.modelId, 'claude-opus-4-5');
   assert.equal(compilerModel.thinkingLevel, 'high');
   assert.equal(compilerModel.isRoleSpecific, true);
 
@@ -201,6 +202,15 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
   const lessonModel = await executionService.resolveRoleModel('default-user', 'lesson_generator');
   assert.equal(lessonModel.providerId, 'openai-codex');
   assert.equal(lessonModel.isRoleSpecific, false);
+
+  prefsRepo.setRolePreference('default-user', 'assessment', {
+   providerId: 'missing-provider',
+   modelId: 'missing-model',
+  });
+  const staleRoleModel = await executionService.resolveRoleModel('default-user', 'assessment');
+  assert.equal(staleRoleModel.providerId, 'openai-codex');
+  assert.equal(staleRoleModel.modelId, 'gpt-5.4');
+  assert.equal(staleRoleModel.isRoleSpecific, false);
  });
 
  await t.test('8. ModelExecutionService validates structured output and repairs once on invalid schema', async () => {
@@ -276,6 +286,62 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
    (err: any) => {
     assert.equal(err instanceof ModelExecutionError, true);
     assert.equal(err.code, 'MODEL_OUTPUT_INVALID');
+    return true;
+   }
+  );
+ });
+
+ await t.test('9. Model selection has no fake default and falls back only to configured models', async () => {
+  const noAuthRuntime = await createOpenTutorModelRuntime({
+   dataDir: ':memory:',
+   authPath: ':memory:',
+   modelsPath: ':memory:',
+  });
+  const noPrefs = new ModelPreferencesRepository(createDatabase(':memory:'));
+
+  await assert.rejects(
+   () => resolveSelectedModel(noAuthRuntime, noPrefs),
+   (err: any) => {
+    assert.equal(err instanceof ModelExecutionError, true);
+    assert.equal(err.code, 'MODEL_SETUP_REQUIRED');
+    return true;
+   }
+  );
+
+  await runtime.login('openai', 'api_key', {
+   signal: AbortSignal.timeout(1000),
+   notify() {},
+   prompt: async () => 'test-key',
+  });
+  const auto = await resolveSelectedModel(runtime, noPrefs);
+  assert.equal(auto.providerId, 'openai');
+  assert.equal(auto.modelId, runtime.getModels('openai')[0]?.id);
+
+  noPrefs.setPreferences('default-user', {
+   defaultProviderId: 'openai',
+   defaultModelId: 'gpt-4-turbo',
+   thinkingLevel: 'medium',
+  });
+  const saved = await resolveSelectedModel(runtime, noPrefs);
+  assert.equal(saved.modelId, 'gpt-4-turbo');
+
+  noPrefs.setPreferences('default-user', { defaultProviderId: 'openai' });
+  await assert.rejects(
+   () => resolveSelectedModel(runtime, noPrefs),
+   (err: any) => {
+    assert.equal(err.code, 'MODEL_SETUP_REQUIRED');
+    return true;
+   }
+  );
+
+  noPrefs.setPreferences('default-user', {
+   defaultProviderId: 'missing-provider',
+   defaultModelId: 'missing-model',
+  });
+  await assert.rejects(
+   () => resolveSelectedModel(runtime, noPrefs),
+   (err: any) => {
+    assert.equal(err.code, 'MODEL_SETUP_REQUIRED');
     return true;
    }
   );

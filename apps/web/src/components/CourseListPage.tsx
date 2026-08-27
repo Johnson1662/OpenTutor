@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getCourseSession, listCourses, type CourseSummary } from '../runtime/api.ts';
+import { getExistingCourseSession, listCourses, type CourseSummary } from '../runtime/api.ts';
 import type { LearningSessionSnapshot } from '@opentutor/protocol';
 
 interface LearningJourney extends CourseSummary {
@@ -33,7 +33,8 @@ export function CourseListPage({
         const rows = await Promise.all(courses.map(async (course) => {
           if (course.compileStatus !== 'ready' && course.compileStatus !== 'active') return course;
           try {
-            return { ...course, session: await getCourseSession(course.id) };
+            const session = await getExistingCourseSession(course.id);
+            return session ? { ...course, session } : course;
           } catch {
             return course;
           }

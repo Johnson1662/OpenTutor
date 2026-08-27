@@ -30,5 +30,11 @@ describe('@opentutor/assessment-core', () => {
     assert.equal(substringTrap.score, 0);
     assert.equal(substringTrap.result, 'incorrect');
 
+    const chineseEval = evaluator.evaluateOpenAnswer('注意力会根据相关性分配不同权重', {
+      expectedKeywords: ['注意力', '相关性', '权重'],
+    });
+    assert.equal(chineseEval.result, 'correct');
+    assert.equal(chineseEval.score, 1);
+
   });
 });

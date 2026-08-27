@@ -73,14 +73,19 @@ function normalizeAnswer(value: unknown): string {
   return normalizeText(String(value ?? ''));
 }
 function normalizeText(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+  return value.trim().toLowerCase().normalize('NFKC').replace(/\s+/g, ' ');
 }
 
 function tokenize(value: string): string[] {
-  return value.split(/[^a-z0-9]+/).filter(Boolean);
+  return normalizeText(value).split(/[^a-z0-9\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]+/u).filter(Boolean);
 }
 function containsKeyword(textTokens: string[], keyword: string): boolean {
-  const keywordTokens = tokenize(keyword);
+  const normalizedKeyword = normalizeText(keyword);
+  if (/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(normalizedKeyword)) {
+    const phrase = normalizedKeyword.replace(/\s/g, '');
+    return textTokens.some((token) => token.replace(/\s/g, '').includes(phrase));
+  }
+  const keywordTokens = tokenize(normalizedKeyword);
   if (keywordTokens.length === 0) return false;
   return textTokens.some((_, index) =>
     keywordTokens.every((token, offset) => tokenMatches(textTokens[index + offset], token))
@@ -92,7 +97,7 @@ function tokenMatches(actual: string | undefined, expected: string): boolean {
 }
 
 function extractKeywords(reference: string): string[] {
-  return [...new Set(normalizeText(reference).split(/[^a-z0-9]+/).filter((word) => word.length > 2))];
+  return [...new Set(tokenize(reference).filter((word) => word.length > 2))];
 }
 
 function evaluation(

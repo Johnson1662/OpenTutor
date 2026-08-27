@@ -296,7 +296,7 @@ export class CourseCompiler {
 
   for (const node of courseGraph.nodes) {
    const state = masteryMap.get(node.knowledgeNodeId);
-   const isMastered = state?.status === 'mastered' || (state?.confidence ?? 0) >= 0.8;
+   const isMastered = state?.status === 'mastered';
 
    let status: LearningPathNode['status'] = 'upcoming';
    if (isMastered) {
@@ -315,11 +315,6 @@ export class CourseCompiler {
     position,
    });
    position++;
-  }
-
-  // If all nodes were mastered, set the last node as current for review
-  if (!hasCurrent && path.length > 0) {
-   path[path.length - 1]!.status = 'current';
   }
 
   return path;

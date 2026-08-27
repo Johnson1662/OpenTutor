@@ -53,6 +53,13 @@ describe('AssessmentService validation & evaluation', () => {
           correctOptionId: 'opt-a',
         },
       },
+      {
+        id: 'quiz-missing-spec',
+        type: 'quiz',
+        question: 'Missing scoring contract',
+        answerType: 'single_choice',
+        options: [{ id: 'opt-a', text: 'Answer A' }],
+      },
     ],
   };
 
@@ -192,6 +199,20 @@ describe('AssessmentService validation & evaluation', () => {
     assert.equal(recordedAssessments[0]?.options?.sourceItemId, 'quiz-probe-1');
     assert.equal(recordedAssessments[0]?.options?.type, 'probe');
     assert.deepEqual(recordedAssessments[0]?.options?.candidateMisconceptionIds, ['misc-prereq-1']);
+  });
+
+  it('rejects a quiz without answerSpec instead of guessing its answer', () => {
+    recordedAssessments.length = 0;
+    assert.throws(
+      () => service.submitAnswer({
+        sessionId: 's-1',
+        lessonId: 'lesson-test',
+        blockId: 'quiz-missing-spec',
+        answer: 'opt-a',
+      }),
+      { message: 'QUIZ_ANSWER_SPEC_MISSING' }
+    );
+    assert.equal(recordedAssessments.length, 0);
   });
 
   it('ensures zero mutation when BLOCK_NOT_FOUND or BLOCK_NOT_ASSESSABLE occurs', () => {

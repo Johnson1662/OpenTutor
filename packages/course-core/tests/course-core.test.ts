@@ -66,6 +66,30 @@ test('packages/course-core - Course Domain & Compilation Pipeline', async (t) =>
     assert.equal(selfAttention?.status, 'current');
   });
 
+  await t.test('3b. CourseCompiler leaves no current node when every node is mastered', async () => {
+    db.prepare(
+      `INSERT INTO user_knowledge_states (user_id, knowledge_node_id, status, confidence, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now')), (?, ?, ?, ?, datetime('now'))`
+    ).run(
+      'all-mastered-user', 'embedding', 'mastered', 0.9,
+      'all-mastered-user', 'self-attention', 'mastered', 0.9
+    );
+
+    const compiler = new CourseCompiler(db, {
+      async analyzeGoal() {
+        return { targetConcepts: ['Self Attention'], depth: 'beginner' };
+      },
+    });
+    const result = await compiler.compileCourse({
+      courseId: 'course-test-all-mastered',
+      learningGoal: 'Learn self attention',
+      userId: 'all-mastered-user',
+    });
+
+    assert.ok(result.initialPath.every((node) => node.status === 'completed'));
+    assert.equal(result.initialPath.find((node) => node.status === 'current'), undefined);
+  });
+
   await t.test('4. CourseCompiler keeps every node when prerequisites contain a cycle', async () => {
     db.prepare(
       `INSERT OR REPLACE INTO knowledge_nodes (id, title, description, created_at)

@@ -82,43 +82,11 @@ export class AssessmentService {
         evaluationConfidence = evalOpen.evidenceConfidence ?? evalOpen.confidence ?? 1.0;
         evaluationScore = evalOpen.score !== undefined ? evalOpen.score : (evalOpen.result === 'correct' ? 1.0 : evalOpen.result === 'partial' ? 0.5 : 0.0);
         feedback = evalOpen.feedback;
+      } else {
+        throw new Error('QUIZ_ANSWER_SPEC_INVALID');
       }
-    } else if (block.options && block.options.length > 0) {
-      const rawBlock = block as unknown as Record<string, unknown>;
-      const firstOption = block.options[0];
-      const correctVal =
-        (typeof rawBlock.correctAnswer === 'string' ? rawBlock.correctAnswer : undefined) ??
-        (typeof firstOption === 'string'
-          ? firstOption
-          : firstOption && typeof firstOption === 'object'
-            ? ('id' in firstOption && typeof firstOption.id === 'string' ? firstOption.id : ('text' in firstOption && typeof firstOption.text === 'string' ? firstOption.text : undefined))
-            : undefined);
-      const evalObj = this.evaluator.evaluateObjective(
-        {
-          type: block.answerType === 'multiple_choice' ? 'multiple' : 'single',
-          correctAnswer: correctVal,
-        },
-        input.answer
-      );
-      evaluationResult = evalObj.result;
-      evaluationConfidence = evalObj.evidenceConfidence ?? evalObj.confidence ?? 1.0;
-      evaluationScore = evalObj.score !== undefined ? evalObj.score : (evalObj.result === 'correct' ? 1.0 : evalObj.result === 'partial' ? 0.5 : 0.0);
-      feedback = evalObj.feedback;
     } else {
-      const keywords = input.lessonId.includes('softmax')
-        ? ['probability', 'sum', '1', 'softmax', 'positive']
-        : ['context', 'attention', 'token', 'tokens', 'information', 'surrounding', 'word'];
-      const evalOpen = this.evaluator.evaluateOpenAnswer(
-        input.answer,
-        {
-          keywords,
-          minScoreForCorrect: 0.25,
-        }
-      );
-      evaluationResult = evalOpen.result;
-      evaluationConfidence = evalOpen.evidenceConfidence ?? evalOpen.confidence ?? 1.0;
-      evaluationScore = evalOpen.score !== undefined ? evalOpen.score : (evalOpen.result === 'correct' ? 1.0 : evalOpen.result === 'partial' ? 0.5 : 0.0);
-      feedback = evalOpen.feedback;
+      throw new Error('QUIZ_ANSWER_SPEC_MISSING');
     }
 
     const userId = input.userId ?? 'default-user';

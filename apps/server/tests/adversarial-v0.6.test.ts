@@ -38,6 +38,10 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
    authPath: ':memory:',
    modelsPath: ':memory:',
   });
+  prefsRepo.setPreferences('default-user', {
+   defaultProviderId: 'openai',
+   defaultModelId: 'gpt-4',
+  });
 
   const brokenService = new ModelExecutionService(
    runtime,
@@ -241,6 +245,7 @@ test('Adversarial & Failure Matrix Test Suite v0.6', async (t) => {
    findModel: () => undefined,
    getModel: () => undefined,
    getModels: () => [],
+   getProviders: () => [],
    hasConfiguredAuth: () => false,
   } as any;
 

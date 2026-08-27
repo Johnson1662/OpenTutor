@@ -11,7 +11,6 @@ import type {
 import type { LivingKnowledgeCompiler } from '@opentutor/knowledge-core';
 import type { CourseCompiler } from '@opentutor/course-core';
 import type { LessonGenerator } from '@opentutor/lesson-core';
-import { FakeLessonGenerator } from '@opentutor/lesson-core';
 import type { EventBus } from '../events/event-bus.ts';
 import type { LearningSessionSnapshot } from '@opentutor/protocol';
 import { CourseSourceService } from './course-source-service.ts';
@@ -32,7 +31,7 @@ export class CourseService {
     lessonRepo: LessonRepository,
     knowledgeCompiler: LivingKnowledgeCompiler,
     courseCompiler: CourseCompiler,
-    lessonGenerator?: LessonGenerator,
+    lessonGenerator: LessonGenerator,
     eventBus?: EventBus,
     courseSourceService?: CourseSourceService
   ) {
@@ -41,7 +40,7 @@ export class CourseService {
     this.lessonRepo = lessonRepo;
     this.knowledgeCompiler = knowledgeCompiler;
     this.courseCompiler = courseCompiler;
-    this.lessonGenerator = lessonGenerator ?? new FakeLessonGenerator();
+    this.lessonGenerator = lessonGenerator;
     this.eventBus = eventBus!;
     this.courseSourceService =
       courseSourceService ??
@@ -107,21 +106,16 @@ export class CourseService {
 
     const existingSession = this.sessionRepo.findSessionByCourse(courseId, userId);
     // The seeded prototype is a demo fixture, not a course-owned learner session.
-    const reusableSession = existingSession?.id === 'prototype' ? null : existingSession;
-    const sessionId = reusableSession?.id ?? `session-${randomUUID()}`;
+    const sessionId = existingSession && existingSession.id !== 'prototype' ? existingSession.id : `session-${randomUUID()}`;
     const now = new Date().toISOString();
 
-    // 1. Ensure learning session exists before appending events
-    try {
-      this.sessionRepo.createSession({
-        id: sessionId,
-        courseId,
-        userId,
-        path: [],
-      });
-    } catch {
-      // Session already exists
-    }
+    // 1. Ensure learning session exists before appending events.
+    this.sessionRepo.createSession({
+      id: sessionId,
+      courseId,
+      userId,
+      path: [],
+    });
 
     // 2. Mark status compiling and emit started event
     this.courseRepo.updateCourse(courseId, { compileStatus: 'compiling' });
@@ -215,106 +209,24 @@ export class CourseService {
     }
   }
 
-  getOrCreateSessionForCourse(courseId: string, userId: string = 'default-user'): LearningSessionSnapshot {
+
+  getExistingSessionForCourse(courseId: string, userId: string = 'default-user'): LearningSessionSnapshot | null {
     const existingSession = this.sessionRepo.findSessionByCourse(courseId, userId);
     // The seeded prototype is a demo fixture, not a course-owned learner session.
-    const reusableSession = existingSession?.id === 'prototype' ? null : existingSession;
-    const sessionId = reusableSession?.id ?? `session-${randomUUID()}`;
-    const existing = reusableSession ? this.sessionRepo.getSnapshot(reusableSession.id) : null;
-    if (existing) {
-      return existing;
-    }
+    return existingSession && existingSession.id !== 'prototype' ? this.sessionRepo.getSnapshot(existingSession.id) : null;
+  }
 
-    const courseMap = this.getCourseMap(courseId);
-    const firstNode = courseMap.nodes[0];
-    const knId = firstNode?.knowledgeNodeId ?? 'self-attention';
-    const knTitle = firstNode?.title ?? 'Overview';
+  async startSessionForCourse(courseId: string, userId: string = 'default-user'): Promise<LearningSessionSnapshot> {
+    const existing = this.getExistingSessionForCourse(courseId, userId);
+    if (existing) return existing;
 
-    const defaultLesson = {
-      schemaVersion: '1.0' as const,
-      id: `lesson-${courseId}-${randomUUID().slice(0, 8)}`,
+    const course = this.courseRepo.getCourse(courseId);
+    if (!course) throw new Error(`Course not found: ${courseId}`);
+    const result = await this.compileCourse(
       courseId,
-      knowledgeNodeId: knId,
-      title: knTitle,
-      version: 1,
-      blocks: [
-        {
-          id: 'blk-1',
-          type: 'text' as const,
-          variant: 'definition' as const,
-          content: `先把 ${knTitle} 放回整体问题里：它是这条学习路径的第一个关键概念。`,
-        },
-        {
-          id: 'blk-2',
-          type: 'text' as const,
-          variant: 'example' as const,
-          content: `想象一个真实任务：你需要用 ${knTitle} 解释一个输入如何得到结果。`,
-        },
-        {
-          id: 'blk-3',
-          type: 'diagram' as const,
-          diagramType: 'flow' as const,
-          nodes: [
-            { id: 'input', label: '输入' },
-            { id: 'concept', label: knTitle },
-            { id: 'output', label: '结果' },
-          ],
-          edges: [
-            { from: 'input', to: 'concept', label: '观察' },
-            { from: 'concept', to: 'output', label: '应用' },
-          ],
-        },
-        {
-          id: 'blk-4',
-          type: 'code' as const,
-          language: 'text',
-          code: `输入 → ${knTitle} → 结果`,
-          explanation: '先说清楚输入、概念和结果，再进入细节。',
-        },
-        {
-          id: 'blk-5',
-          type: 'quiz' as const,
-          question: `你会怎样用一句话解释 ${knTitle} 在这条路径中的作用？`,
-          answerSpec: {
-            type: 'open' as const,
-            rubric: {
-              concepts: [knTitle, '输入', '结果'],
-              referenceAnswer: `${knTitle} 把输入转化为可以观察或应用的结果。`,
-            },
-          },
-        },
-      ],
-      status: 'active' as const,
-    };
-
-    const defaultPath = courseMap.nodes.map((n, i) => ({
-      id: `path-node-${sessionId}-${n.knowledgeNodeId}`,
-      knowledgeNodeId: n.knowledgeNodeId,
-      title: n.title,
-      type: 'main' as const,
-      status: (i === 0 ? 'current' : 'upcoming') as any,
-      position: n.position,
-    }));
-
-    this.lessonRepo.saveLesson(defaultLesson);
-
-    this.sessionRepo.createSession({
-      id: sessionId,
-      courseId,
-      userId,
-      activeLessonId: defaultLesson.id,
-      path: defaultPath.length > 0 ? defaultPath : [
-        {
-          id: `path-node-${sessionId}-self-attention`,
-          knowledgeNodeId: 'self-attention',
-          title: 'Self Attention',
-          type: 'main',
-          status: 'current',
-          position: 1,
-        },
-      ],
-    });
-
-    return this.sessionRepo.getSnapshot(sessionId)!;
+      course.description || '掌握这门课程的核心知识，并能应用它。',
+      userId
+    );
+    return result.snapshot;
   }
 }

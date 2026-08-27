@@ -60,7 +60,7 @@ export interface ResolvedRoleModel {
   isRoleSpecific: boolean;
 }
 
-/** Resolve the user's globally selected model from preferences, env, then built-in defaults. */
+/** Resolve the user's globally selected model: saved preference → first configured provider with a model → throw. */
 export async function resolveSelectedModel(
   runtime: ModelRuntime,
   preferencesRepo: ModelPreferencesRepository,
@@ -68,24 +68,46 @@ export async function resolveSelectedModel(
 ): Promise<SelectedModelResult> {
   const prefs = preferencesRepo.getPreferences(userId);
 
-  const providerId = prefs?.defaultProviderId ?? process.env.OPENTUTOR_DEFAULT_PROVIDER ?? 'anthropic';
-  const modelId = prefs?.defaultModelId ?? process.env.OPENTUTOR_DEFAULT_MODEL ?? 'claude-3-7-sonnet-20250219';
   const rawThinking = prefs?.thinkingLevel ?? 'medium';
   const thinkingLevel: ThinkingLevel =
     rawThinking === 'off' || rawThinking === 'low' || rawThinking === 'medium' || rawThinking === 'high'
       ? rawThinking
       : 'medium';
 
-  const model = runtime.getModel(providerId, modelId);
-  const isConfigured = runtime.hasConfiguredAuth(providerId);
+  // A. Saved preference wins — strict.
+  if (prefs) {
+    const providerId = prefs.defaultProviderId;
+    const modelId = prefs.defaultModelId;
+    if (!providerId || !modelId) {
+      throw new ModelExecutionError(
+        'MODEL_SETUP_REQUIRED',
+        'MODEL_SETUP_REQUIRED: saved model preference is incomplete. Select a provider and model in Settings.'
+      );
+    }
+    const model = runtime.getModel(providerId, modelId);
+    if (!model) {
+      throw new ModelExecutionError(
+        'MODEL_SETUP_REQUIRED',
+        `MODEL_SETUP_REQUIRED: saved model '${providerId}/${modelId}' is not available. Re-select a model in Settings.`
+      );
+    }
+    return { providerId, modelId, thinkingLevel, model, isConfigured: runtime.hasConfiguredAuth(providerId) };
+  }
 
-  return {
-    providerId,
-    modelId,
-    thinkingLevel,
-    model: model ?? undefined,
-    isConfigured,
-  };
+  // B. No saved preference: first configured provider that has a model.
+  for (const provider of runtime.getProviders()) {
+    if (!runtime.hasConfiguredAuth(provider.id)) continue;
+    const model = runtime.getModels(provider.id)[0];
+    if (model) {
+      return { providerId: provider.id, modelId: model.id, thinkingLevel, model, isConfigured: true };
+    }
+  }
+
+  // C. Nothing configured — no silent fallback.
+  throw new ModelExecutionError(
+    'MODEL_SETUP_REQUIRED',
+    'MODEL_SETUP_REQUIRED: no AI model configured. Configure a provider and model in Settings.'
+  );
 }
 
 export class ModelExecutionService {
@@ -104,58 +126,32 @@ export class ModelExecutionService {
   }
 
   async resolveRoleModel(userId: string = 'default-user', role: AiRole): Promise<ResolvedRoleModel> {
-    // 1. Check role-specific preference
+    // 1. Role-specific preference only if the model actually exists; otherwise fall through to global default.
     const rolePref = this.preferencesRepo.getRolePreference(userId, role);
     if (rolePref && rolePref.providerId && rolePref.modelId) {
       const model = this.modelRuntime.getModel(rolePref.providerId, rolePref.modelId);
-      return {
-        role,
-        providerId: rolePref.providerId,
-        modelId: rolePref.modelId,
-        thinkingLevel: rolePref.thinkingLevel as ThinkingLevel,
-        model: model ?? undefined,
-        isRoleSpecific: true,
-      };
-    }
-
-    // 2. Fall back to global default preference
-    const defaultSelection = await resolveSelectedModel(this.modelRuntime, this.preferencesRepo, userId);
-    if (defaultSelection && defaultSelection.providerId && defaultSelection.modelId) {
-      const model = this.modelRuntime.getModel(defaultSelection.providerId, defaultSelection.modelId);
-      const allModels = this.modelRuntime.getModels();
-      if (!model && allModels.length === 0) {
-        throw new Error(
-          `MODEL_SETUP_REQUIRED: No AI model configured for role '${role}'. Please configure an AI Provider in Settings.`
-        );
+      if (model) {
+        return {
+          role,
+          providerId: rolePref.providerId,
+          modelId: rolePref.modelId,
+          thinkingLevel: rolePref.thinkingLevel as ThinkingLevel,
+          model,
+          isRoleSpecific: true,
+        };
       }
-
-      return {
-        role,
-        providerId: defaultSelection.providerId,
-        modelId: defaultSelection.modelId,
-        thinkingLevel: defaultSelection.thinkingLevel,
-        model: model ?? defaultSelection.model,
-        isRoleSpecific: false,
-      };
     }
 
-    // 3. Fallback to first available configured model if runtime has any
-    const allModels = this.modelRuntime.getModels();
-    if (allModels.length > 0) {
-      const fallback = allModels[0] as any;
-      return {
-        role,
-        providerId: fallback.providerId ?? fallback.provider,
-        modelId: fallback.id,
-        thinkingLevel: 'medium',
-        model: fallback,
-        isRoleSpecific: false,
-      };
-    }
-
-    throw new Error(
-      `MODEL_SETUP_REQUIRED: No AI model configured for role '${role}'. Please configure an AI Provider in Settings.`
-    );
+    // 2. Global default (saved → first configured → throws MODEL_SETUP_REQUIRED).
+    const selection = await resolveSelectedModel(this.modelRuntime, this.preferencesRepo, userId);
+    return {
+      role,
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+      thinkingLevel: selection.thinkingLevel,
+      model: selection.model,
+      isRoleSpecific: false,
+    };
   }
 
   async completeText(input: {
@@ -170,10 +166,8 @@ export class ModelExecutionService {
     try {
       resolved = await this.resolveRoleModel(userId, input.role);
     } catch (err: unknown) {
+      if (err instanceof ModelExecutionError) throw err;
       const errorObj = err instanceof Error ? err : new Error(String(err));
-      if (errorObj.message.includes('MODEL_SETUP_REQUIRED')) {
-        throw new ModelExecutionError('MODEL_SETUP_REQUIRED', errorObj.message, err);
-      }
       throw new ModelExecutionError('MODEL_PROVIDER_ERROR', errorObj.message, err);
     }
 
@@ -197,10 +191,8 @@ export class ModelExecutionService {
     try {
       resolved = await this.resolveRoleModel(userId, input.role);
     } catch (err: unknown) {
+      if (err instanceof ModelExecutionError) throw err;
       const errorObj = err instanceof Error ? err : new Error(String(err));
-      if (errorObj.message.includes('MODEL_SETUP_REQUIRED')) {
-        throw new ModelExecutionError('MODEL_SETUP_REQUIRED', errorObj.message, err);
-      }
       throw new ModelExecutionError('MODEL_PROVIDER_ERROR', errorObj.message, err);
     }
 

@@ -6,8 +6,9 @@ import {
   getCourse,
   getCourseEvidence,
   getCourseMap,
-  getCourseSession,
+  getExistingCourseSession,
   listCourseSources,
+  startCourseSession,
   type CourseEvidenceItem,
   type CourseMapInfo,
   type CourseSourceItem,
@@ -47,6 +48,7 @@ export function CourseSpacePage({
   const [sourceContent, setSourceContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [compiling, setCompiling] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
 
   useEffect(() => setTab(initialTab), [initialTab]);
@@ -57,7 +59,7 @@ export function CourseSpacePage({
       getCourseMap(courseId).catch(() => null),
       getCourseEvidence(courseId).catch(() => []),
       listCourseSources(courseId).catch(() => []),
-      nextCourse.compileStatus === 'ready' || nextCourse.compileStatus === 'active' ? getCourseSession(courseId).catch(() => null) : Promise.resolve(null),
+      nextCourse.compileStatus === 'ready' || nextCourse.compileStatus === 'active' ? getExistingCourseSession(courseId) : Promise.resolve(null),
     ]);
     setCourse(nextCourse);
     setCourseMap(nextMap);
@@ -108,6 +110,24 @@ export function CourseSpacePage({
     }
   }
 
+  async function startLearning() {
+    try {
+      setStarting(true);
+      const nextSession = await startCourseSession(courseId);
+      setSession(nextSession);
+      onNavigate('/learn/' + nextSession.sessionId);
+    } catch (error: any) {
+      const code = error instanceof Error && 'code' in error ? error.code : undefined;
+      if (code === 'MODEL_SETUP_REQUIRED' || code === 'MODEL_AUTH_REQUIRED' || code === 'MODEL_NOT_FOUND') {
+        onNavigate('/settings');
+      } else {
+        onFlash('开始学习失败：' + (error.message || '请稍后重试'));
+      }
+    } finally {
+      setStarting(false);
+    }
+  }
+
   async function addSource(event: FormEvent) {
     event.preventDefault();
     if (!sourceContent.trim()) {
@@ -152,7 +172,7 @@ export function CourseSpacePage({
     <main className="page-shell course-page">
       <header className="course-page-header">
         <div><button type="button" className="back-link" onClick={() => onNavigate('/courses')}>← 我的学习</button><span className="eyebrow">Course journey</span><h1>{course.title}</h1><p>{course.description || '按路径一步一步建立知识结构。'}</p></div>
-        <div className="course-header-actions"><button type="button" className="btn-secondary" onClick={() => changeTab('materials')}>添加资料</button><button type="button" className="btn-primary" disabled={!session || !currentNode} onClick={() => session && onNavigate('/learn/' + session.sessionId)}>{currentNode ? '继续学习' : '路径完成'} <span aria-hidden="true">→</span></button></div>
+        <div className="course-header-actions"><button type="button" className="btn-secondary" onClick={() => changeTab('materials')}>添加资料</button>{session ? <button type="button" className="btn-primary" disabled={!currentNode} onClick={() => onNavigate('/learn/' + session.sessionId)}>{currentNode ? '继续学习' : '路径完成'} <span aria-hidden="true">→</span></button> : <button type="button" className="btn-primary" disabled={starting || compiling || course.compileStatus === 'compiling'} onClick={startLearning}>{starting ? '正在准备…' : '开始学习'} <span aria-hidden="true">→</span></button>}</div>
       </header>
 
       <nav className="course-tabs" aria-label="课程内容">

@@ -1,10 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { json, readJson } from './http-utils.ts';
 import type { CourseService } from '../services/course-service.ts';
+import { ModelExecutionError } from '@opentutor/model-runtime';
 
 export interface CourseRouteContext {
   courseService: CourseService;
 }
+
+const modelSetupCodes = ['MODEL_SETUP_REQUIRED', 'MODEL_AUTH_REQUIRED', 'MODEL_NOT_FOUND'] as const;
 
 export async function handleCourseRoutes(
   req: IncomingMessage,
@@ -88,7 +91,11 @@ export async function handleCourseRoutes(
       const result = await ctx.courseService.compileCourse(courseId, learningGoal, userId);
       json(res, 200, result, req);
     } catch (err: any) {
-      json(res, 500, { error: err.message ?? String(err) }, req);
+      if (err instanceof ModelExecutionError && modelSetupCodes.some((code) => code === err.code)) {
+        json(res, 503, { error: err.code, message: '请先配置可用的 AI 模型' }, req);
+      } else {
+        json(res, 500, { error: err.message ?? String(err) }, req);
+      }
     }
     return true;
   }
@@ -111,14 +118,35 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 10. POST /api/courses/:id/sessions
+  // 10. GET /api/courses/:id/session — read only; never creates a session.
+  const existingSessionMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/session$/);
+  if (method === 'GET' && existingSessionMatch) {
+    const userId = url.searchParams.get('userId') ?? 'default-user';
+    const snapshot = ctx.courseService.getExistingSessionForCourse(existingSessionMatch[1]!, userId);
+    if (!snapshot) {
+      json(res, 404, { error: 'SESSION_NOT_FOUND', message: '课程尚未开始学习' }, req);
+    } else {
+      json(res, 200, { snapshot }, req);
+    }
+    return true;
+  }
+
+  // 11. POST /api/courses/:id/sessions — explicit learner action; compiles a real course session.
   const sessionMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/sessions$/);
   if (method === 'POST' && sessionMatch) {
     const courseId = sessionMatch[1]!;
     const body = await readJson<{ userId?: string }>(req).catch(() => ({}));
     const userId = (body as any).userId || 'default-user';
-    const snapshot = ctx.courseService.getOrCreateSessionForCourse(courseId, userId);
-    json(res, 200, { snapshot }, req);
+    try {
+      const snapshot = await ctx.courseService.startSessionForCourse(courseId, userId);
+      json(res, 200, { snapshot }, req);
+    } catch (err: any) {
+      if (err instanceof ModelExecutionError && modelSetupCodes.some((code) => code === err.code)) {
+        json(res, 503, { error: err.code, message: '请先配置可用的 AI 模型' }, req);
+      } else {
+        json(res, 500, { error: err.message ?? String(err) }, req);
+      }
+    }
     return true;
   }
 

@@ -312,7 +312,9 @@ export async function compileCourse(courseId: string, learningGoal: string): Pro
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? 'Compilation failed');
+    const error = new Error(err.message ?? err.error ?? 'Compilation failed');
+    if (typeof err.error === 'string') Object.defineProperty(error, 'code', { value: err.error });
+    throw error;
   }
   return res.json();
 }
@@ -331,9 +333,26 @@ export async function getCourseEvidence(courseId: string): Promise<CourseEvidenc
   return data.evidence ?? [];
 }
 
-export async function getCourseSession(courseId: string): Promise<LearningSessionSnapshot> {
-  const res = await fetch(`/api/courses/${courseId}/sessions`, { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to load course session');
+export async function getExistingCourseSession(courseId: string): Promise<LearningSessionSnapshot | null> {
+  const res = await fetch(`/api/courses/${courseId}/session`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Failed to load existing course session');
+  const data = await res.json();
+  return data.snapshot ?? null;
+}
+
+export async function startCourseSession(courseId: string): Promise<LearningSessionSnapshot> {
+  const res = await fetch(`/api/courses/${courseId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const error = new Error(err.message ?? err.error ?? 'Failed to start course session');
+    if (typeof err.error === 'string') Object.defineProperty(error, 'code', { value: err.error });
+    throw error;
+  }
   const data = await res.json();
   return data.snapshot;
 }

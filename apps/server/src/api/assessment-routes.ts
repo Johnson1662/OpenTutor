@@ -59,7 +59,12 @@ export async function handleAssessmentRoutes(
         json(res, 200, result, req);
       }
     } catch (err: any) {
-      json(res, 400, { error: err.message ?? String(err) }, req);
+      const error = err.message ?? String(err);
+      if (error === 'QUIZ_ANSWER_SPEC_MISSING') {
+        json(res, 400, { error, message: '题目缺少 answerSpec，无法判分' }, req);
+      } else {
+        json(res, 400, { error }, req);
+      }
     }
     return true;
   }

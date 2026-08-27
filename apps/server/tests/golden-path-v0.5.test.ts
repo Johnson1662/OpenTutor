@@ -45,7 +45,7 @@ test('End-to-End Golden Path v0.5: AI Control Plane + Living Knowledge + Adaptiv
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       defaultProviderId: 'anthropic',
-      defaultModelId: 'claude-3-7-sonnet-20250219',
+      defaultModelId: 'claude-opus-4-5',
       thinkingLevel: 'high',
     }),
   });

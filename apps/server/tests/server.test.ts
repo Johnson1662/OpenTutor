@@ -30,6 +30,30 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     assert.equal(snapshot.path.length, 5);
   });
 
+  await t.test('1b. Course session reads do not create learner sessions', async () => {
+    const createCourseRes = await fetch(`${baseUrl}/api/courses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'no-session-course', title: 'No session course' }),
+    });
+    assert.equal(createCourseRes.status, 201);
+
+    const getRes = await fetch(`${baseUrl}/api/courses/no-session-course/session`);
+    assert.equal(getRes.status, 404);
+
+    const startRes = await fetch(`${baseUrl}/api/courses/no-session-course/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(startRes.status, 200);
+    const started = (await startRes.json()) as { snapshot: LearningSessionSnapshot };
+    assert.ok(started.snapshot.sessionId);
+
+    const resumedRes = await fetch(`${baseUrl}/api/courses/no-session-course/session`);
+    assert.equal(resumedRes.status, 200);
+  });
+
   await t.test('2. POST /api/sessions/prototype/actions triggers patch & persists in SQLite', async () => {
     const { promise: completedPromise, resolve: resolveCompleted } = Promise.withResolvers<void>();
     const unsubscribe = context.eventBus.subscribe('prototype', (evt) => {
@@ -183,12 +207,19 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
   });
 
   await t.test('8. GET & PUT /api/ai/preferences manages default provider/model', async () => {
+    const initialRes = await fetch(`${baseUrl}/api/ai/preferences`);
+    assert.equal(initialRes.status, 200);
+    assert.deepEqual(await initialRes.json(), {
+      userId: 'default-user',
+      thinkingLevel: 'medium',
+    });
+
     const putRes = await fetch(`${baseUrl}/api/ai/preferences`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         defaultProviderId: 'anthropic',
-        defaultModelId: 'claude-3-7-sonnet-20250219',
+        defaultModelId: 'claude-opus-4-5',
         thinkingLevel: 'high',
       }),
     });
@@ -198,7 +229,7 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     assert.equal(getRes.status, 200);
     const prefs = (await getRes.json()) as { defaultProviderId: string; defaultModelId: string; thinkingLevel: string };
     assert.equal(prefs.defaultProviderId, 'anthropic');
-    assert.equal(prefs.defaultModelId, 'claude-3-7-sonnet-20250219');
+    assert.equal(prefs.defaultModelId, 'claude-opus-4-5');
     assert.equal(prefs.thinkingLevel, 'high');
   });
 

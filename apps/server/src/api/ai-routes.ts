@@ -39,12 +39,11 @@ export async function handleAiRoutes(
   // 3. GET /api/ai/preferences
   if (method === 'GET' && path === '/api/ai/preferences') {
     const userId = url.searchParams.get('userId') ?? 'default-user';
-    const preferences = ctx.preferencesRepo.getPreferences(userId) ?? {
+    const saved = ctx.preferencesRepo.getPreferences(userId);
+    // No fake defaults: unset provider/model stays undefined so the UI prompts setup.
+    const preferences = saved ?? {
       userId,
-      defaultProviderId: 'anthropic',
-      defaultModelId: 'claude-3-7-sonnet-20250219',
       thinkingLevel: 'medium',
-      updatedAt: new Date().toISOString(),
     };
     json(res, 200, preferences, req);
     return true;

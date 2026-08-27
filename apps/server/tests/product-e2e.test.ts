@@ -60,14 +60,14 @@ test('Product E2E Golden Path v0.6: Usable AI Tutor MVP Full Lifecycle', async (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       defaultProviderId: 'anthropic',
-      defaultModelId: 'claude-3-7-sonnet-20250219',
+      defaultModelId: 'claude-opus-4-5',
       thinkingLevel: 'high',
     }),
   });
   assert.equal(prefRes.status, 200);
   const prefBody = (await prefRes.json()) as { defaultProviderId: string; defaultModelId: string };
   assert.equal(prefBody.defaultProviderId, 'anthropic');
-  assert.equal(prefBody.defaultModelId, 'claude-3-7-sonnet-20250219');
+  assert.equal(prefBody.defaultModelId, 'claude-opus-4-5');
 
   // 3. Create Course (HTTP POST /api/courses)
   const createCourseRes = await fetch(`${baseUrl}/api/courses`, {

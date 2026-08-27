@@ -4,6 +4,14 @@ import type { ModelDriver } from './model-driver.ts';
 import type { ResolvedRoleModel } from '../role-model-resolver.ts';
 import { ModelExecutionError } from '../model-execution-service.ts';
 
+let debugRequestSequence = 0;
+
+function debugModelRequest(message: string): void {
+  if (process.env.OPENTUTOR_MODEL_DEBUG === '1') {
+    console.error(`[model-runtime] ${message}`);
+  }
+}
+
 export class PiModelDriver implements ModelDriver {
   private readonly runtime: ModelRuntime;
 
@@ -16,6 +24,12 @@ export class PiModelDriver implements ModelDriver {
     prompt: string,
     system?: string
   ): Promise<string> {
+    const debug = process.env.OPENTUTOR_MODEL_DEBUG === '1';
+    const requestId = debug ? ++debugRequestSequence : 0;
+    const startedAt = Date.now();
+    if (debug) {
+      debugModelRequest(`start #${requestId} role=${resolved.role} provider=${resolved.providerId} model=${resolved.modelId}`);
+    }
     const model = resolved.model ?? this.runtime.getModel(resolved.providerId, resolved.modelId);
     if (!model) {
       throw new ModelExecutionError(
@@ -54,6 +68,9 @@ export class PiModelDriver implements ModelDriver {
         timeoutMs: 120_000,
       });
     } catch (err: unknown) {
+      if (debug) {
+        debugModelRequest(`error #${requestId} role=${resolved.role} elapsedMs=${Date.now() - startedAt} error=${err instanceof Error ? err.message : String(err)}`);
+      }
       if (err instanceof ModelExecutionError) {
         throw err;
       }
@@ -82,6 +99,9 @@ export class PiModelDriver implements ModelDriver {
 
     if (response.stopReason === 'error' || response.errorMessage) {
       const errorMessage = response.errorMessage ?? `Model execution stopped with error: ${response.stopReason}`;
+      if (debug) {
+        debugModelRequest(`error #${requestId} role=${resolved.role} elapsedMs=${Date.now() - startedAt} stopReason=${response.stopReason ?? 'unknown'} error=${errorMessage}`);
+      }
       if (errorMessage.toLowerCase().includes('timeout') || errorMessage.toLowerCase().includes('timed out')) {
         throw new ModelExecutionError('MODEL_TIMEOUT', errorMessage);
       }
@@ -93,7 +113,14 @@ export class PiModelDriver implements ModelDriver {
 
     const text = contentText(response.content);
     if (!text || text.trim().length === 0) {
+      if (debug) {
+        debugModelRequest(`error #${requestId} role=${resolved.role} elapsedMs=${Date.now() - startedAt} error=empty_output`);
+      }
       throw new ModelExecutionError('MODEL_OUTPUT_INVALID', 'Model returned empty output.');
+    }
+
+    if (debug) {
+      debugModelRequest(`finish #${requestId} role=${resolved.role} elapsedMs=${Date.now() - startedAt} chars=${text.length} stopReason=${response.stopReason ?? 'unknown'}`);
     }
 
     return text;

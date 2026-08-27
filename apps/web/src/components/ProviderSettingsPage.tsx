@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   listProviders,
   listProviderModels,
@@ -21,7 +21,7 @@ import {
   type AuthFailedEventData,
 } from '../runtime/api.ts';
 
-type ModalTab = 'oauth' | 'api_key';
+type ModalTab = 'api_key' | 'oauth';
 type AuthSessionStatus =
   | 'idle'
   | 'starting'
@@ -32,17 +32,79 @@ type AuthSessionStatus =
   | 'completed'
   | 'failed';
 
+interface ProviderPreset {
+  name: string;
+  id: string;
+  displayName: string;
+  baseUrl: string;
+  api: string;
+  models: string;
+}
+
+const PRESETS: ProviderPreset[] = [
+  {
+    name: 'DeepSeek 官方',
+    id: 'deepseek-api',
+    displayName: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    api: 'openai-completions',
+    models: 'deepseek-chat | DeepSeek-V3\ndeepseek-reasoner | DeepSeek-R1',
+  },
+  {
+    name: '硅基流动 (SiliconFlow)',
+    id: 'siliconflow',
+    displayName: 'SiliconFlow',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    api: 'openai-completions',
+    models: 'deepseek-ai/DeepSeek-V3 | DeepSeek V3\ndeepseek-ai/DeepSeek-R1 | DeepSeek R1\nQwen/Qwen2.5-72B-Instruct | Qwen 2.5 72B',
+  },
+  {
+    name: 'Ollama (本地)',
+    id: 'ollama-local',
+    displayName: 'Ollama 本地',
+    baseUrl: 'http://localhost:11434/v1',
+    api: 'openai-completions',
+    models: 'deepseek-r1:14b | DeepSeek R1 14B\nqwen2.5:14b | Qwen 2.5 14B\nllama3.3:70b | Llama 3.3 70B',
+  },
+  {
+    name: 'OpenRouter',
+    id: 'openrouter',
+    displayName: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    api: 'openai-completions',
+    models: 'anthropic/claude-3.7-sonnet | Claude 3.7 Sonnet\ndeepseek/deepseek-r1 | DeepSeek R1\ngoogle/gemini-2.5-pro | Gemini 2.5 Pro',
+  },
+  {
+    name: 'Moonshot (Kimi)',
+    id: 'moonshot',
+    displayName: 'Moonshot AI',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    api: 'openai-completions',
+    models: 'moonshot-v1-8k | Kimi 8K\nmoonshot-v1-32k | Kimi 32K\nmoonshot-v1-128k | Kimi 128K',
+  },
+];
+
+const THINKING_LEVELS = [
+  { id: 'off', label: '快速响应', desc: '关闭显式思维链，响应极速' },
+  { id: 'low', label: '轻量思考', desc: '基础分析，适合简单概念' },
+  { id: 'medium', label: '标准深入', desc: 'Socratic 启发式标准推理（推荐）' },
+  { id: 'high', label: '深度探究', desc: '多轮深度反思与详细概念拆解' },
+] as const;
+
 export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => void }) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([]);
   const [prefs, setPrefs] = useState<UserAiPreferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testingId, setTestingId] = useState<string | null>(null);
 
-  // Modal State
+  // Connect Modal State
   const [modalProvider, setModalProvider] = useState<ProviderInfo | null>(null);
   const [activeTab, setActiveTab] = useState<ModalTab>('api_key');
   const [apiKeyInput, setApiKeyInput] = useState('');
+
+  // Add Custom Provider Modal State
   const [addOpen, setAddOpen] = useState(false);
   const [npId, setNpId] = useState('');
   const [npName, setNpName] = useState('');
@@ -62,9 +124,9 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
   const [authErrorMsg, setAuthErrorMsg] = useState<string | null>(null);
 
   const authUnsubscribeRef = useRef<(() => void) | null>(null);
+  const modalTriggerRef = useRef<HTMLElement | null>(null);
   const modalBoxRef = useRef<HTMLDivElement | null>(null);
   const modalCloseRef = useRef<HTMLButtonElement | null>(null);
-  const modalTriggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     loadData();
@@ -95,7 +157,7 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      onFlash(`Error loading AI settings: ${msg}`);
+      onFlash(`加载设置失败: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -107,24 +169,6 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
       setModels(modelList);
     } catch {
       setModels([]);
-    }
-  }
-
-  function openConnectModal(provider: ProviderInfo, preferredTab?: ModalTab, trigger?: HTMLElement) {
-    modalTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    setModalProvider(provider);
-    setApiKeyInput('');
-    resetOAuthState();
-
-    const hasOAuth = Boolean(provider.auth?.oauth?.available);
-    const hasApiKey = Boolean(provider.auth?.apiKey?.available) || !provider.auth;
-
-    if (preferredTab) {
-      setActiveTab(preferredTab);
-    } else if (hasOAuth && !hasApiKey) {
-      setActiveTab('oauth');
-    } else {
-      setActiveTab('api_key');
     }
   }
 
@@ -143,13 +187,27 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     setAuthErrorMsg(null);
   }
 
-  async function handleCloseModal() {
-    if (authSessionId && (authStatus === 'starting' || authStatus === 'waiting_url' || authStatus === 'waiting_device_code' || authStatus === 'prompt' || authStatus === 'in_progress')) {
-      try {
-        await cancelAuthSession(authSessionId);
-      } catch {
-        // ignore cancellation error on modal close
-      }
+  function openConnectModal(provider: ProviderInfo, preferredTab?: ModalTab, trigger?: HTMLElement) {
+    modalTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setModalProvider(provider);
+    setApiKeyInput('');
+    resetOAuthState();
+
+    const hasOAuth = Boolean(provider.auth?.oauth?.available);
+    const hasApiKey = Boolean(provider.auth?.apiKey?.available) || !provider.auth;
+
+    if (preferredTab) {
+      setActiveTab(preferredTab);
+    } else if (hasApiKey) {
+      setActiveTab('api_key');
+    } else if (hasOAuth) {
+      setActiveTab('oauth');
+    }
+  }
+
+  function handleCloseModal() {
+    if (authSessionId && authStatus === 'in_progress') {
+      void cancelAuthSession(authSessionId).catch(() => {});
     }
     resetOAuthState();
     setModalProvider(null);
@@ -157,49 +215,32 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
   }
 
   useEffect(() => {
-    if (!modalProvider) return;
+    if (!modalProvider && !addOpen) return;
 
     const handleModalKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        void handleCloseModal();
+        if (modalProvider) handleCloseModal();
+        if (addOpen) setAddOpen(false);
         return;
-      }
-      if (event.key !== 'Tab') return;
-
-      const focusable = Array.from(
-        modalBoxRef.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]'
-        ) ?? []
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
       }
     };
 
     document.addEventListener('keydown', handleModalKeyDown);
-    requestAnimationFrame(() => modalCloseRef.current?.focus());
     return () => document.removeEventListener('keydown', handleModalKeyDown);
-  }, [modalProvider]);
+  }, [modalProvider, addOpen]);
 
   async function handleConnectApiKey(providerId: string) {
     if (!apiKeyInput.trim()) return;
     try {
       setSaving(true);
       await loginWithApiKey(providerId, apiKeyInput.trim());
-      onFlash(`Connected ${providerId} API key successfully!`);
+      onFlash(`服务商「${modalProvider?.name || providerId}」连接成功！`);
       handleCloseModal();
       await loadData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      onFlash(`Connection error: ${msg}`);
+      onFlash(`连接失败: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -209,7 +250,7 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     try {
       resetOAuthState();
       setAuthStatus('starting');
-      setAuthProgressMsg('Starting OAuth session...');
+      setAuthProgressMsg('正在初始化 OAuth 会话...');
 
       const { authSessionId: newSessionId } = await startAuthSession(providerId, 'oauth');
       setAuthSessionId(newSessionId);
@@ -225,7 +266,7 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
             try {
               window.open(data.url, '_blank');
             } catch {
-              // popup blocker might prevent window.open; link shown in UI
+              // popup blocker fallback
             }
           } else if (event.type === 'auth.device_code') {
             const data = event.data as AuthDeviceCodeEventData;
@@ -240,8 +281,8 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
             setAuthProgressMsg(data.message);
           } else if (event.type === 'auth.completed') {
             setAuthStatus('completed');
-            setAuthProgressMsg('Authentication completed successfully!');
-            onFlash(`Connected ${providerId} OAuth successfully!`);
+            setAuthProgressMsg('认证已成功完成！');
+            onFlash(`服务商「${providerId}」OAuth 连接成功！`);
             loadData();
             setTimeout(() => {
               handleCloseModal();
@@ -249,15 +290,15 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
           } else if (event.type === 'auth.failed') {
             const data = event.data as AuthFailedEventData;
             setAuthStatus('failed');
-            setAuthErrorMsg(data?.error || 'Authentication failed');
+            setAuthErrorMsg(data?.error || '认证流程失败');
           } else if (event.type === 'auth.cancelled') {
             setAuthStatus('idle');
-            setAuthProgressMsg('Authentication was cancelled');
+            setAuthProgressMsg('认证已取消');
           }
         },
         () => {
           setAuthStatus('failed');
-          setAuthErrorMsg('Connection to auth event stream lost');
+          setAuthErrorMsg('认证事件流连接丢失');
         }
       );
 
@@ -280,7 +321,7 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     resetOAuthState();
   }
 
-  async function handlePromptSubmit(e: React.FormEvent) {
+  async function handlePromptSubmit(e: FormEvent) {
     e.preventDefault();
     if (!authSessionId || !authPrompt || !promptInput.trim()) return;
 
@@ -290,28 +331,36 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
       setAuthPrompt(null);
       setPromptInput('');
       setAuthStatus('in_progress');
-      setAuthProgressMsg('Response submitted, waiting for verification...');
+      setAuthProgressMsg('凭据已提交，等待服务器验证...');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      onFlash(`Error submitting response: ${msg}`);
+      onFlash(`提交响应失败: ${msg}`);
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleSaveModelPreferences(e: React.FormEvent) {
+  async function handleSaveModelPreferences(e: FormEvent) {
     e.preventDefault();
     if (!prefs) return;
     try {
       setSaving(true);
       await updateAiPreferences(prefs);
-      onFlash('AI Model preferences saved! (Applies to new learning sessions)');
+      onFlash('AI 模型首选项已保存（对后续学习会话实时生效）');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      onFlash(`Failed to save preferences: ${msg}`);
+      onFlash(`保存失败: ${msg}`);
     } finally {
       setSaving(false);
     }
+  }
+
+  function applyPreset(preset: ProviderPreset) {
+    setNpId(preset.id);
+    setNpName(preset.displayName);
+    setNpBaseUrl(preset.baseUrl);
+    setNpApi(preset.api);
+    setNpModels(preset.models);
   }
 
   function parseModels(text: string): CustomProviderModelInput[] {
@@ -325,9 +374,9 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
       });
   }
 
-  async function handleAddProvider(e: React.FormEvent) {
+  async function handleAddProvider(e: FormEvent) {
     e.preventDefault();
-    const models = parseModels(npModels);
+    const parsedModels = parseModels(npModels);
     try {
       setSaving(true);
       const provider = await addCustomProvider({
@@ -336,13 +385,17 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
         baseUrl: npBaseUrl.trim(),
         apiKey: npApiKey.trim() || undefined,
         api: npApi,
-        models,
+        models: parsedModels,
       });
-      onFlash(`自定义 Provider「${provider.name}」已添加`);
+      onFlash(`自定义服务商「${provider.name}」已添加并可用`);
       setAddOpen(false);
-      setNpId(''); setNpName(''); setNpBaseUrl(''); setNpApiKey(''); setNpModels('');
+      setNpId('');
+      setNpName('');
+      setNpBaseUrl('');
+      setNpApiKey('');
+      setNpModels('');
       await loadData();
-      setPrefs((previous) => previous ? { ...previous, defaultProviderId: provider.id, defaultModelId: models[0]?.id } : previous);
+      setPrefs((prev) => (prev ? { ...prev, defaultProviderId: provider.id, defaultModelId: parsedModels[0]?.id } : prev));
     } catch (err: unknown) {
       onFlash(`添加失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -350,16 +403,18 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     }
   }
 
-  async function handleRemoveProvider(providerId: string) {
-    if (!window.confirm(`移除自定义 Provider「${providerId}」？`)) return;
+  async function handleRemoveProvider(providerId: string, providerName: string) {
+    if (!window.confirm(`确定要移除自定义服务商「${providerName}」吗？`)) return;
     try {
       setSaving(true);
       await removeCustomProvider(providerId);
-      onFlash(`已移除「${providerId}」`);
+      onFlash(`已移除服务商「${providerName}」`);
       await loadData();
-      setPrefs((previous) => previous?.defaultProviderId === providerId
-        ? { ...previous, defaultProviderId: providers[0]?.id, defaultModelId: undefined }
-        : previous);
+      setPrefs((prev) =>
+        prev?.defaultProviderId === providerId
+          ? { ...prev, defaultProviderId: providers[0]?.id, defaultModelId: undefined }
+          : prev
+      );
     } catch (err: unknown) {
       onFlash(`移除失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -367,135 +422,356 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     }
   }
 
-  if (loading) {
-    return <div className="page-shell"><div className="loading-spinner">正在加载 AI 设置…</div></div>;
+  async function handleTestProvider(providerId: string) {
+    try {
+      setTestingId(providerId);
+      const mList = await listProviderModels(providerId);
+      if (mList.length > 0) {
+        onFlash(`服务商连通性测试成功！发现 ${mList.length} 个可用模型。`);
+      } else {
+        onFlash('连接测试完成，该服务商当前未返回模型列表。');
+      }
+    } catch (err: unknown) {
+      onFlash(`测试连接失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTestingId(null);
+    }
   }
 
-  const selectedProvider = providers.find((provider) => provider.id === prefs?.defaultProviderId) || providers[0];
-  const hasOAuth = Boolean(selectedProvider?.auth?.oauth?.available);
-  const hasApiKey = Boolean(selectedProvider?.auth?.apiKey?.available) || !selectedProvider?.auth;
+  if (loading) {
+    return (
+      <div className="page-shell">
+        <div className="loading-block">
+          <div className="loading-spinner" />
+          <p style={{ marginTop: '16px', color: 'var(--muted)' }}>正在同步 AI 模型服务商与首选项...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedProvider = providers.find((p) => p.id === prefs?.defaultProviderId) || providers[0];
+  const configuredCount = providers.filter((p) => p.configured).length;
+  const isSelectedCustom = Boolean(selectedProvider?.custom);
 
   return (
-    <main className="page-shell settings-page">
-      <header className="settings-header">
-        <div><span className="page-eyebrow">账户与偏好</span><h1>设置</h1><p>配置账号、AI 模型和学习偏好</p></div>
+    <main className="page-shell settings-v2">
+      {/* 1. Header */}
+      <header className="settings-v2-header">
+        <div className="settings-v2-heading">
+          <span className="eyebrow">配置中心 · Model & Runtime</span>
+          <h1>AI 模型与服务商设置</h1>
+          <p>
+            配置用于课程知识编译、课件动态生成及苏格拉底辅导的 AI 服务商。所有 API 密钥仅在本地安全持久化。
+          </p>
+        </div>
       </header>
 
-      <div className="settings-layout">
-        <aside className="settings-nav" aria-label="设置分类">
-          <span>♙ 账号信息</span>
-          <span className="active">◇ AI 模型</span>
-          <span>☷ 学习偏好</span>
-          <span>♧ 通知设置</span>
-        </aside>
-
-        <form className="settings-content" onSubmit={handleSaveModelPreferences}>
-          <section className="settings-model-card">
-            <div className="settings-card-heading"><div><span className="page-eyebrow">模型配置</span><h2>AI 模型</h2></div>{selectedProvider && <span className={selectedProvider.configured ? 'settings-connected' : 'settings-disconnected'}>{selectedProvider.configured ? '已连接' : '未连接'}</span>}</div>
-            <div className="settings-model-grid">
-              <label className="form-field"><span>模型服务商</span><select value={prefs?.defaultProviderId ?? selectedProvider?.id ?? ''} onChange={(event) => { const providerId = event.target.value; setPrefs((previous) => previous ? { ...previous, defaultProviderId: providerId } : previous); loadModels(providerId); }} disabled={!providers.length}>{providers.map((provider) => <option value={provider.id} key={provider.id}>{provider.name}</option>)}</select></label>
-              <label className="form-field"><span>模型</span><select value={prefs?.defaultModelId ?? ''} onChange={(event) => setPrefs((previous) => previous ? { ...previous, defaultModelId: event.target.value } : previous)} disabled={!selectedProvider}>{models.length ? models.map((model) => <option value={model.id} key={model.id}>{model.name || model.id}</option>) : <option value={prefs?.defaultModelId ?? ''}>{prefs?.defaultModelId || '默认模型'}</option>}</select></label>
+      {/* 2. Top Bento Grid: Active Model & Overview */}
+      <div className="settings-bento-grid">
+        {/* Left Card: Active Configuration */}
+        <form className="settings-hero-card" onSubmit={handleSaveModelPreferences}>
+          <div className="card-top-bar">
+            <div>
+              <span className="card-kicker">当前学习首选项</span>
+              <h2>默认模型与思考偏好</h2>
             </div>
-            <div className="settings-auth-block"><span className="settings-field-label">认证方式</span><div className="settings-auth-tabs"><button type="button" className={hasApiKey ? 'active' : ''} disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>API Key</button><button type="button" className={!hasApiKey && hasOAuth ? 'active' : ''} disabled={!selectedProvider || !hasOAuth} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'oauth', event.currentTarget)}>OAuth / 订阅登录</button></div></div>
-            <div className="credential-row"><div><span className="settings-field-label">API Key</span><p>密钥仅保存在本地设备，OpenTutor 不会写入数据库。</p></div><button type="button" className="credential-display" disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>{selectedProvider?.configured ? '••••••••••••••••' : '点击配置 API Key'}<span aria-hidden="true">⌁</span></button></div>
-            <div className="settings-model-actions"><span>当前状态：<strong className={selectedProvider?.configured ? 'settings-connected' : 'settings-disconnected'}>{selectedProvider?.configured ? '已连接 ✓' : '未连接'}</strong></span><div><button type="button" className="btn-secondary" disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>测试连接</button><button type="submit" className="btn-primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button></div></div>
-            <div className="settings-model-actions"><span>当前状态：<strong className={selectedProvider?.configured ? 'settings-connected' : 'settings-disconnected'}>{selectedProvider?.configured ? '已连接 ✓' : '未连接'}</strong></span><div>{selectedProvider?.custom && <button type="button" className="btn-secondary" disabled={saving} onClick={() => handleRemoveProvider(selectedProvider.id)}>移除 Provider</button>}<button type="button" className="btn-secondary" onClick={() => setAddOpen(true)}>＋ 自定义 Provider</button><button type="button" className="btn-secondary" disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>测试连接</button><button type="submit" className="btn-primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button></div></div>
-            {selectedProvider?.configured && <div className="connection-success"><span className="success-mark">✓</span><div><strong>连接成功</strong><small>模型服务可用，响应正常。</small></div><button type="button" className="btn-secondary btn-sm" onClick={(event) => openConnectModal(selectedProvider, hasOAuth ? 'oauth' : 'api_key', event.currentTarget)}>重新测试</button></div>}
-          </section>
+            {selectedProvider && (
+              <span className={`status-tag ${selectedProvider.configured ? 'connected' : 'disconnected'}`}>
+                <span className="status-dot" aria-hidden="true" />
+                {selectedProvider.configured ? '已连接就绪' : '待配置密钥'}
+              </span>
+            )}
+          </div>
 
-          <section className="settings-preferences-card"><div className="settings-card-heading"><div><span className="page-eyebrow">学习体验</span><h2>学习偏好</h2></div></div><div className="preference-grid"><label className="preference-row"><span>默认难度 <small>ⓘ</small></span><select value={prefs?.thinkingLevel ?? 'medium'} onChange={(event) => setPrefs((previous) => previous ? { ...previous, thinkingLevel: event.target.value } : previous)}><option value="off">快速</option><option value="low">简单</option><option value="medium">中等</option><option value="high">深入</option></select></label><label className="preference-row"><span>默认服务商 <small>ⓘ</small></span><strong>{selectedProvider?.name || '未选择'}</strong></label><label className="preference-row"><span>课程编译模式 <small>ⓘ</small></span><strong>知识图谱 + 证据</strong></label><label className="preference-row"><span>诊断题来源 <small>ⓘ</small></span><strong>当前学习节点</strong></label></div></section>
+          <div className="form-fields-grid">
+            <label className="settings-field">
+              <span className="field-title">服务商 (Provider)</span>
+              <select
+                value={prefs?.defaultProviderId ?? selectedProvider?.id ?? ''}
+                onChange={(e) => {
+                  const provId = e.target.value;
+                  setPrefs((prev) => (prev ? { ...prev, defaultProviderId: provId } : prev));
+                  loadModels(provId);
+                }}
+                disabled={!providers.length}
+              >
+                {providers.map((p) => (
+                  <option value={p.id} key={p.id}>
+                    {p.name} {p.custom ? '(自定义)' : ''} {p.configured ? '✓' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="settings-field">
+              <span className="field-title">默认模型 (Model)</span>
+              <select
+                value={prefs?.defaultModelId ?? ''}
+                onChange={(e) => setPrefs((prev) => (prev ? { ...prev, defaultModelId: e.target.value } : prev))}
+                disabled={!selectedProvider}
+              >
+                {models.length ? (
+                  models.map((m) => (
+                    <option value={m.id} key={m.id}>
+                      {m.name || m.id}
+                    </option>
+                  ))
+                ) : (
+                  <option value={prefs?.defaultModelId ?? ''}>
+                    {prefs?.defaultModelId || '默认推理模型'}
+                  </option>
+                )}
+              </select>
+            </label>
+          </div>
+
+          {/* Thinking Level Segmented Control */}
+          <div className="thinking-level-section">
+            <span className="field-title">AI 思考深度 (Thinking Level)</span>
+            <div className="thinking-pills">
+              {THINKING_LEVELS.map((level) => {
+                const active = (prefs?.thinkingLevel ?? 'medium') === level.id;
+                return (
+                  <button
+                    type="button"
+                    key={level.id}
+                    className={`thinking-pill ${active ? 'active' : ''}`}
+                    onClick={() => setPrefs((prev) => (prev ? { ...prev, thinkingLevel: level.id } : prev))}
+                  >
+                    <span className="pill-label">{level.label}</span>
+                    <small className="pill-desc">{level.desc}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="settings-hero-actions">
+            <div className="hero-action-left">
+              {selectedProvider && !selectedProvider.configured && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={(e) => openConnectModal(selectedProvider, 'api_key', e.currentTarget)}
+                >
+                  立即配置「{selectedProvider.name}」凭据 ↗
+                </button>
+              )}
+            </div>
+            <button type="submit" className="btn-primary" disabled={saving}>
+              {saving ? '保存中…' : '保存默认配置'}
+            </button>
+          </div>
         </form>
+
+        {/* Right Card: Overview & Quick Facts */}
+        <div className="settings-overview-card">
+          <span className="card-kicker">运行时概览</span>
+          <h3>系统状态</h3>
+
+          <div className="overview-stats">
+            <div className="stat-box">
+              <span className="stat-number">{configuredCount}</span>
+              <span className="stat-label">已配置服务商</span>
+            </div>
+            <div className="stat-box">
+              <span className="stat-number">{providers.length}</span>
+              <span className="stat-label">总注册服务商</span>
+            </div>
+          </div>
+
+          <div className="overview-meta-list">
+            <div className="meta-row">
+              <span className="meta-k">存储位置</span>
+              <code className="meta-v">~/.opentutor/pi/models.json</code>
+            </div>
+            <div className="meta-row">
+              <span className="meta-k">加密机制</span>
+              <span className="meta-v">设备级本地凭据隔离</span>
+            </div>
+            <div className="meta-row">
+              <span className="meta-k">协议版本</span>
+              <span className="meta-v">OpenTutor Protocol v0.7</span>
+            </div>
+          </div>
+
+          <div className="quick-add-box">
+            <button
+              type="button"
+              className="btn-secondary btn-full"
+              onClick={() => setAddOpen(true)}
+            >
+              ＋ 添加自定义 Provider / 本地模型
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* 3. Provider Roster Grid */}
+      <section className="provider-roster-section">
+        <div className="roster-header">
+          <div>
+            <span className="eyebrow">服务商目录</span>
+            <h2>全部可用服务商 ({providers.length})</h2>
+          </div>
+          <button type="button" className="btn-secondary" onClick={() => setAddOpen(true)}>
+            ＋ 添加自定义服务商
+          </button>
+        </div>
+
+        <div className="provider-card-grid">
+          {providers.map((p) => {
+            const isSelected = p.id === prefs?.defaultProviderId;
+            const hasOAuth = Boolean(p.auth?.oauth?.available);
+            const hasApiKey = Boolean(p.auth?.apiKey?.available) || !p.auth;
+
+            return (
+              <div key={p.id} className={`provider-box ${isSelected ? 'is-selected' : ''}`}>
+                <div className="provider-box-header">
+                  <div className="provider-badge-icon">
+                    {p.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="provider-title-group">
+                    <h3>{p.name}</h3>
+                    <div className="provider-tag-row">
+                      {p.custom ? (
+                        <span className="tag-pill tag-custom">自定义</span>
+                      ) : (
+                        <span className="tag-pill tag-builtin">官方内置</span>
+                      )}
+                      <span className={`tag-pill ${p.configured ? 'tag-connected' : 'tag-disconnected'}`}>
+                        {p.configured ? '● 已就绪' : '○ 未配置'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="provider-box-body">
+                  <div className="auth-methods-info">
+                    <span className="info-label">支持方式：</span>
+                    {hasApiKey && <span className="auth-pill">API Key</span>}
+                    {hasOAuth && <span className="auth-pill">OAuth</span>}
+                    {p.custom && <span className="auth-pill">兼容端点</span>}
+                  </div>
+                </div>
+
+                <div className="provider-box-footer">
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={(e) => openConnectModal(p, hasApiKey ? 'api_key' : 'oauth', e.currentTarget)}
+                  >
+                    {p.configured ? '重新配置' : '配置密钥'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    disabled={testingId === p.id}
+                    onClick={() => handleTestProvider(p.id)}
+                    title="测试该服务商的连通性"
+                  >
+                    {testingId === p.id ? '测试中…' : '测试'}
+                  </button>
+
+                  {p.custom && (
+                    <button
+                      type="button"
+                      className="btn-danger-ghost btn-sm"
+                      onClick={() => handleRemoveProvider(p.id, p.name)}
+                      title="删除此自定义服务商"
+                    >
+                      删除
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 4. Modal: Connect / Configure Built-in & Existing Provider */}
       {modalProvider && (
         <div className="modal-backdrop">
           <div
             ref={modalBoxRef}
-            className="modal-box"
+            className="modal-box-v2"
             role="dialog"
             aria-modal="true"
             aria-labelledby="connect-modal-title"
-            style={{ maxWidth: '500px', width: '90%' }}
           >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '16px',
-              }}
-            >
-              <h3 id="connect-modal-title" style={{ margin: 0 }}>Connect {modalProvider.name}</h3>
+            <div className="modal-header-v2">
+              <div>
+                <span className="card-kicker">服务商连接</span>
+                <h3 id="connect-modal-title">配置 {modalProvider.name}</h3>
+              </div>
               <button
                 ref={modalCloseRef}
-                className="btn-secondary"
-                style={{ padding: '4px 8px', fontSize: '12px' }}
+                className="modal-close-btn"
                 onClick={handleCloseModal}
-                aria-label="Close connection dialog"
+                aria-label="关闭对话框"
               >
                 ✕
               </button>
             </div>
 
-            {/* Tabs if both auth methods are available */}
+            {/* Tabs switcher */}
             {modalProvider.auth?.oauth?.available && (modalProvider.auth?.apiKey?.available ?? true) && (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '8px',
-                  borderBottom: '1px solid #e7e6e2',
-                  marginBottom: '16px',
-                }}
-              >
+              <div className="modal-tab-bar">
                 <button
                   type="button"
-                  className={`tab-btn ${activeTab === 'oauth' ? 'active' : ''}`}
-                  onClick={() => {
-                    resetOAuthState();
-                    setActiveTab('oauth');
-                  }}
-                  style={{ padding: '8px 12px', cursor: 'pointer' }}
-                >
-                  OAuth / Web Login
-                </button>
-                <button
-                  type="button"
-                  className={`tab-btn ${activeTab === 'api_key' ? 'active' : ''}`}
+                  className={`modal-tab ${activeTab === 'api_key' ? 'active' : ''}`}
                   onClick={() => {
                     resetOAuthState();
                     setActiveTab('api_key');
                   }}
-                  style={{ padding: '8px 12px', cursor: 'pointer' }}
                 >
-                  API Key
+                  API Key 密钥接入
+                </button>
+                <button
+                  type="button"
+                  className={`modal-tab ${activeTab === 'oauth' ? 'active' : ''}`}
+                  onClick={() => {
+                    resetOAuthState();
+                    setActiveTab('oauth');
+                  }}
+                >
+                  OAuth 网页登录
                 </button>
               </div>
             )}
 
             {/* TAB: API KEY */}
             {activeTab === 'api_key' && (
-              <div>
-                <p>
-                  Paste your API secret key below to enable real AI knowledge compilation and
-                  Socratic tutoring:
+              <div className="modal-body-v2">
+                <p className="modal-intro">
+                  输入用于调用模型推理的 API Secret Key。密钥仅保存在本地设备，不会上传或写入业务数据库。
                 </p>
-                <input
-                  type="password"
-                  placeholder="sk-..."
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  className="modal-input"
-                  autoFocus
-                />
-                <div className="modal-buttons">
-                  <button className="btn-secondary" onClick={handleCloseModal}>
-                    Cancel
+
+                <label className="modal-field">
+                  <span className="field-title">API 密钥 (API Key)</span>
+                  <input
+                    type="password"
+                    placeholder="sk-..."
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    className="modal-input-v2"
+                    autoFocus
+                  />
+                </label>
+
+                <div className="modal-actions-v2">
+                  <button type="button" className="btn-secondary" onClick={handleCloseModal}>
+                    取消
                   </button>
                   <button
+                    type="button"
                     className="btn-primary"
                     onClick={() => handleConnectApiKey(modalProvider.id)}
                     disabled={saving || !apiKeyInput.trim()}
                   >
-                    {saving ? 'Connecting...' : 'Save & Connect'}
+                    {saving ? '保存中…' : '保存并验证'}
                   </button>
                 </div>
               </div>
@@ -503,129 +779,69 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
 
             {/* TAB: OAUTH */}
             {activeTab === 'oauth' && (
-              <div>
+              <div className="modal-body-v2">
                 {authStatus === 'idle' && (
                   <div>
-                    <p>
-                      Connect your account using OAuth browser authorization or device code. No
-                      manual API key required.
+                    <p className="modal-intro">
+                      通过浏览器网页授权或设备代码直接连接服务商订阅，无需手动提取与复制 API Key。
                     </p>
-                    <div className="modal-buttons">
-                      <button className="btn-secondary" onClick={handleCloseModal}>
-                        Cancel
+                    <div className="modal-actions-v2">
+                      <button type="button" className="btn-secondary" onClick={handleCloseModal}>
+                        取消
                       </button>
                       <button
+                        type="button"
                         className="btn-primary"
                         onClick={() => handleStartOAuth(modalProvider.id)}
                       >
-                        Start OAuth Login
+                        启动网页授权 ↗
                       </button>
                     </div>
                   </div>
                 )}
 
                 {authStatus !== 'idle' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {authProgressMsg && (
-                      <div
-                        style={{
-                          padding: '10px 12px',
-                          background: '#f4f4f1',
-                          borderRadius: '6px',
-                          fontSize: '13px',
-                          color: '#444',
-                        }}
-                      >
-                        {authProgressMsg}
-                      </div>
-                    )}
+                  <div className="oauth-flow-box">
+                    {authProgressMsg && <div className="oauth-progress-msg">{authProgressMsg}</div>}
 
                     {authUrl && (
-                      <div
-                        style={{
-                          padding: '12px',
-                          background: '#eaf3ed',
-                          borderRadius: '6px',
-                          fontSize: '13px',
-                        }}
-                      >
-                        <p style={{ margin: '0 0 8px 0', fontWeight: 600 }}>
-                          Authorization Window Opened
-                        </p>
-                        <p style={{ margin: '0 0 10px 0', fontSize: '12px' }}>
-                          If the browser window did not open automatically, please click below:
+                      <div className="oauth-url-card">
+                        <p style={{ fontWeight: 600, margin: '0 0 6px 0' }}>已在新窗口开启授权页面</p>
+                        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 0 10px 0' }}>
+                          如未自动弹出，请点击下方链接完成登录：
                         </p>
                         <a
                           href={authUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="btn-primary"
-                          style={{
-                            display: 'inline-block',
-                            textDecoration: 'none',
-                            fontSize: '12px',
-                            padding: '6px 12px',
-                          }}
+                          className="btn-primary btn-sm"
+                          style={{ display: 'inline-block', textDecoration: 'none' }}
                         >
-                          Open Authorization Page ↗
+                          打开网页授权页面 ↗
                         </a>
                       </div>
                     )}
 
                     {deviceCode && (
-                      <div
-                        style={{
-                          padding: '14px',
-                          background: '#fafaf8',
-                          border: '1px solid #e7e6e2',
-                          borderRadius: '6px',
-                          textAlign: 'center',
-                        }}
-                      >
-                        <div style={{ fontSize: '12px', color: '#6e6d68', marginBottom: '6px' }}>
-                          Enter this code on the authorization page:
-                        </div>
-                        <div
-                          style={{
-                            fontSize: '22px',
-                            fontWeight: 700,
-                            letterSpacing: '2px',
-                            fontFamily: 'monospace',
-                            color: '#1f1f1d',
-                            marginBottom: '10px',
-                          }}
-                        >
-                          {deviceCode.userCode}
-                        </div>
+                      <div className="device-code-card">
+                        <span className="code-label">在授权页面输入以下配对验证码：</span>
+                        <span className="code-val">{deviceCode.userCode}</span>
                         {deviceCode.verificationUri && (
                           <a
                             href={deviceCode.verificationUri}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="btn-primary"
-                            style={{
-                              display: 'inline-block',
-                              textDecoration: 'none',
-                              fontSize: '12px',
-                              padding: '6px 12px',
-                            }}
+                            className="btn-secondary btn-sm"
+                            style={{ display: 'inline-block', textDecoration: 'none' }}
                           >
-                            Open Verification Page ({deviceCode.verificationUri}) ↗
+                            打开验证页面 ({deviceCode.verificationUri}) ↗
                           </a>
                         )}
                       </div>
                     )}
 
                     {authPrompt && (
-                      <form
-                        onSubmit={handlePromptSubmit}
-                        style={{
-                          padding: '12px',
-                          background: '#fff',
-                          border: '1px solid #e7e6e2',
-                          borderRadius: '6px',
-                        }}
-                      >
+                      <form onSubmit={handlePromptSubmit} className="auth-prompt-form">
                         <label style={{ display: 'block', fontSize: '13px', marginBottom: '8px' }}>
                           {authPrompt.message}
                         </label>
@@ -633,14 +849,20 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
                           <select
                             value={promptInput}
                             onChange={(e) => setPromptInput(e.target.value)}
-                            className="modal-input"
+                            className="modal-input-v2"
                             style={{ marginBottom: '10px' }}
                             autoFocus
                           >
-                            <option value="" disabled>Select an option...</option>
+                            <option value="" disabled>
+                              请选择...
+                            </option>
                             {authPrompt.choices.map((c) => {
                               const val = c.value ?? c.id ?? c.label;
-                              return <option key={val} value={val}>{c.label}</option>;
+                              return (
+                                <option key={val} value={val}>
+                                  {c.label}
+                                </option>
+                              );
                             })}
                           </select>
                         ) : (
@@ -650,10 +872,10 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
                             onChange={(e) => setPromptInput(e.target.value)}
                             placeholder={
                               authPrompt.promptType === 'manual_code'
-                                ? 'Enter authorization code'
-                                : (authPrompt.placeholder || 'Enter response...')
+                                ? '请输入授权回填码'
+                                : authPrompt.placeholder || '请输入响应内容...'
                             }
-                            className="modal-input"
+                            className="modal-input-v2"
                             style={{ marginBottom: '10px' }}
                             autoFocus
                           />
@@ -664,32 +886,21 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
                           disabled={saving || !promptInput.trim()}
                           style={{ width: '100%' }}
                         >
-                          {saving ? 'Submitting...' : 'Submit'}
+                          {saving ? '提交中…' : '提交验证'}
                         </button>
                       </form>
                     )}
 
-                    {authErrorMsg && (
-                      <div
-                        style={{
-                          padding: '10px 12px',
-                          background: '#fdeeed',
-                          color: '#b3261e',
-                          borderRadius: '6px',
-                          fontSize: '13px',
-                        }}
-                      >
-                        Error: {authErrorMsg}
-                      </div>
-                    )}
+                    {authErrorMsg && <div className="oauth-error-box">错误: {authErrorMsg}</div>}
 
-                    <div className="modal-buttons" style={{ marginTop: '12px' }}>
+                    <div className="modal-actions-v2" style={{ marginTop: '12px' }}>
                       <button
+                        type="button"
                         className="btn-secondary"
                         onClick={handleCancelOAuth}
                         disabled={authStatus === 'completed'}
                       >
-                        Cancel Authorization
+                        取消授权
                       </button>
                     </div>
                   </div>
@@ -699,39 +910,132 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
           </div>
         </div>
       )}
+
+      {/* 5. Modal: Add Custom Provider */}
       {addOpen && (
         <div className="modal-backdrop">
-          <div className="modal-box" role="dialog" aria-modal="true" aria-labelledby="add-provider-title" style={{ maxWidth: '480px', width: '90%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 id="add-provider-title" style={{ margin: 0 }}>添加自定义 Provider</h3>
-              <button type="button" className="btn-secondary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => setAddOpen(false)} aria-label="关闭">✕</button>
+          <div
+            className="modal-box-v2 modal-box-wide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-provider-title"
+          >
+            <div className="modal-header-v2">
+              <div>
+                <span className="card-kicker">自定义端点</span>
+                <h3 id="add-provider-title">添加自定义 AI 服务商</h3>
+              </div>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setAddOpen(false)}
+                aria-label="关闭"
+              >
+                ✕
+              </button>
             </div>
-            <form onSubmit={handleAddProvider} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <label style={{ fontSize: '13px' }}>Provider ID（小写字母/数字/连字符）
-                <input className="modal-input" value={npId} onChange={(e) => setNpId(e.target.value)} placeholder="my-deepseek" required autoFocus />
+
+            <form onSubmit={handleAddProvider} className="modal-body-v2">
+              {/* Presets Toolbar */}
+              <div className="presets-bar">
+                <span className="presets-label">常用模板快捷填入：</span>
+                <div className="presets-chips">
+                  {PRESETS.map((preset) => (
+                    <button
+                      type="button"
+                      key={preset.name}
+                      className="preset-chip"
+                      onClick={() => applyPreset(preset)}
+                      title={`快捷填充 ${preset.name} 配置`}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="form-fields-2col">
+                <label className="modal-field">
+                  <span className="field-title">Provider ID（英文字母/数字/连字符）*</span>
+                  <input
+                    className="modal-input-v2"
+                    value={npId}
+                    onChange={(e) => setNpId(e.target.value)}
+                    placeholder="如 deepseek-api 或 local-ollama"
+                    required
+                    autoFocus
+                  />
+                </label>
+
+                <label className="modal-field">
+                  <span className="field-title">显示名称 (Display Name)</span>
+                  <input
+                    className="modal-input-v2"
+                    value={npName}
+                    onChange={(e) => setNpName(e.target.value)}
+                    placeholder="如 DeepSeek 官方"
+                  />
+                </label>
+              </div>
+
+              <div className="form-fields-2col">
+                <label className="modal-field">
+                  <span className="field-title">Base URL（端点地址）*</span>
+                  <input
+                    className="modal-input-v2"
+                    value={npBaseUrl}
+                    onChange={(e) => setNpBaseUrl(e.target.value)}
+                    placeholder="https://api.deepseek.com/v1"
+                    required
+                  />
+                </label>
+
+                <label className="modal-field">
+                  <span className="field-title">接口协议类型</span>
+                  <select
+                    className="modal-input-v2"
+                    value={npApi}
+                    onChange={(e) => setNpApi(e.target.value)}
+                  >
+                    <option value="openai-completions">OpenAI Chat Completions（最通用）</option>
+                    <option value="openai-responses">OpenAI Responses</option>
+                    <option value="anthropic-messages">Anthropic Messages</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="modal-field">
+                <span className="field-title">API Key (密钥，可选，保存在本地)</span>
+                <input
+                  className="modal-input-v2"
+                  type="password"
+                  value={npApiKey}
+                  onChange={(e) => setNpApiKey(e.target.value)}
+                  placeholder="sk-... (本地模型如 Ollama 可留空)"
+                />
               </label>
-              <label style={{ fontSize: '13px' }}>显示名称
-                <input className="modal-input" value={npName} onChange={(e) => setNpName(e.target.value)} placeholder="My DeepSeek" />
+
+              <label className="modal-field">
+                <span className="field-title">
+                  可用模型列表 (每行一个，格式：<code>model-id</code> 或 <code>model-id | 显示名称</code>)*
+                </span>
+                <textarea
+                  className="modal-input-v2 modal-textarea"
+                  value={npModels}
+                  onChange={(e) => setNpModels(e.target.value)}
+                  placeholder={"deepseek-chat | DeepSeek-V3\ndeepseek-reasoner | DeepSeek-R1"}
+                  rows={4}
+                  required
+                />
               </label>
-              <label style={{ fontSize: '13px' }}>Base URL（OpenAI 兼容端点）
-                <input className="modal-input" value={npBaseUrl} onChange={(e) => setNpBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" required />
-              </label>
-              <label style={{ fontSize: '13px' }}>接口类型
-                <select className="modal-input" value={npApi} onChange={(e) => setNpApi(e.target.value)}>
-                  <option value="openai-completions">OpenAI Completions（默认）</option>
-                  <option value="openai-responses">OpenAI Responses</option>
-                  <option value="anthropic-messages">Anthropic Messages</option>
-                </select>
-              </label>
-              <label style={{ fontSize: '13px' }}>API Key（可选，仅存本地 models.json）
-                <input className="modal-input" type="password" value={npApiKey} onChange={(e) => setNpApiKey(e.target.value)} placeholder="sk-..." />
-              </label>
-              <label style={{ fontSize: '13px' }}>模型列表（每行一个：model-id 或 model-id | 显示名）
-                <textarea className="modal-input" value={npModels} onChange={(e) => setNpModels(e.target.value)} placeholder={'deepseek-chat | DeepSeek V3\ndeepseek-reasoner | DeepSeek R1'} rows={3} required />
-              </label>
-              <div className="modal-buttons">
-                <button type="button" className="btn-secondary" onClick={() => setAddOpen(false)}>取消</button>
-                <button type="submit" className="btn-primary" disabled={saving}>{saving ? '添加中…' : '添加并连接'}</button>
+
+              <div className="modal-actions-v2">
+                <button type="button" className="btn-secondary" onClick={() => setAddOpen(false)}>
+                  取消
+                </button>
+                <button type="submit" className="btn-primary" disabled={saving}>
+                  {saving ? '正在添加…' : '添加并连接'}
+                </button>
               </div>
             </form>
           </div>

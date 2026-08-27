@@ -2,6 +2,7 @@ const navItems = [
   { label: '首页', route: '/' },
   { label: '我的学习', route: '/courses' },
   { label: '创建目标', route: '/courses/new' },
+  { label: '设置', route: '/settings' },
 ];
 
 export function Navbar({
@@ -39,7 +40,15 @@ export function Navbar({
       </nav>
       <div className="app-nav-meta">
         <span className="nav-greeting">今天也学一点</span>
-        <span className="nav-avatar" aria-label="学习者">学</span>
+        <button
+          type="button"
+          className={"nav-avatar-btn " + (activePath === '/settings' ? 'active' : '')}
+          onClick={() => onNavigate('/settings')}
+          title="系统设置 / 模型配置"
+          aria-label="打开设置"
+        >
+          <span className="nav-avatar" aria-hidden="true">设</span>
+        </button>
       </div>
     </header>
   );

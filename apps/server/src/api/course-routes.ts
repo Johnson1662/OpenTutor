@@ -110,7 +110,16 @@ export async function handleCourseRoutes(
     return true;
   }
 
-  // 10. POST /api/courses/:id/sessions
+  // 10. GET /api/courses/:id/evidence
+  const evidenceMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/evidence$/);
+  if (method === 'GET' && evidenceMatch) {
+    const courseId = evidenceMatch[1]!;
+    const evidence = ctx.courseService.getCourseEvidence(courseId);
+    json(res, 200, { evidence }, req);
+    return true;
+  }
+
+  // 11. POST /api/courses/:id/sessions
   const sessionMatch = path.match(/^\/api\/courses\/([a-zA-Z0-9_-]+)\/sessions$/);
   if (method === 'POST' && sessionMatch) {
     const courseId = sessionMatch[1]!;

@@ -4,12 +4,14 @@ import { createCourse, addCourseSource, compileCourse } from '../runtime/api.ts'
 export function CreateCoursePage({
   onNavigate,
   onFlash,
+  searchParams,
 }: {
   onNavigate: (route: string) => void;
   onFlash: (msg: string) => void;
+  searchParams?: URLSearchParams;
 }) {
-  const [title, setTitle] = useState('');
-  const [learningGoal, setLearningGoal] = useState('');
+  const [title, setTitle] = useState(() => searchParams?.get('title') || '');
+  const [learningGoal, setLearningGoal] = useState(() => searchParams?.get('goal') || '');
   const [materialTitle, setMaterialTitle] = useState('Core Notes.md');
   const [materialContent, setMaterialContent] = useState('');
   const [compiling, setCompiling] = useState(false);

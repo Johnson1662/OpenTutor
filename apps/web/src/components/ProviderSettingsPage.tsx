@@ -52,6 +52,9 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
   const [authErrorMsg, setAuthErrorMsg] = useState<string | null>(null);
 
   const authUnsubscribeRef = useRef<(() => void) | null>(null);
+  const modalBoxRef = useRef<HTMLDivElement | null>(null);
+  const modalCloseRef = useRef<HTMLButtonElement | null>(null);
+  const modalTriggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     loadData();
@@ -97,7 +100,8 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     }
   }
 
-  function openConnectModal(provider: ProviderInfo, preferredTab?: ModalTab) {
+  function openConnectModal(provider: ProviderInfo, preferredTab?: ModalTab, trigger?: HTMLElement) {
+    modalTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setModalProvider(provider);
     setApiKeyInput('');
     resetOAuthState();
@@ -139,7 +143,41 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
     }
     resetOAuthState();
     setModalProvider(null);
+    setTimeout(() => modalTriggerRef.current?.focus(), 0);
   }
+
+  useEffect(() => {
+    if (!modalProvider) return;
+
+    const handleModalKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        void handleCloseModal();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(
+        modalBoxRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]'
+        ) ?? []
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleModalKeyDown);
+    requestAnimationFrame(() => modalCloseRef.current?.focus());
+    return () => document.removeEventListener('keydown', handleModalKeyDown);
+  }, [modalProvider]);
 
   async function handleConnectApiKey(providerId: string) {
     if (!apiKeyInput.trim()) return;
@@ -267,148 +305,53 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
   }
 
   if (loading) {
-    return (
-      <div className="page-shell">
-        <div className="loading-spinner">Loading AI Providers...</div>
-      </div>
-    );
+    return <div className="page-shell"><div className="loading-spinner">正在加载 AI 设置…</div></div>;
   }
 
+  const selectedProvider = providers.find((provider) => provider.id === prefs?.defaultProviderId) || providers[0];
+  const hasOAuth = Boolean(selectedProvider?.auth?.oauth?.available);
+  const hasApiKey = Boolean(selectedProvider?.auth?.apiKey?.available) || !selectedProvider?.auth;
+
   return (
-    <main className="page-shell">
-      <div className="page-header">
-        <h1>AI Provider Control Plane</h1>
-        <p>
-          Credentials are stored locally by the Pi model runtime and are never written to the
-          OpenTutor SQLite database.
-        </p>
+    <main className="page-shell settings-page">
+      <header className="settings-header">
+        <div><span className="page-eyebrow">账户与偏好</span><h1>设置</h1><p>配置账号、AI 模型和学习偏好</p></div>
+      </header>
+
+      <div className="settings-layout">
+        <aside className="settings-nav" aria-label="设置分类">
+          <span>♙ 账号信息</span>
+          <span className="active">◇ AI 模型</span>
+          <span>☷ 学习偏好</span>
+          <span>♧ 通知设置</span>
+        </aside>
+
+        <form className="settings-content" onSubmit={handleSaveModelPreferences}>
+          <section className="settings-model-card">
+            <div className="settings-card-heading"><div><span className="page-eyebrow">模型配置</span><h2>AI 模型</h2></div>{selectedProvider && <span className={selectedProvider.configured ? 'settings-connected' : 'settings-disconnected'}>{selectedProvider.configured ? '已连接' : '未连接'}</span>}</div>
+            <div className="settings-model-grid">
+              <label className="form-field"><span>模型服务商</span><select value={prefs?.defaultProviderId ?? selectedProvider?.id ?? ''} onChange={(event) => { const providerId = event.target.value; setPrefs((previous) => previous ? { ...previous, defaultProviderId: providerId } : previous); loadModels(providerId); }} disabled={!providers.length}>{providers.map((provider) => <option value={provider.id} key={provider.id}>{provider.name}</option>)}</select></label>
+              <label className="form-field"><span>模型</span><select value={prefs?.defaultModelId ?? ''} onChange={(event) => setPrefs((previous) => previous ? { ...previous, defaultModelId: event.target.value } : previous)} disabled={!selectedProvider}>{models.length ? models.map((model) => <option value={model.id} key={model.id}>{model.name || model.id}</option>) : <option value={prefs?.defaultModelId ?? ''}>{prefs?.defaultModelId || '默认模型'}</option>}</select></label>
+            </div>
+            <div className="settings-auth-block"><span className="settings-field-label">认证方式</span><div className="settings-auth-tabs"><button type="button" className={hasApiKey ? 'active' : ''} disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>API Key</button><button type="button" className={!hasApiKey && hasOAuth ? 'active' : ''} disabled={!selectedProvider || !hasOAuth} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'oauth', event.currentTarget)}>OAuth / 订阅登录</button></div></div>
+            <div className="credential-row"><div><span className="settings-field-label">API Key</span><p>密钥仅保存在本地设备，OpenTutor 不会写入数据库。</p></div><button type="button" className="credential-display" disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>{selectedProvider?.configured ? '••••••••••••••••' : '点击配置 API Key'}<span aria-hidden="true">⌁</span></button></div>
+            <div className="settings-model-actions"><span>当前状态：<strong className={selectedProvider?.configured ? 'settings-connected' : 'settings-disconnected'}>{selectedProvider?.configured ? '已连接 ✓' : '未连接'}</strong></span><div><button type="button" className="btn-secondary" disabled={!selectedProvider || !hasApiKey} onClick={(event) => selectedProvider && openConnectModal(selectedProvider, 'api_key', event.currentTarget)}>测试连接</button><button type="submit" className="btn-primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button></div></div>
+            {selectedProvider?.configured && <div className="connection-success"><span className="success-mark">✓</span><div><strong>连接成功</strong><small>模型服务可用，响应正常。</small></div><button type="button" className="btn-secondary btn-sm" onClick={(event) => openConnectModal(selectedProvider, hasOAuth ? 'oauth' : 'api_key', event.currentTarget)}>重新测试</button></div>}
+          </section>
+
+          <section className="settings-preferences-card"><div className="settings-card-heading"><div><span className="page-eyebrow">学习体验</span><h2>学习偏好</h2></div></div><div className="preference-grid"><label className="preference-row"><span>默认难度 <small>ⓘ</small></span><select value={prefs?.thinkingLevel ?? 'medium'} onChange={(event) => setPrefs((previous) => previous ? { ...previous, thinkingLevel: event.target.value } : previous)}><option value="off">快速</option><option value="low">简单</option><option value="medium">中等</option><option value="high">深入</option></select></label><label className="preference-row"><span>默认服务商 <small>ⓘ</small></span><strong>{selectedProvider?.name || '未选择'}</strong></label><label className="preference-row"><span>课程编译模式 <small>ⓘ</small></span><strong>知识图谱 + 证据</strong></label><label className="preference-row"><span>诊断题来源 <small>ⓘ</small></span><strong>当前学习节点</strong></label></div></section>
+        </form>
       </div>
-
-      <section className="settings-grid">
-        <div className="settings-card">
-          <h2>Connected AI Providers</h2>
-          <div className="provider-list">
-            {providers.map((p) => {
-              const hasOAuth = Boolean(p.auth?.oauth?.available);
-              const hasApiKey = Boolean(p.auth?.apiKey?.available) || !p.auth;
-
-              return (
-                <div key={p.id} className="provider-item">
-                  <div className="provider-info">
-                    <span className="provider-name">{p.name}</span>
-                    <span className={`provider-badge ${p.configured ? 'active' : 'inactive'}`}>
-                      {p.configured ? 'Connected' : 'Not Connected'}
-                    </span>
-                  </div>
-                  <div className="provider-actions" style={{ display: 'flex', gap: '8px' }}>
-                    {p.configured ? (
-                      <button
-                        className="btn-secondary"
-                        onClick={() => openConnectModal(p)}
-                        title="Change credentials or re-authenticate"
-                      >
-                        Configured
-                      </button>
-                    ) : (
-                      <>
-                        {hasOAuth && (
-                          <button
-                            className="btn-primary"
-                            onClick={() => openConnectModal(p, 'oauth')}
-                          >
-                            {p.auth?.oauth?.label ?? 'OAuth Login'}
-                          </button>
-                        )}
-                        {hasApiKey && (
-                          <button
-                            className={hasOAuth ? 'btn-secondary' : 'btn-primary'}
-                            onClick={() => openConnectModal(p, 'api_key')}
-                          >
-                            {p.auth?.apiKey?.label ?? 'API Key'}
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="settings-card">
-          <h2>Default Model Selection</h2>
-          <p className="hint-text">
-            Select your default model for Socratic Tutor, Knowledge Compilation, and dynamic
-            Lessons.
-          </p>
-
-          <form onSubmit={handleSaveModelPreferences} className="preferences-form">
-            <label className="form-field">
-              <span>Default Provider</span>
-              <select
-                value={prefs?.defaultProviderId ?? 'anthropic'}
-                onChange={(e) => {
-                  const newProv = e.target.value;
-                  setPrefs((prev) => (prev ? { ...prev, defaultProviderId: newProv } : null));
-                  loadModels(newProv);
-                }}
-              >
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="form-field">
-              <span>Default Model ID</span>
-              <select
-                value={prefs?.defaultModelId ?? ''}
-                onChange={(e) =>
-                  setPrefs((prev) => (prev ? { ...prev, defaultModelId: e.target.value } : null))
-                }
-              >
-                {models.length > 0 ? (
-                  models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name || m.id}
-                    </option>
-                  ))
-                ) : (
-                  <option value={prefs?.defaultModelId ?? 'claude-3-7-sonnet-20250219'}>
-                    {prefs?.defaultModelId ?? 'Default Model'}
-                  </option>
-                )}
-              </select>
-            </label>
-
-            <label className="form-field">
-              <span>Thinking / Reasoning Level</span>
-              <select
-                value={prefs?.thinkingLevel ?? 'medium'}
-                onChange={(e) =>
-                  setPrefs((prev) => (prev ? { ...prev, thinkingLevel: e.target.value } : null))
-                }
-              >
-                <option value="off">Off (Fastest)</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium (Recommended)</option>
-                <option value="high">High (Deep Socratic)</option>
-              </select>
-            </label>
-
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? 'Saving...' : 'Save AI Preferences'}
-            </button>
-          </form>
-        </div>
-      </section>
-
       {modalProvider && (
         <div className="modal-backdrop">
-          <div className="modal-box" style={{ maxWidth: '500px', width: '90%' }}>
+          <div
+            ref={modalBoxRef}
+            className="modal-box"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="connect-modal-title"
+            style={{ maxWidth: '500px', width: '90%' }}
+          >
             <div
               style={{
                 display: 'flex',
@@ -417,11 +360,13 @@ export function ProviderSettingsPage({ onFlash }: { onFlash: (msg: string) => vo
                 marginBottom: '16px',
               }}
             >
-              <h3 style={{ margin: 0 }}>Connect {modalProvider.name}</h3>
+              <h3 id="connect-modal-title" style={{ margin: 0 }}>Connect {modalProvider.name}</h3>
               <button
+                ref={modalCloseRef}
                 className="btn-secondary"
                 style={{ padding: '4px 8px', fontSize: '12px' }}
                 onClick={handleCloseModal}
+                aria-label="Close connection dialog"
               >
                 ✕
               </button>

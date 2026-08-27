@@ -4,6 +4,7 @@ import type {
   CourseRecord,
   CourseSourceRecord,
   CourseMapData,
+  CourseEvidenceItem,
   SessionRepository,
   LessonRepository,
 } from '@opentutor/database';
@@ -88,6 +89,10 @@ export class CourseService {
 
   getCourseMap(courseId: string): CourseMapData {
     return this.courseRepo.getCourseMap(courseId);
+  }
+
+  getCourseEvidence(courseId: string): CourseEvidenceItem[] {
+    return this.courseRepo.getCourseEvidence(courseId);
   }
 
   async compileCourse(

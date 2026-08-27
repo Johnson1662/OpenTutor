@@ -69,7 +69,7 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017)', () => {
 
     // 3. Run migrations 014, 015, 016, 017
     const countRemaining = runMigrations(db, ALL_MIGRATIONS);
-    assert.equal(countRemaining, 4);
+    assert.equal(countRemaining, 5);
     // 4. Verify learning_evidence schema after migration 014
     const v14Cols = db
       .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
@@ -276,15 +276,21 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017)', () => {
       );
 
       const executed = runMigrations(db, ALL_MIGRATIONS);
-      assert.equal(executed, 1);
+      assert.equal(executed, 2);
       const appliedV17 = db
         .prepare('SELECT version FROM schema_migrations ORDER BY version ASC')
         .all() as Array<{ version: number }>;
-      assert.deepEqual(appliedV17.map((row) => row.version), [...Array.from({ length: 16 }, (_, index) => index + 1), 17]);
+      assert.deepEqual(appliedV17.map((row) => row.version), [...Array.from({ length: 18 }, (_, index) => index + 1)]);
       const columnsAfter = db
         .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
         .all() as Array<{ name: string }>;
       assert.equal(columnsAfter.some((column) => column.name === 'score'), true);
+
+      // Verify migration 018 dedupes course_nodes and enforces uniqueness
+      const uniqueIndex = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_course_nodes_course_knowledge'")
+        .get() as { name: string } | undefined;
+      assert.equal(uniqueIndex?.name, 'idx_course_nodes_course_knowledge');
 
       const evidenceRepo = new LearningEvidenceRepository(db);
       const legacy = evidenceRepo.getEvidenceForNode('v16-user', 'v16-node');

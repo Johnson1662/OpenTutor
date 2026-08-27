@@ -26,12 +26,13 @@ class SimulatedWebClientLearningState {
   }
 
   handleEvent(event: LearningEvent) {
-    this.lastSeq = Math.max(this.lastSeq, event.seq);
+    if (event.seq <= this.lastSeq) return;
+    this.lastSeq = event.seq;
 
     if (event.type === 'lesson.patch') {
       const data = event.data as LessonPatchEventData;
       if (this.lesson) {
-        this.lesson = applyLessonPatches(this.lesson, data.patches);
+        this.lesson = applyLessonPatches(this.lesson, data.patches, data.version);
       }
     }
 
@@ -176,6 +177,43 @@ test('Web SSE Event Reducer - lesson.activated replaces entire Lesson object', (
   assert.equal(client.lesson?.version, 3);
   assert.equal(client.lesson?.blocks.length, 2);
   assert.equal(client.lesson?.blocks[0]?.id, 'block-1');
+});
+
+test('Web SSE Event Reducer - duplicate lesson.patch replay does not duplicate a block', () => {
+  const lesson: Lesson = {
+    schemaVersion: '1.0',
+    id: 'lesson-replay',
+    courseId: 'course-transformers',
+    knowledgeNodeId: 'self-attention',
+    title: 'Self-Attention',
+    version: 1,
+    status: 'active',
+    blocks: [{ id: 'definition', type: 'text', variant: 'paragraph', content: 'Attention' }],
+  };
+  const client = new SimulatedWebClientLearningState(lesson);
+  const patchEvent: LearningEvent<LessonPatchEventData> = {
+    id: 'evt-replay',
+    seq: 1,
+    type: 'lesson.patch',
+    sessionId: 'session-test',
+    timestamp: new Date().toISOString(),
+    data: {
+      lessonId: lesson.id,
+      baseVersion: 1,
+      version: 2,
+      patches: [{
+        op: 'insert',
+        position: { after: 'definition' },
+        block: { id: 'softmax-explanation', type: 'text', variant: 'definition', content: 'Softmax' },
+      }],
+    },
+  };
+
+  client.handleEvent(patchEvent);
+  client.handleEvent(patchEvent);
+
+  assert.equal(client.lesson?.version, 2);
+  assert.equal(client.lesson?.blocks.filter((block) => block.id === 'softmax-explanation').length, 1);
 });
 
 test('Web SSE Event Reducer - Path SSE events maintain exactly 1 current node on Detour and Resume matching Server snapshot', async () => {

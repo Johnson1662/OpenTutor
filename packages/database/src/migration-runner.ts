@@ -17,6 +17,7 @@ import { migration014 } from './migrations/014_learning_evidence_integrity.ts';
 import { migration015 } from './migrations/015_misconceptions_and_diagnoses.ts';
 import { migration016 } from './migrations/016_detour_diagnosis_link.ts';
 import { migration017 } from './migrations/017_learning_evidence_score.ts';
+import { migration018 } from './migrations/018_course_nodes_unique.ts';
 export const ALL_MIGRATIONS: Migration[] = [
   migration001,
   migration002,
@@ -35,6 +36,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   migration015,
   migration016,
   migration017,
+  migration018,
 ];
 export {
   migration001,
@@ -54,6 +56,7 @@ export {
   migration015,
   migration016,
   migration017,
+  migration018,
 };
 
 export function runMigrations(db: Database, migrations: Migration[] = ALL_MIGRATIONS): number {

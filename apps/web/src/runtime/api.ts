@@ -67,6 +67,19 @@ export interface CourseMapInfo {
   }>;
 }
 
+export interface CourseEvidenceItem {
+  claimId: string;
+  knowledgeNodeId: string;
+  statement: string;
+  status: string;
+  claimConfidence: number;
+  evidenceId: string;
+  excerpt: string;
+  relation: string;
+  evidenceConfidence: number;
+  sourceTitle: string;
+}
+
 // 1. AI & Settings APIs
 export async function listProviders(): Promise<ProviderInfo[]> {
   const res = await fetch('/api/ai/providers');
@@ -279,6 +292,20 @@ export async function getCourseMap(courseId: string): Promise<CourseMapInfo> {
   if (!res.ok) throw new Error('Failed to fetch course map');
   const data = await res.json();
   return data.map;
+}
+
+export async function getCourseEvidence(courseId: string): Promise<CourseEvidenceItem[]> {
+  const res = await fetch(`/api/courses/${courseId}/evidence`);
+  if (!res.ok) throw new Error('Failed to fetch course evidence');
+  const data = await res.json();
+  return data.evidence ?? [];
+}
+
+export async function getCourseSession(courseId: string): Promise<LearningSessionSnapshot> {
+  const res = await fetch(`/api/courses/${courseId}/sessions`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to load course session');
+  const data = await res.json();
+  return data.snapshot;
 }
 
 // 3. Learning Room & Session APIs

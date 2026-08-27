@@ -5,7 +5,6 @@ import type {
   AgentCompletedEventData,
   LearningPathNode,
   Lesson,
-  LessonActivatedEventData,
   LessonPatchEventData,
   LessonUpdatedEventData,
   PathPatchEventData,
@@ -19,7 +18,6 @@ import {
   submitQuizAnswer,
   subscribeToLearningEvents,
 } from '../runtime/api.ts';
-import { LearningPathPanel } from './LearningPathPanel.tsx';
 import { LessonCanvas } from './LessonCanvas.tsx';
 import { TutorPanel } from './TutorPanel.tsx';
 
@@ -27,10 +25,12 @@ export function LearningRoom({
   sessionId = 'prototype',
   onNavigate,
   onFlash,
+  onConnectionChange,
 }: {
   sessionId?: string;
   onNavigate: (route: string) => void;
   onFlash: (msg: string) => void;
+  onConnectionChange?: (connected: boolean) => void;
 }) {
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [path, setPath] = useState<LearningPathNode[]>([]);
@@ -38,29 +38,31 @@ export function LearningRoom({
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState<string[]>([
-    'Welcome to your AI-Native Learning Room. Ask questions or use Quick Actions to adapt the lesson in real time.',
+    '你好，我会根据你的学习进度解释概念、补充例子，并在需要时调整这节课。',
   ]);
   const [assessment, setAssessment] = useState<AssessmentResult>();
-  const [showDebug, setShowDebug] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastSeqRef = useRef(0);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
+    let disposed = false;
 
     async function bootstrap() {
       try {
         const snapshot = await getSession(sessionId);
+        if (disposed) return;
         setLesson(snapshot.lesson);
         setPath(snapshot.path);
         setPathVersion(snapshot.pathVersion);
         lastSeqRef.current = snapshot.lastSeq;
 
-        unsubscribe = subscribeToLearningEvents(
+        const closeSubscription = subscribeToLearningEvents(
           sessionId,
           lastSeqRef.current,
           (event) => {
-            lastSeqRef.current = Math.max(lastSeqRef.current, event.seq);
+            if (event.seq <= lastSeqRef.current) return;
+            lastSeqRef.current = event.seq;
 
             if (event.type === 'agent.started') {
               setBusy(true);
@@ -75,17 +77,12 @@ export function LearningRoom({
 
             if (event.type === 'lesson.patch') {
               const data = event.data as LessonPatchEventData;
-              setLesson((prev) => (prev ? applyLessonPatches(prev, data.patches) : prev));
+              setLesson((prev) => (prev ? applyLessonPatches(prev, data.patches, data.version) : prev));
             }
 
             if (event.type === 'lesson.updated') {
               const data = event.data as LessonUpdatedEventData;
               setLesson((prev) => (prev ? { ...prev, ...data.changes, version: data.version } : prev));
-            }
-
-            if (event.type === 'lesson.activated') {
-              const data = event.data as LessonActivatedEventData;
-              setLesson(data.lesson);
             }
 
             if (event.type === 'path.patch') {
@@ -101,25 +98,24 @@ export function LearningRoom({
 
             if (event.type === 'error') {
               setBusy(false);
-              let errorMsg = 'Operation failed';
-              if (event.data && typeof event.data === 'object' && 'error' in event.data) {
-                const errValue = (event.data as Record<string, unknown>).error;
-                if (typeof errValue === 'string') {
-                  errorMsg = errValue;
-                }
-              }
-              onFlash(`Agent error: ${errorMsg}`);
+              onFlash(`Agent error: ${(event.data as any)?.error || 'Operation failed'}`);
             }
           },
-          (status) => setConnected(status)
+          (status) => {
+            setConnected(status);
+            onConnectionChange?.(status);
+          }
         );
+        if (disposed) closeSubscription();
+        else unsubscribe = closeSubscription;
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!disposed) setError(err instanceof Error ? err.message : String(err));
       }
     }
 
     bootstrap();
     return () => {
+      disposed = true;
       unsubscribe?.();
     };
   }, [sessionId]);
@@ -152,6 +148,7 @@ export function LearningRoom({
     try {
       setBusy(true);
       await submitQuizAnswer(lesson.id, blockId, answer, sessionId);
+      setBusy(false);
       onFlash('Answer submitted for assessment diagnosis.');
     } catch (err) {
       setBusy(false);
@@ -176,27 +173,28 @@ export function LearningRoom({
   const nextNode =
     path.find((node) => node.status === 'current' && node.knowledgeNodeId !== lesson.knowledgeNodeId) ??
     path.find((node) => node.status === 'upcoming' && node.type === 'main');
+  const visiblePath = path.filter((node) => node.knowledgeNodeId !== 'gpt').slice(0, 4);
+  const currentIndex = Math.max(visiblePath.findIndex((node) => node.status === 'current'), 0);
 
   return (
     <div className="learning-room-shell">
-      <div className="room-subnav">
-        <button className="btn-secondary btn-sm" onClick={() => onNavigate('/courses')}>
-          ← Back to Courses
-        </button>
-        <span className="room-session-badge">Session: {sessionId} · Focus: {current?.title ?? lesson.title}</span>
-        <button className="btn-secondary btn-sm" onClick={() => setShowDebug((d) => !d)}>
-          {showDebug ? 'Hide Debug' : 'Debug State'}
-        </button>
-      </div>
+      <div className="room-subnav"><span>课程</span><i>/</i><span>{lesson.title}</span><i>/</i><strong>学习空间</strong></div>
 
       <div className="learning-room-grid">
-        <LearningPathPanel path={path} />
 
         <LessonCanvas
           lesson={lesson}
           assessment={assessment}
           busy={busy}
+          stepLabel={`${currentIndex + 1} / ${Math.max(visiblePath.length, 1)}`}
           onQuizSubmit={handleQuiz}
+          onAdvance={() => {
+            if (nextNode?.title) {
+              handleSendMessage(`I'm ready to move on to the next concept: ${nextNode.title}`);
+            } else {
+              onNavigate('/courses');
+            }
+          }}
           nextNodeTitle={nextNode?.title}
         />
 
@@ -209,12 +207,15 @@ export function LearningRoom({
         />
       </div>
 
-      {showDebug && (
-        <section className="debug-drawer">
-          <h3>Debug Session Protocol Snapshot</h3>
-          <pre>{JSON.stringify({ lesson, path, pathVersion, assessment }, null, 2)}</pre>
-        </section>
-      )}
+      <div className="room-action-bar">
+        <button className="btn-primary" disabled={busy} onClick={() => {
+          if (nextNode?.title) void handleSendMessage(`我准备继续学习下一个知识点：${nextNode.title}`);
+          else onNavigate('/courses');
+        }}>→ 继续下一个知识点</button>
+        <button className="btn-secondary" disabled={busy} onClick={() => void handleRunAction('softmax_unknown')}>✦ 生成诊断题</button>
+        <button className="btn-secondary" onClick={() => onNavigate(`/knowledge?courseId=${encodeURIComponent(lesson.courseId)}`)}>⌘ 查看图谱关联</button>
+        <span className="room-autosave">✓ 学习进度自动保存</span>
+      </div>
     </div>
   );
 }

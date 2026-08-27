@@ -38,6 +38,19 @@ export interface CourseMapData {
  }>;
 }
 
+export interface CourseEvidenceItem {
+ claimId: string;
+ knowledgeNodeId: string;
+ statement: string;
+ status: string;
+ claimConfidence: number;
+ evidenceId: string;
+ excerpt: string;
+ relation: string;
+ evidenceConfidence: number;
+ sourceTitle: string;
+}
+
 export class CourseRepository {
  private readonly db: Database.Database;
 
@@ -219,5 +232,38 @@ export class CourseRepository {
     relationType: r.relation_type,
    })),
   };
+ }
+
+ getCourseEvidence(courseId: string): CourseEvidenceItem[] {
+  const rows = this.db
+   .prepare(
+    `SELECT c.id AS claim_id, c.knowledge_node_id, c.statement, c.status,
+            c.confidence AS claim_confidence, ce.id AS evidence_id,
+            ce.excerpt, ce.relation, ce.confidence AS evidence_confidence,
+            d.title AS source_title
+       FROM claims c
+       JOIN course_nodes cn ON cn.knowledge_node_id = c.knowledge_node_id
+       JOIN claim_evidence ce ON ce.claim_id = c.id AND ce.is_active = 1
+       JOIN document_chunks dc ON dc.id = ce.document_chunk_id
+       JOIN document_versions dv ON dv.id = dc.document_version_id
+       JOIN course_sources cs ON cs.course_id = ? AND cs.document_id = dv.document_id
+       JOIN documents d ON d.id = dv.document_id
+      WHERE cn.course_id = ? AND c.status != 'deprecated'
+      ORDER BY cn.position ASC, c.created_at ASC, ce.created_at ASC`
+   )
+   .all(courseId, courseId) as any[];
+
+  return rows.map((row) => ({
+   claimId: row.claim_id,
+   knowledgeNodeId: row.knowledge_node_id,
+   statement: row.statement,
+   status: row.status,
+   claimConfidence: row.claim_confidence,
+   evidenceId: row.evidence_id,
+   excerpt: row.excerpt,
+   relation: row.relation,
+   evidenceConfidence: row.evidence_confidence,
+   sourceTitle: row.source_title,
+  }));
  }
 }

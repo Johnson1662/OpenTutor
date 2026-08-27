@@ -1,0 +1,17 @@
+import { createOpenTutorModelRuntime } from '@opentutor/model-runtime';
+import { AgentSessionRepository, TraceRepository, createDatabase, seedDatabase, KnowledgeRepository, LearningEvidenceRepository, DiagnosisRepository, MisconceptionRepository, EventRepository, LessonRepository, SessionRepository } from '@opentutor/database';
+import { DomainToolsExecutor } from '@opentutor/tutor-tools';
+import { PiTutorRuntime } from '@opentutor/agent-runtime';
+import { LivingKnowledgeCompiler, FakeKnowledgeAnalyzer, FakeArtifactSynthesizer, SearchService } from '@opentutor/knowledge-core';
+import { LessonService } from '../../apps/server/src/services/lesson-service.ts';
+import { SessionService } from '../../apps/server/src/services/session-service.ts';
+import { EventBus } from '../../apps/server/src/events/event-bus.ts';
+import { KnowledgeService } from '../../apps/server/src/services/knowledge-service.ts';
+import { LearningSessionCoordinator } from '@opentutor/lesson-core';
+import { ModelProbeGenerator } from '@opentutor/learning-core';
+import { DiagnosticLearningCoordinator } from '../../apps/server/src/services/diagnostic-learning-coordinator.ts';
+import { AssessmentService } from '../../apps/server/src/services/assessment-service.ts';
+import { LearningProgressService } from '../../apps/server/src/services/learning-progress-service.ts';
+import { RoleModelResolver, SessionModelResolver, ModelSelectionService, ModelPreferencesRepository, PiModelDriver, DefaultModelExecutionService } from '@opentutor/model-runtime';
+import { createAgentSession, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
+import { createOpenTutorResourceLoader, TUTOR_TOOL_NAMES } from '@opentutor/tutor-tools';

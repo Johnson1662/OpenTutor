@@ -59,6 +59,8 @@ export function writeSseHeaders(res: ServerResponse, req?: IncomingMessage) {
     'Access-Control-Allow-Headers': 'Content-Type, Last-Event-ID',
     'Access-Control-Allow-Credentials': origin === '*' ? 'false' : 'true',
   });
+  res.flushHeaders();
+  res.write(': connected\n\n');
 }
 
 export function encodeSse(event: LearningEvent): string {

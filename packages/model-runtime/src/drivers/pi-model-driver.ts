@@ -37,9 +37,21 @@ export class PiModelDriver implements ModelDriver {
 
     let response;
     try {
-      const reasoning = resolved.thinkingLevel && resolved.thinkingLevel !== 'off' ? resolved.thinkingLevel : undefined;
+      const structuredRoles = new Set([
+        'knowledge_compiler',
+        'artifact_synthesizer',
+        'course_planner',
+        'lesson_generator',
+      ]);
+      const requestedReasoning = resolved.thinkingLevel && resolved.thinkingLevel !== 'off'
+        ? resolved.thinkingLevel
+        : undefined;
+      const reasoning = !resolved.isRoleSpecific && structuredRoles.has(resolved.role)
+        ? 'off'
+        : requestedReasoning;
       response = await this.runtime.completeSimple(model, context, {
         reasoning: reasoning as any,
+        timeoutMs: 120_000,
       });
     } catch (err: unknown) {
       if (err instanceof ModelExecutionError) {
@@ -69,9 +81,13 @@ export class PiModelDriver implements ModelDriver {
     }
 
     if (response.stopReason === 'error' || response.errorMessage) {
+      const errorMessage = response.errorMessage ?? `Model execution stopped with error: ${response.stopReason}`;
+      if (errorMessage.toLowerCase().includes('timeout') || errorMessage.toLowerCase().includes('timed out')) {
+        throw new ModelExecutionError('MODEL_TIMEOUT', errorMessage);
+      }
       throw new ModelExecutionError(
         'MODEL_PROVIDER_ERROR',
-        response.errorMessage ?? `Model execution stopped with error: ${response.stopReason}`
+        errorMessage
       );
     }
 

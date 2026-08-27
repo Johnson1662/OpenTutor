@@ -112,7 +112,8 @@ export class DefaultModelExecutionService implements ModelExecutionService {
       throw new ModelExecutionError('MODEL_PROVIDER_ERROR', errorObj.message, err);
     }
 
-    const structuredPrompt = `${input.prompt}\n\nIMPORTANT: Respond ONLY with a valid JSON object matching the required schema. Do not enclose in markdown code fences.`;
+    const schemaJson = JSON.stringify(input.schema);
+    const structuredPrompt = `${input.prompt}\n\nIMPORTANT: Respond ONLY with one valid JSON object. It MUST match this JSON Schema exactly:\n${schemaJson}\nDo not enclose the JSON in markdown code fences.`;
 
     let rawOutput: string;
     try {
@@ -128,7 +129,7 @@ export class DefaultModelExecutionService implements ModelExecutionService {
     }
 
     // 2. Exactly one repair attempt if validation or parsing failed
-    const repairPrompt = `The previous JSON response was invalid.\nErrors:\n${parsed.error}\n\nOriginal prompt:\n${input.prompt}\n\nPrevious response:\n${rawOutput}\n\nPlease output the corrected valid JSON object only:`;
+    const repairPrompt = `The previous JSON response was invalid.\nErrors:\n${parsed.error}\n\nOriginal prompt:\n${input.prompt}\n\nRequired JSON Schema:\n${schemaJson}\n\nPrevious response:\n${rawOutput}\n\nPlease output one corrected JSON object matching the schema exactly, with no markdown:`;
 
     let repairedOutput: string;
     try {

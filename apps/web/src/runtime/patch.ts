@@ -10,7 +10,11 @@ function findInsertIndex(ids: string[], position: { before: string } | { after: 
   return index < 0 ? ids.length : index + 1;
 }
 
-export function applyLessonPatches(lesson: Lesson, patches: LessonPatch[]): Lesson {
+export function applyLessonPatches(lesson: Lesson, patches: LessonPatch[], version?: number): Lesson {
+  // SSE reconnects can replay an event that was already reflected in the snapshot.
+  // The event version is authoritative; never apply an already-consumed patch again.
+  if (version !== undefined && version <= lesson.version) return lesson;
+
   let blocks = [...lesson.blocks];
 
   for (const patch of patches) {
@@ -33,7 +37,7 @@ export function applyLessonPatches(lesson: Lesson, patches: LessonPatch[]): Less
     }
   }
 
-  return { ...lesson, version: lesson.version + 1, blocks };
+  return { ...lesson, version: version ?? lesson.version + 1, blocks };
 }
 
 export function applyPathPatches(path: LearningPathNode[], patches: LearningPathPatch[]) {

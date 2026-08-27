@@ -3,7 +3,7 @@ import type { LearningPathNode } from '@opentutor/protocol';
 export function LearningPathPanel({ path }: { path: LearningPathNode[] }) {
   return (
     <aside className="path-panel">
-      <div className="section-label">Learning path</div>
+      <div className="section-label">学习路径</div>
       <div className="path-list">
         {path.map((node) => (
           <div className={`path-node ${node.status} ${node.type}`} key={node.id}>

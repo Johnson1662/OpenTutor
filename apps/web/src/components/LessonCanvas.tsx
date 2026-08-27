@@ -32,13 +32,49 @@ function QuizView({
   onSubmit: (blockId: string, answer: string) => void;
 }) {
   const [answer, setAnswer] = useState('');
+  const choiceType = block.answerSpec?.type ?? (
+    block.options?.length
+      ? block.answerType === 'multiple_choice' ? 'multiple_choice' : 'single_choice'
+      : undefined
+  );
+  const isMultipleChoice = choiceType === 'multiple_choice';
+  const hasChoices = Boolean(choiceType && block.options?.length);
+
+  function toggleChoice(optionId: string) {
+    if (!isMultipleChoice) {
+      setAnswer(optionId);
+      return;
+    }
+    const selected = new Set(answer ? answer.split(',') : []);
+    if (selected.has(optionId)) selected.delete(optionId);
+    else selected.add(optionId);
+    setAnswer([...selected].join(','));
+  }
+
   return (
     <section className="quiz-block">
-      <div className="section-label">Quick check</div>
+      <div className="section-label">4. 小测验</div>
       <h3>{block.question}</h3>
-      <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Type your answer…" />
+      {hasChoices ? (
+        <div className="quiz-options">
+          {block.options!.map((option) => (
+            <label className="quiz-option" key={option.id}>
+              <input
+                type={isMultipleChoice ? 'checkbox' : 'radio'}
+                name={block.id}
+                value={option.id}
+                checked={answer.split(',').includes(option.id)}
+                onChange={() => toggleChoice(option.id)}
+              />
+              <span>{option.text}</span>
+            </label>
+          ))}
+        </div>
+      ) : (
+        <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="写下你的理解…" />
+      )}
       <div className="quiz-actions">
-        <button className="primary" disabled={busy || !answer.trim()} onClick={() => onSubmit(block.id, answer)}>Check answer</button>
+        <button className="primary" disabled={busy || !answer.trim()} onClick={() => onSubmit(block.id, answer)}>提交答案</button>
       </div>
       {assessment && (
         <div className={`quiz-result ${assessment.result === 'correct' ? 'success' : ''}`}>
@@ -55,20 +91,24 @@ export function LessonCanvas({
   assessment,
   busy,
   onQuizSubmit,
+  onAdvance,
   nextNodeTitle,
+  stepLabel,
 }: {
   lesson: Lesson;
   assessment?: AssessmentResult;
   busy: boolean;
+  stepLabel?: string;
   onQuizSubmit: (blockId: string, answer: string) => void;
+  onAdvance: () => void;
   nextNodeTitle?: string;
 }) {
   return (
     <main className="canvas-shell">
       <article className="lesson-canvas">
         <header className="lesson-header">
-          <div className="section-label">Self attention</div>
-          <h1>{lesson.title}</h1>
+          <div className="section-label">第 {stepLabel || '—'} 个知识点</div>
+          <h1>{lesson.title === 'Self Attention' ? 'Self-Attention 机制' : lesson.title}</h1>
           {lesson.objective && <p>{lesson.objective}</p>}
         </header>
 
@@ -87,7 +127,6 @@ export function LessonCanvas({
             if (block.type === 'code') {
               return (
                 <section className="code-block" key={block.id}>
-                  <div className="block-meta"><span>Code example</span><span className="added">Added</span></div>
                   <pre><code>{block.code}</code></pre>
                   {block.explanation && <p>{block.explanation}</p>}
                 </section>
@@ -106,7 +145,13 @@ export function LessonCanvas({
             <div className="section-label">Mastered</div>
             <h2>{lesson.title} complete</h2>
             {nextNodeTitle && <p>Next: <strong>{nextNodeTitle}</strong></p>}
-            <button className="primary" disabled>Continue (next prototype step)</button>
+            <button
+              className="btn-primary btn-lg"
+              disabled={busy}
+              onClick={onAdvance}
+            >
+              Continue {nextNodeTitle ? `to ${nextNodeTitle}` : ''} →
+            </button>
           </section>
         )}
       </article>

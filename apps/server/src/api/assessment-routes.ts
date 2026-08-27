@@ -23,8 +23,22 @@ export async function handleAssessmentRoutes(
   if (method === 'POST' && answerMatch) {
     const lessonId = answerMatch[1]!;
     const blockId = answerMatch[2]!;
-    const body = await readJson<SubmitQuizAnswerRequest>(req);
-    const sessionId = url.searchParams.get('sessionId') ?? (lessonId.includes('softmax') ? 'prototype' : 'prototype');
+    const sessionId = url.searchParams.get('sessionId');
+    if (!sessionId) {
+      json(res, 400, { error: 'SESSION_ID_REQUIRED' }, req);
+      return true;
+    }
+    let body: SubmitQuizAnswerRequest;
+    try {
+      body = await readJson<SubmitQuizAnswerRequest>(req);
+    } catch {
+      json(res, 400, { error: 'INVALID_ANSWER_BODY' }, req);
+      return true;
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.answer !== 'string') {
+      json(res, 400, { error: 'ANSWER_REQUIRED' }, req);
+      return true;
+    }
 
     try {
       if (ctx.diagnosticCoordinator) {
@@ -34,7 +48,7 @@ export async function handleAssessmentRoutes(
           blockId,
           answer: body.answer,
         });
-        json(res, 200, { assessment: coordResult.assessment }, req);
+        json(res, 200, coordResult, req);
       } else {
         const result = ctx.assessmentService.submitAnswer({
           sessionId,

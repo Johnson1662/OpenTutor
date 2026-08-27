@@ -3,7 +3,8 @@ import {
   TUTOR_TOOL_DEFINITIONS,
   type DomainToolsExecutor,
 } from '@opentutor/tutor-tools';
-import type { LessonPatch, LearningPathPatch } from '@opentutor/protocol';
+import type { ActiveStepContext, LessonPatch, LearningPathPatch } from '@opentutor/protocol';
+import { formatTutorPrompt } from './tutor-runtime.ts';
 
 export interface TutorAgentOptions {
   apiKey?: string;
@@ -48,25 +49,27 @@ export class TutorAgent {
   async run(
     sessionId: string,
     userMessage: string,
-    emitTextDelta?: (delta: string) => void
+    emitTextDelta?: (delta: string) => void,
+    activeStepContext?: ActiveStepContext
   ): Promise<AgentRunResult> {
     if (this.apiKey) {
-      return this.runWithLlm(sessionId, userMessage, emitTextDelta);
+      return this.runWithLlm(sessionId, userMessage, emitTextDelta, activeStepContext);
     }
-    return this.runWithPedagogicalFallback(sessionId, userMessage, emitTextDelta);
+    return this.runWithPedagogicalFallback(sessionId, userMessage, emitTextDelta, activeStepContext);
   }
 
   private async runWithLlm(
     sessionId: string,
     userMessage: string,
-    emitTextDelta?: (delta: string) => void
+    emitTextDelta?: (delta: string) => void,
+    activeStepContext?: ActiveStepContext
   ): Promise<AgentRunResult> {
     const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> =
       [];
 
     const messages = [
       { role: 'system', content: this.systemPrompt },
-      { role: 'user', content: userMessage },
+      { role: 'user', content: formatTutorPrompt(userMessage, activeStepContext) },
     ];
 
     const response = await fetch(`${this.baseURL}/chat/completions`, {
@@ -86,7 +89,7 @@ export class TutorAgent {
     if (!response.ok) {
       const errText = await response.text();
       console.warn(`LLM call failed (${response.status}): ${errText}, falling back to rule engine.`);
-      return this.runWithPedagogicalFallback(sessionId, userMessage, emitTextDelta);
+      return this.runWithPedagogicalFallback(sessionId, userMessage, emitTextDelta, activeStepContext);
     }
 
     const data = (await response.json()) as {
@@ -133,7 +136,8 @@ export class TutorAgent {
   private async runWithPedagogicalFallback(
     sessionId: string,
     userMessage: string,
-    emitTextDelta?: (delta: string) => void
+    emitTextDelta?: (delta: string) => void,
+    activeStepContext?: ActiveStepContext
   ): Promise<AgentRunResult> {
     const lower = userMessage.toLowerCase();
     const executedToolCalls: Array<{ tool: string; args: Record<string, unknown>; result: unknown }> =
@@ -145,13 +149,13 @@ export class TutorAgent {
     };
 
     const lessonRes = (await this.toolsExecutor.executeTool(sessionId, 'lesson_get', {
-      lessonId: 'lesson-self-attention',
+      lessonId: activeStepContext?.lessonId ?? 'lesson-self-attention',
     })) as {
       success: boolean;
       data?: { id: string; version: number };
     };
 
-    const currentLessonId = lessonRes.data?.id ?? 'lesson-self-attention';
+    const currentLessonId = lessonRes.data?.id ?? activeStepContext?.lessonId ?? 'lesson-self-attention';
     const lessonVersion = lessonRes.data?.version ?? 1;
     const pathVersion = snapRes.data?.version ?? 1;
 
@@ -211,10 +215,33 @@ export class TutorAgent {
       });
       reply = 'Here is an intuitive mental model to simplify the concept.';
     } else if (
-      lower.includes('softmax') ||
+      lower.includes('do not understand') ||
+      lower.includes("don't understand") ||
+      lower.includes('dont understand') ||
+      lower.includes('do not know') ||
+      lower.includes("don't know") ||
+      lower.includes('dont know') ||
+      lower.includes('confused') ||
+      lower.includes('not sure') ||
       lower.includes('不懂') ||
       lower.includes('前置') ||
+      lower.includes('困惑') ||
       lower.includes('gap')
+    ) {
+      const probeRes = await this.toolsExecutor.executeTool(sessionId, 'probe_request', {
+        prerequisiteNodeId: lower.includes('softmax') ? 'softmax' : undefined,
+        reason: 'Learner expressed uncertainty; assess the prerequisite before changing the path',
+      });
+      executedToolCalls.push({
+        tool: 'probe_request',
+        args: { prerequisiteNodeId: lower.includes('softmax') ? 'softmax' : undefined },
+        result: probeRes,
+      });
+      reply = 'I placed a short prerequisite check on the canvas before changing your path.';
+    } else if (
+      lower.includes('confirmed diagnosis') ||
+      lower.includes('diagnosis confirmed') ||
+      lower.includes('已确认诊断')
     ) {
       const detourRes = await this.toolsExecutor.executeTool(sessionId, 'path_insert_detour', {
         nodeId: 'softmax',

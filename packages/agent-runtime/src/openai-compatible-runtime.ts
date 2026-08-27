@@ -3,7 +3,7 @@ import type { DomainToolsExecutor } from '@opentutor/tutor-tools';
 import { TUTOR_TOOL_DEFINITIONS } from '@opentutor/tutor-tools';
 import type { TraceRepository } from '@opentutor/database';
 import { SOCRATIC_TUTOR_SYSTEM_PROMPT } from './prompt.ts';
-import type { TutorRuntime, TutorTurnInput, TutorTurnResult } from './tutor-runtime.ts';
+import { formatTutorPrompt, type TutorRuntime, type TutorTurnInput, type TutorTurnResult } from './tutor-runtime.ts';
 import { FakeTutorRuntime } from './fake-tutor-runtime.ts';
 
 export interface OpenAICompatibleRuntimeOptions {
@@ -98,7 +98,7 @@ export class OpenAICompatibleTutorRuntime implements TutorRuntime {
           model: this.model,
           messages: [
             { role: 'system', content: SOCRATIC_TUTOR_SYSTEM_PROMPT },
-            { role: 'user', content: input.message },
+            { role: 'user', content: formatTutorPrompt(input.message ?? input.action ?? '', input.activeStepContext) },
           ],
           tools: OPENAI_TOOLS,
           tool_choice: 'auto',

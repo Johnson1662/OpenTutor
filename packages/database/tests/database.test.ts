@@ -48,6 +48,7 @@ describe('@opentutor/database', () => {
       assert.ok(tableNames.includes('learning_path_nodes'));
       assert.ok(tableNames.includes('assessments'));
       assert.ok(tableNames.includes('learning_events'));
+      assert.ok(tableNames.includes('lesson_step_progress'));
     });
 
     it('seeds database idempotently without errors', () => {

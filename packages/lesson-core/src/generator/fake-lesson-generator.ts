@@ -20,6 +20,12 @@ export class FakeLessonGenerator implements LessonGenerator {
         content: art.intuition.text,
       },
       {
+        id: `${input.knowledgeNodeId}-mechanism`,
+        type: 'text',
+        variant: 'example',
+        content: art.mechanism.text,
+      },
+      {
         id: `${input.knowledgeNodeId}-flow`,
         type: 'diagram',
         diagramType: 'flow',
@@ -34,24 +40,25 @@ export class FakeLessonGenerator implements LessonGenerator {
         ],
       },
       {
-        id: `${input.knowledgeNodeId}-quiz`,
+        id: isSoftmax ? 'softmax-quiz' : `${input.knowledgeNodeId}-quiz`,
         type: 'quiz',
+        difficulty: isSoftmax ? 3.5 : undefined,
         question: isSoftmax
-          ? 'What is the primary property of the Softmax function output?'
+          ? 'What does softmax ensure regarding the sum of output values?'
           : `Why is ${art.title} crucial in modern architectures?`,
         options: isSoftmax
-          ? [
-            { id: 'opt-1', text: 'Outputs form a normalized probability distribution summing to 1.' },
-            { id: 'opt-2', text: 'Outputs are unconstrained real numbers.' },
-          ]
+          ? undefined
           : [
             { id: 'opt-1', text: 'It allows dynamic contextual weighting across the sequence.' },
             { id: 'opt-2', text: 'It reduces all embeddings to zero.' },
           ],
         answerSpec: isSoftmax
           ? {
-            type: 'single_choice',
-            correctOptionId: 'opt-1',
+            type: 'open',
+            rubric: {
+              concepts: ['probability', 'sum', '1', 'softmax', 'positive', 'distribution'],
+              referenceAnswer: 'Softmax ensures that all output probabilities are non-negative and sum to exactly 1.',
+            },
           }
           : {
             type: 'open',
@@ -61,6 +68,32 @@ export class FakeLessonGenerator implements LessonGenerator {
             },
           },
       },
+      ...(isSoftmax
+        ? [
+          {
+            id: 'softmax-quiz-2',
+            type: 'quiz' as const,
+            difficulty: 3.5,
+            question: 'Why does softmax use exponentiation?',
+            options: [
+              { id: 'opt-exp-1', text: 'To ensure all output values are strictly positive before normalization' },
+              { id: 'opt-exp-2', text: 'To reduce memory consumption' },
+            ],
+            answerSpec: { type: 'single_choice' as const, correctOptionId: 'opt-exp-1' },
+          },
+          {
+            id: 'softmax-quiz-3',
+            type: 'quiz' as const,
+            difficulty: 3.5,
+            question: 'What is the sum of all elements in a softmax output vector?',
+            options: [
+              { id: 'opt-sum-1', text: 'Exactly 1.0' },
+              { id: 'opt-sum-0', text: '0.0' },
+            ],
+            answerSpec: { type: 'single_choice' as const, correctOptionId: 'opt-sum-1' },
+          },
+        ]
+        : []),
     ];
 
     return {

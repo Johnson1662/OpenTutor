@@ -86,6 +86,11 @@ test('packages/agent-runtime - Pi Extension Security & Event Handling', async (t
     adapter.handleEvent({ type: 'text_delta', delta: 'Hello ' });
     adapter.handleEvent({ type: 'text_delta', delta: 'Learner' });
     assert.equal(capturedDelta, 'Hello Learner');
+    adapter.handleEvent({
+      type: 'message_update',
+      assistantMessageEvent: { type: 'text_delta', delta: '!' },
+    });
+    assert.equal(capturedDelta, 'Hello Learner!');
 
     adapter.handleEvent({ type: 'tool_call_start', toolCallId: 'tc-1', toolName: 'lesson_patch' });
     assert.equal(startedTool, 'lesson_patch');

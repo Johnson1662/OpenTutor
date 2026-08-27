@@ -16,6 +16,21 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
   const port = typeof address === 'object' && address ? address.port : 8787;
   const baseUrl = `http://127.0.0.1:${port}`;
 
+  const advanceActiveStep = async () => {
+    const current = (await (await fetch(`${baseUrl}/api/sessions/prototype`)).json()) as LearningSessionSnapshot;
+    assert.ok(current.lessonProgress);
+    const response = await fetch(`${baseUrl}/api/sessions/prototype/lesson-progress/advance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lessonId: current.lesson.id,
+        activeBlockId: current.lessonProgress.activeBlockId,
+        version: current.lessonProgress.version,
+      }),
+    });
+    assert.equal(response.status, 200);
+  };
+
   t.after(async () => {
     await close();
   });
@@ -91,7 +106,7 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
   const probeBlock = probeSnap.lesson.blocks.find((b) => b.id.startsWith('probe-') || ('assessmentKind' in b && b.assessmentKind === 'probe'));
   assert.ok(probeBlock, 'Diagnostic probe block placed on Canvas');
 
-  const probeAnsRes = await fetch(`${baseUrl}/api/lessons/${probeSnap.lesson.id}/blocks/${probeBlock.id}/answer`, {
+  const probeAnsRes = await fetch(`${baseUrl}/api/lessons/${probeSnap.lesson.id}/blocks/${probeBlock.id}/answer?sessionId=prototype`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ answer: 'wrong-guess' }),
@@ -103,23 +118,26 @@ test('End-to-End Golden Path v0.4: Zero Repository Shortcuts (All via Applicatio
   const detourNode = detourSnapshot.path.find((n: LearningPathNode) => n.knowledgeNodeId === 'softmax' && n.type === 'detour');
   assert.ok(detourNode);
   assert.equal(detourNode.status, 'current');
+  await advanceActiveStep();
 
   // 6. Assessment Answer Submission on 3 distinct items -> Evaluator -> BetaMasteryAggregator -> Automatic Detour Resume (HTTP POST /answer)
-  const quizRes1 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
+  const quizRes1 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer?sessionId=prototype`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ answer: 'Softmax ensures that each probability output forms a positive distribution and sum to exactly 1.' }),
   });
   assert.equal(quizRes1.status, 200);
+  await advanceActiveStep();
 
-  const quizRes2 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer`, {
+  const quizRes2 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer?sessionId=prototype`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ answer: 'opt-exp-1' }),
   });
   assert.equal(quizRes2.status, 200);
+  await advanceActiveStep();
 
-  const quizRes3 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-3/answer`, {
+  const quizRes3 = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-3/answer?sessionId=prototype`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ answer: 'opt-sum-1' }),

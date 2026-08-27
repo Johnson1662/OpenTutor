@@ -76,7 +76,7 @@ const LessonBlockSchema = Type.Union([
 export const GeneratedLessonSchema = Type.Object({
   title: Type.String(),
   objective: Type.String(),
-  blocks: Type.Array(LessonBlockSchema),
+  blocks: Type.Array(LessonBlockSchema, { minItems: 5, maxItems: 8 }),
 });
 
 export type GeneratedLessonData = Static<typeof GeneratedLessonSchema>;
@@ -99,9 +99,11 @@ export class ModelLessonGenerator implements LessonGenerator {
 Generate a structured, engaging, interactive Lesson for '${art.title}' (Node: '${input.knowledgeNodeId}').
 CRITICAL PEDAGOGICAL INVARIANTS:
 1. Ground the lesson strictly in the verified Knowledge Artifact.
-2. Use a cohesive sequence of TextBlocks, CodeBlocks, DiagramBlocks, and a culminating QuizBlock.
-3. Every QuizBlock MUST include a full 'answerSpec' ('single_choice', 'multiple_choice', or 'open' with rubric concepts).
-4. Do NOT output arbitrary HTML or JavaScript.`;
+2. Generate exactly 5–8 short blocks. Keep each block focused on one small idea.
+3. Use a cohesive Canvas-first sequence of TextBlocks, CodeBlocks, DiagramBlocks, and a culminating inline QuizBlock.
+4. Every QuizBlock MUST include a full 'answerSpec' ('single_choice', 'multiple_choice', or 'open' with rubric concepts).
+5. For open questions, the rubric MUST make a concise self-report probe possible before diagnosing mastery.
+6. Do NOT output arbitrary HTML or JavaScript.`;
 
     const prompt = `Generate a Lesson for '${art.title}' using the following Knowledge Artifact:
 

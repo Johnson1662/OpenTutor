@@ -1,103 +1,87 @@
-import { useEffect, useMemo, useState } from 'react';
-import { listCourses, type CourseSummary } from '../runtime/api.ts';
+import { useEffect, useState } from 'react';
+import { getCourseSession, listCourses, type CourseSummary } from '../runtime/api.ts';
+import type { LearningSessionSnapshot } from '@opentutor/protocol';
 
-const filters = ['全部', '人工智能', '编程开发', '数学基础', '数据科学'];
-
-function courseRoute(courseId: string) {
-  return `/learn/${courseId === 'transformer' ? 'prototype' : `session-${courseId}`}`;
-}
-
-function matchesFilter(course: CourseSummary, filter: string) {
-  if (filter === '全部') return true;
-  const text = `${course.title} ${course.description || ''}`.toLowerCase();
-  const keywords: Record<string, string[]> = {
-    人工智能: ['ai', '人工智能', 'transformer', '机器学习', '深度学习'],
-    编程开发: ['编程', '代码', 'c++', 'python', '系统'],
-    数学基础: ['数学', '线性', '概率', '矩阵'],
-    数据科学: ['数据', '统计', '分析'],
-  };
-  return keywords[filter]?.some((keyword) => text.includes(keyword)) ?? false;
+interface LearningJourney extends CourseSummary {
+  session?: LearningSessionSnapshot;
 }
 
 function statusLabel(status: CourseSummary['compileStatus']) {
-  return status === 'ready' || status === 'active' ? '已准备' : status === 'compiling' ? '编译中' : status === 'failed' ? '需要处理' : '草稿';
+  if (status === 'active') return '学习中';
+  if (status === 'ready') return '已准备';
+  if (status === 'compiling') return '准备中';
+  if (status === 'failed') return '需要处理';
+  return '未完成';
 }
 
 export function CourseListPage({
   onNavigate,
   onFlash,
-  searchParams,
+  searchParams: _searchParams,
 }: {
   onNavigate: (route: string) => void;
-  onFlash: (msg: string) => void;
+  onFlash: (message: string) => void;
   searchParams?: URLSearchParams;
 }) {
-  const [courses, setCourses] = useState<CourseSummary[]>([]);
+  const [journeys, setJourneys] = useState<LearningJourney[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('全部');
-  const [courseSearch, setCourseSearch] = useState(searchParams?.get('q') || '');
 
   useEffect(() => {
+    let cancelled = false;
     listCourses()
-      .then(setCourses)
-      .catch((error: Error) => onFlash(`加载课程失败：${error.message}`))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const searchQuery = courseSearch.trim().toLowerCase();
-  const filteredCourses = useMemo(() => courses.filter((course) => {
-    const matchesSearch = !searchQuery || course.title.toLowerCase().includes(searchQuery) || (course.description?.toLowerCase().includes(searchQuery) ?? false);
-    return matchesSearch && matchesFilter(course, filter);
-  }), [courses, filter, searchQuery]);
-  const recommendations = courses.slice(5, 7);
-
-  function submitSearch(event: React.FormEvent) {
-    event.preventDefault();
-    onNavigate(courseSearch.trim() ? `/courses?q=${encodeURIComponent(courseSearch.trim())}` : '/courses');
-  }
+      .then(async (courses) => {
+        const rows = await Promise.all(courses.map(async (course) => {
+          if (course.compileStatus !== 'ready' && course.compileStatus !== 'active') return course;
+          try {
+            return { ...course, session: await getCourseSession(course.id) };
+          } catch {
+            return course;
+          }
+        }));
+        if (!cancelled) setJourneys(rows);
+      })
+      .catch((error: Error) => {
+        if (!cancelled) onFlash('加载学习路径失败：' + error.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [onFlash]);
 
   return (
-    <main className="page-shell courses-page">
-      <header className="courses-header">
-        <div><h1>{searchQuery ? `搜索结果："${searchQuery}"` : '课程'}</h1><p>按学科浏览，或从目标生成专属学习路径。</p></div>
-        <button className="btn-primary" onClick={() => onNavigate('/courses/new')}>＋ 新建学习</button>
+    <main className="page-shell journeys-page">
+      <header className="page-heading journeys-heading">
+        <div><span className="eyebrow">My learning</span><h1>我的学习</h1><p>每一条路径都从你的目标开始，按当前状态继续。</p></div>
+        <button type="button" className="btn-primary" onClick={() => onNavigate('/courses/new')}>创建学习目标 <span aria-hidden="true">→</span></button>
       </header>
 
-      <div className="courses-toolbar">
-        <div className="filter-tabs" role="tablist" aria-label="课程分类">{filters.map((item) => <button type="button" role="tab" aria-selected={filter === item} className={filter === item ? 'active' : ''} key={item} onClick={() => setFilter(item)}>{item}</button>)}</div>
-        <form className="course-search" onSubmit={submitSearch}><span aria-hidden="true">⌕</span><input value={courseSearch} onChange={(event) => setCourseSearch(event.target.value)} placeholder="搜索课程" aria-label="搜索课程" /></form>
-      </div>
-
-      <div className="courses-layout">
-        <section className="course-grid reference-course-grid" aria-label="课程列表">
-          {loading ? <div className="loading-spinner">正在加载课程…</div> : filteredCourses.length ? filteredCourses.slice(0, 6).map((course, index) => {
-            const ready = course.compileStatus === 'ready' || course.compileStatus === 'active';
-            const presentation = coursePresentation[index];
+      {loading ? <div className="loading-block">正在读取你的学习路径…</div> : journeys.length ? (
+        <section className="journey-grid" aria-label="学习路径列表">
+          {journeys.map((journey, index) => {
+            const path = journey.session?.path ?? [];
+            const completed = path.filter((node) => node.status === 'completed').length;
+            const current = path.find((node) => node.status === 'current');
+            const progress = path.length ? Math.round((completed / path.length) * 100) : 0;
+            const continueRoute = journey.session ? '/learn/' + journey.session.sessionId : '/courses/' + journey.id;
             return (
-              <article className={`course-card reference-course-card ${index === 0 ? 'featured' : ''}`} key={course.id}>
-                {index === 0 && <span className="featured-label">精选</span>}
-                <div className={`course-visual visual-${index % 6}`} aria-hidden="true"><span>{index === 0 ? '⌘' : index === 1 ? '✧' : index === 2 ? '◌' : index === 3 ? '▣' : index === 4 ? 'C++' : '∑'}</span></div>
-                <div className="course-card-body"><span className={`course-status ${course.compileStatus}`}>{statusLabel(course.compileStatus)}</span><h2><button type="button" className="course-card-link" onClick={() => onNavigate(`/courses/${course.id}/path`)}>{presentation?.title || course.title}</button></h2><p>{presentation?.description || course.description || '从课程资料中编译结构化知识与学习路径。'}</p><small className="course-meta">{course.compiledAt ? `最近编译 ${new Date(course.compiledAt).toLocaleDateString('zh-CN')}` : '等待课程编译'}</small></div>
-                <div className="course-card-actions"><button className="btn-secondary" onClick={() => onNavigate(`/courses/${course.id}/path`)}>查看路径</button><button className="btn-primary" disabled={course.compileStatus === 'compiling'} onClick={() => onNavigate(ready ? courseRoute(course.id) : `/courses/${course.id}`)}>{course.compileStatus === 'compiling' ? '编译中…' : ready ? '继续学习' : '查看课程'}</button></div>
+              <article className="journey-card" key={journey.id}>
+                <div className={'journey-card-accent accent-' + (index % 4)} />
+                <div className="journey-card-body">
+                  <div className="journey-card-top"><span className="status-pill">{statusLabel(journey.compileStatus)}</span><span className="journey-index">{String(index + 1).padStart(2, '0')}</span></div>
+                  <h2>{journey.title}</h2>
+                  <p>{journey.description || '从课程路径中逐步建立可用的知识结构。'}</p>
+                  <div className="journey-progress"><div className="progress-line"><i style={{ width: progress + '%' }} /></div><span>{path.length ? completed + ' / ' + path.length + ' 个节点' : '路径待生成'}</span></div>
+                  <div className="journey-current">{current ? <><small>当前节点</small><strong>{current.title}</strong></> : <small>{journey.compileStatus === 'compiling' ? '学习路径正在准备' : '打开查看课程路径'}</small>}</div>
+                </div>
+                <div className="journey-card-actions"><button type="button" className="text-action" onClick={() => onNavigate('/courses/' + journey.id)}>查看路径</button><button type="button" className="btn-primary" disabled={journey.compileStatus === 'compiling'} onClick={() => onNavigate(continueRoute)}>{journey.session ? '继续学习' : '进入课程'} <span aria-hidden="true">→</span></button></div>
               </article>
             );
-          }) : <div className="empty-state-card"><h2>{searchQuery || filter !== '全部' ? '没有匹配的课程' : '还没有课程'}</h2><p>创建一个课程，让 OpenTutor 根据目标生成学习路径。</p><button className="btn-primary" onClick={() => onNavigate('/courses/new')}>创建课程</button></div>}
+          })}
         </section>
-
-        <aside className="recommendations-panel">
-          <div className="panel-heading"><div><span className="page-eyebrow">课程发现</span><h2>推荐学习</h2></div></div>
-          {recommendations.length ? recommendations.map((course, index) => <article className="recommendation-item" key={course.id}><div className={`recommendation-thumb visual-${(index + 2) % 6}`} aria-hidden="true">{index ? '▥' : '✧'}</div><div><strong>{course.title}</strong><p>{course.description || '从课程资料开始建立知识基础。'}</p><small>{statusLabel(course.compileStatus)}</small></div><button className="text-action" onClick={() => onNavigate(courseRoute(course.id))}>开始学习</button></article>) : <p className="hint-text">创建或加载课程后，这里会展示可继续学习的内容。</p>}
-          <button className="recommend-ai" onClick={() => onNavigate('/courses/new?goal=请根据我的兴趣推荐一门课程&title=AI 推荐学习路径')}>✦ 让 AI 推荐</button>
-        </aside>
-      </div>
+      ) : (
+        <div className="empty-state-card journeys-empty"><span className="empty-kicker">从一个问题开始</span><h2>还没有学习路径</h2><p>告诉 OpenTutor 你想学会什么，它会先生成一条可执行的路线。</p><button type="button" className="btn-primary" onClick={() => onNavigate('/courses/new')}>创建第一个目标 <span aria-hidden="true">→</span></button></div>
+      )}
     </main>
   );
 }
-const coursePresentation = [
-  { title: 'Transformer 导论', description: '从注意力机制开始，建立现代语言模型的核心直觉。' },
-  { title: '深度学习基础', description: '掌握神经网络、优化与表示学习的关键概念。' },
-  { title: '机器学习入门', description: '用清晰的模型与案例理解机器学习工作流。' },
-  { title: '计算机系统基础', description: '从程序运行到内存与缓存，建立系统视角。' },
-  { title: 'C++ 核心语法', description: '通过实践掌握现代 C++ 的核心语法与抽象。' },
-  { title: '线性代数基础', description: '为机器学习准备向量、矩阵与空间的数学基础。' },
-];

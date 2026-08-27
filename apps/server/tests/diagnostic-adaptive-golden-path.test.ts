@@ -31,6 +31,17 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   const initialActiveNode = initialSnap.path.find((n) => n.status === 'current')!;
   assert.equal(initialActiveNode.knowledgeNodeId, 'self-attention');
 
+  const stepAdvanceRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/lesson-progress/advance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lessonId: initialSnap.lesson.id,
+      activeBlockId: initialSnap.lessonProgress!.activeBlockId,
+      version: initialSnap.lessonProgress!.version,
+    }),
+  });
+  assert.equal(stepAdvanceRes.status, 200);
+
   // 2. User expresses confusion about prerequisite Softmax
   const { promise: agentPromise, resolve: resolveAgent } = Promise.withResolvers<void>();
   const unAgent = ctx.context.eventBus.subscribe(sessionId, (evt) => {
@@ -58,6 +69,7 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   );
   assert.ok(probeBlock, 'Diagnostic probe block must be present on Canvas');
   assert.equal(probeBlock.targetKnowledgeNodeId, 'softmax');
+  assert.equal(probeSnap.lessonProgress?.activeBlockId, probeBlock.id, 'Diagnostic probe must become the active Canvas step');
 
   // 5. User submits misconception/incorrect answer to the diagnostic probe
   const probeAnsRes = await fetch(
@@ -80,6 +92,17 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   assert.ok(detourNode, 'Detour node for Softmax must be inserted in learning path');
   assert.equal(detourNode.status, 'current');
   assert.equal(detourSnap.lesson.knowledgeNodeId, 'softmax', 'Lesson Canvas must switch to Softmax lesson');
+
+  const detourAdvanceRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/lesson-progress/advance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lessonId: detourSnap.lesson.id,
+      activeBlockId: detourSnap.lessonProgress?.activeBlockId,
+      version: detourSnap.lessonProgress?.version,
+    }),
+  });
+  assert.equal(detourAdvanceRes.status, 200);
 
   // 7. Verify single correct answer cannot yield mastered
   const quiz1Res = await fetch(
@@ -117,6 +140,18 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   const midDetour2 = midSnap2.path.find((n) => n.knowledgeNodeId === 'softmax');
   assert.equal(midDetour2?.status, 'current', 'Spamming single quiz item must NOT complete detour');
 
+  const beforeQuiz2 = (await (await fetch(`${baseUrl}/api/sessions/${sessionId}`)).json()) as LearningSessionSnapshot;
+  const quiz2AdvanceRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/lesson-progress/advance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lessonId: beforeQuiz2.lesson.id,
+      activeBlockId: beforeQuiz2.lessonProgress?.activeBlockId,
+      version: beforeQuiz2.lessonProgress?.version,
+    }),
+  });
+  assert.equal(quiz2AdvanceRes.status, 200);
+
   // 9. Answer 2nd and 3rd distinct assessment items on Softmax
   const quiz2Res = await fetch(
     `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer?sessionId=${sessionId}`,
@@ -126,7 +161,19 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
       body: JSON.stringify({ answer: 'opt-exp-1' }),
     }
   );
-  assert.equal(quiz2Res.status, 200);
+  assert.equal(quiz2Res.status, 200, await quiz2Res.clone().text());
+
+  const beforeQuiz3 = (await (await fetch(`${baseUrl}/api/sessions/${sessionId}`)).json()) as LearningSessionSnapshot;
+  const quiz3AdvanceRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/lesson-progress/advance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lessonId: beforeQuiz3.lesson.id,
+      activeBlockId: beforeQuiz3.lessonProgress?.activeBlockId,
+      version: beforeQuiz3.lessonProgress?.version,
+    }),
+  });
+  assert.equal(quiz3AdvanceRes.status, 200);
 
   const quiz3Res = await fetch(
     `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-3/answer?sessionId=${sessionId}`,
@@ -136,7 +183,7 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
       body: JSON.stringify({ answer: 'opt-sum-1' }),
     }
   );
-  assert.equal(quiz3Res.status, 200);
+  assert.equal(quiz3Res.status, 200, await quiz3Res.clone().text());
 
   // 10. Verify Softmax is mastered, detour completes, and original lesson resumes
   const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
@@ -149,6 +196,8 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   assert.equal(completedDetour?.status, 'completed', 'Detour node must be marked completed');
   assert.equal(restoredMainNode?.status, 'current', 'Self Attention main track node must be restored to current');
   assert.equal(resumedSnap.lesson.id, initialSnap.lesson.id, 'Canvas must restore original Self Attention lesson');
+  assert.ok(resumedSnap.lessonProgress?.completedBlockIds.includes('intro'));
+  assert.equal(resumedSnap.lessonProgress?.activeBlockId, 'definition');
 
     // 11. True Server Restart: Close server & SQLite connection, then reopen with a new ServerContext on same DB
     await ctx.close();

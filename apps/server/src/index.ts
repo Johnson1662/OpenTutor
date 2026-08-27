@@ -13,6 +13,7 @@ import {
   MisconceptionRepository,
   DiagnosisRepository,
   SessionFrameRepository,
+  LessonProgressRepository,
   type Database,
 } from '@opentutor/database';
 import { EventBus } from './events/event-bus.ts';
@@ -87,7 +88,8 @@ export async function createServerContext(
   seedDatabase(db);
 
   const lessonRepo = new LessonRepository(db);
-  const sessionRepo = new SessionRepository(db);
+  const lessonProgressRepo = new LessonProgressRepository(db);
+  const sessionRepo = new SessionRepository(db, lessonProgressRepo);
   const knowledgeRepo = new KnowledgeRepository(db);
   const learningEvidenceRepo = new LearningEvidenceRepository(db);
   const courseRepo = new CourseRepository(db);
@@ -135,14 +137,15 @@ export async function createServerContext(
   const learningSessionCoordinator = new LearningSessionCoordinator(
     db,
     knowledgeCompiler.artifacts,
-    lessonGenerator
+    lessonGenerator,
+    sessionRepo
   );
 
   const sessionService = new SessionService(sessionRepo, eventBus, learningSessionCoordinator);
-  const lessonService = new LessonService(lessonRepo, eventBus);
+  const lessonService = new LessonService(lessonRepo, eventBus, lessonProgressRepo);
   const searchService = new SearchService(db);
   const knowledgeService = new KnowledgeService(knowledgeRepo, searchService, eventBus, learningEvidenceRepo, undefined, db);
-  const learningProgressService = new LearningProgressService(sessionService, eventBus);
+  const learningProgressService = new LearningProgressService(sessionService, eventBus, lessonProgressRepo, lessonRepo);
   const assessmentService = new AssessmentService(lessonService, knowledgeService, learningProgressService);
 
   const diagnosticCoordinator = new DiagnosticLearningCoordinator({

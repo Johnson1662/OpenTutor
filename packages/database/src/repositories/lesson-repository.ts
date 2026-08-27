@@ -57,8 +57,8 @@ export function applyLessonBlockPatches(blocks: LessonBlock[], patches: LessonPa
         if (!existingIds.has(patch.blockId)) {
           throw new BlockNotFoundError(patch.blockId);
         }
-        if (patch.block.id !== patch.blockId && existingIds.has(patch.block.id)) {
-          throw new DuplicateBlockIdError(patch.block.id);
+        if (patch.block.id !== patch.blockId) {
+          throw new ImmutablePropertyError('id');
         }
         updatedBlocks = updatedBlocks.map((b) => (b.id === patch.blockId ? patch.block : b));
         break;

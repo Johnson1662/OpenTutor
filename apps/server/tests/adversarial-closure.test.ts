@@ -51,9 +51,61 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
   const sessionId = 'prototype';
   const userId = 'default-user';
 
+  await t.test('authority rejects answers without an explicit session ID', async () => {
+    const res = await fetch(`${baseUrl}/api/lessons/lesson-self-attention/blocks/intro/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: 'irrelevant' }),
+    });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'SESSION_ID_REQUIRED' });
+  });
+
+  await t.test('session actions and messages require a real session and valid input', async () => {
+    const missing = await fetch(baseUrl + '/api/sessions/does-not-exist/actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'simpler' }),
+    });
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: 'SESSION_NOT_FOUND' });
+
+    const invalidAction = await fetch(baseUrl + '/api/sessions/' + sessionId + '/actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(invalidAction.status, 400);
+    assert.deepEqual(await invalidAction.json(), { error: 'INVALID_ACTION' });
+
+    const invalidMessage = await fetch(baseUrl + '/api/sessions/' + sessionId + '/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '   ' }),
+    });
+    assert.equal(invalidMessage.status, 400);
+    assert.deepEqual(await invalidMessage.json(), { error: 'MESSAGE_REQUIRED' });
+
+    const invalidAnswerBody = await fetch(baseUrl + '/api/lessons/lesson-self-attention/blocks/intro/answer?sessionId=' + sessionId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{',
+    });
+    assert.equal(invalidAnswerBody.status, 400);
+    assert.deepEqual(await invalidAnswerBody.json(), { error: 'INVALID_ANSWER_BODY' });
+
+    const invalidProgressBody = await fetch(baseUrl + '/api/sessions/' + sessionId + '/lesson-progress/advance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{',
+    });
+    assert.equal(invalidProgressBody.status, 400);
+    assert.deepEqual(await invalidProgressBody.json(), { error: 'INVALID_PROGRESS_BODY' });
+  });
+
   await t.test('A. fake block ID -> no evidence created & throws BLOCK_NOT_FOUND', async () => {
     const initialEvidenceCount = evidenceRepo.getEvidenceForNode(userId, 'self-attention').length;
-    const res = await fetch(`${baseUrl}/api/lessons/lesson-self-attention/blocks/fake-block-999/answer`, {
+    const res = await fetch(`${baseUrl}/api/lessons/lesson-self-attention/blocks/fake-block-999/answer?sessionId=${sessionId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer: 'irrelevant' }),
@@ -67,7 +119,7 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
 
   await t.test('B. submit to TextBlock -> no evidence created & throws BLOCK_NOT_ASSESSABLE', async () => {
     const initialEvidenceCount = evidenceRepo.getEvidenceForNode(userId, 'self-attention').length;
-    const res = await fetch(`${baseUrl}/api/lessons/lesson-self-attention/blocks/intro/answer`, {
+    const res = await fetch(`${baseUrl}/api/lessons/lesson-self-attention/blocks/intro/answer?sessionId=${sessionId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer: 'irrelevant' }),
@@ -80,6 +132,20 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
   });
 
   await t.test('C. wrong objective answer -> beta strictly increases & mastery decreases', async () => {
+    sessionRepo.createSession({
+      id: 'softmax-assessment-session',
+      userId,
+      courseId: 'transformer',
+      activeLessonId: 'lesson-softmax',
+      path: [{
+        id: 'softmax-node',
+        knowledgeNodeId: 'softmax',
+        title: 'Softmax',
+        type: 'main',
+        status: 'current',
+        position: 0,
+      }],
+    });
     const priorState = context.knowledgeService!.getUserKnowledgeState(userId, 'softmax') ?? {
       alpha: 1.0,
       beta: 1.0,
@@ -88,12 +154,14 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
     const priorBeta = priorState.beta ?? 1.0;
     const priorProb = priorState.masteryProbability ?? 0.5;
 
-    const res = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer?sessionId=${sessionId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: 'opt-exp-2' }), // Incorrect option
+    const result = context.assessmentService.submitAnswer({
+      sessionId: 'softmax-assessment-session',
+      userId,
+      lessonId: 'lesson-softmax',
+      blockId: 'softmax-quiz-2',
+      answer: 'opt-exp-2', // Incorrect option
     });
-    assert.equal(res.status, 200);
+    assert.equal(result.assessment.result, 'incorrect');
 
     const postState = context.knowledgeService!.getUserKnowledgeState(userId, 'softmax')!;
     assert.ok(postState.beta! > priorBeta, `Beta must increase (before: ${priorBeta}, after: ${postState.beta})`);

@@ -85,7 +85,7 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     assert.ok(probeBlock, 'Diagnostic probe block must be placed on Lesson Canvas');
 
     // 2. Student submits incorrect/misconception answer to probe
-    const answerRes = await fetch(`${baseUrl}/api/lessons/${snap1.lesson.id}/blocks/${probeBlock.id}/answer`, {
+    const answerRes = await fetch(`${baseUrl}/api/lessons/${snap1.lesson.id}/blocks/${probeBlock.id}/answer?sessionId=prototype`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer: 'wrong-guess' }),
@@ -99,7 +99,20 @@ test('apps/server - SQLite backed HTTP & SSE Integration Tests', async (t) => {
     assert.ok(snap2.path.some((n) => n.type === 'detour' && n.knowledgeNodeId === 'softmax'));
   });
   await t.test('4. POST /api/lessons/:id/blocks/:id/answer evaluates diagnostic quiz', async () => {
-    const res = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer`, {
+    const currentSnapRes = await fetch(`${baseUrl}/api/sessions/prototype`);
+    const currentSnapshot = (await currentSnapRes.json()) as LearningSessionSnapshot;
+    assert.ok(currentSnapshot.lessonProgress);
+    const advanceRes = await fetch(`${baseUrl}/api/sessions/prototype/lesson-progress/advance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lessonId: currentSnapshot.lesson.id,
+        activeBlockId: currentSnapshot.lessonProgress.activeBlockId,
+        version: currentSnapshot.lessonProgress.version,
+      }),
+    });
+    assert.equal(advanceRes.status, 200);
+    const res = await fetch(`${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer?sessionId=prototype`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer: 'Softmax ensures that each probability output forms a positive distribution and sum to exactly 1.' }),

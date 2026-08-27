@@ -1,4 +1,5 @@
 import type {
+  ActiveStepContext,
   LearningPathNode,
   LearningPathPatch,
   LearningSessionSnapshot,
@@ -30,6 +31,31 @@ export class SessionService {
     return this.sessionRepo.getSessionSnapshot(sessionId);
   }
 
+  getActiveStepContext(sessionId: string): ActiveStepContext | null {
+    const snapshot = this.sessionRepo.getSessionSnapshot(sessionId);
+    if (!snapshot) return null;
+
+    const activeNode = snapshot.path.find((node) => node.status === 'current');
+    const activeBlock = snapshot.lessonProgress?.activeBlockId
+      ? snapshot.lesson.blocks.find((block) => block.id === snapshot.lessonProgress?.activeBlockId)
+      : undefined;
+    const activeFrame = this.sessionRepo.peekActiveFrame(sessionId);
+
+    return {
+      sessionId,
+      courseId: snapshot.courseId ?? snapshot.lesson.courseId,
+      lessonId: snapshot.lesson.id,
+      lessonTitle: snapshot.lesson.title,
+      knowledgeNodeId: snapshot.lesson.knowledgeNodeId,
+      activeBlockId: snapshot.lessonProgress?.activeBlockId ?? null,
+      activeBlockType: activeBlock?.type,
+      pathNodeId: activeNode?.id,
+      pathNodeType: activeNode?.type,
+      detourDepth: activeFrame?.depth ?? 0,
+      detour: activeNode?.type === 'detour',
+    };
+  }
+
   applyPathPatches(
     sessionId: string,
     baseVersion: number,
@@ -44,6 +70,7 @@ export class SessionService {
     };
 
     this.eventBus.publish(sessionId, 'path.patch', eventData);
+
     return result;
   }
 
@@ -58,7 +85,7 @@ export class SessionService {
       throw new NotFoundError('Session', sessionId);
     }
 
-    const courseId = snapshot.courseId ?? 'transformer';
+    const courseId = snapshot.courseId ?? snapshot.lesson.courseId;
     const activeNode = snapshot.path.find((n) => n.status === 'current');
 
     // 1. Generate/ensure detour lesson asynchronously before entering the DB transaction
@@ -114,7 +141,8 @@ export class SessionService {
 
   async completeCurrentNode(
     sessionId: string,
-    baseVersion: number
+    baseVersion: number,
+    options?: { deferNextLesson?: boolean }
   ): Promise<{ path: LearningPathNode[]; newVersion: number }> {
     const snapshot = this.sessionRepo.getSessionSnapshot(sessionId);
     if (!snapshot) {
@@ -123,33 +151,50 @@ export class SessionService {
 
     const activeNode = snapshot.path.find((n) => n.status === 'current');
     const isDetour = activeNode?.type === 'detour';
+    const nextNode = !isDetour
+      ? snapshot.path.slice(snapshot.path.findIndex((node) => node.status === 'current') + 1).find((node) => node.status === 'upcoming')
+      : undefined;
+    const deferNextLesson = Boolean(options?.deferNextLesson && nextNode && this.coordinator);
+    let nextLesson: Lesson | undefined;
+    if (nextNode && this.coordinator && !deferNextLesson) {
+      nextLesson = await this.coordinator.ensureLessonForNode(
+        sessionId,
+        snapshot.courseId ?? snapshot.lesson.courseId,
+        nextNode.knowledgeNodeId,
+        nextNode.title
+      );
+    }
 
-    // 1. Perform atomic domain transaction: validate pathVersion, pop frame if detour, restore saved lesson, advance path
-    const result = this.sessionRepo.completeCurrentNode(sessionId, baseVersion, {
+    const completionOptions = {
       popDetourFrame: isDetour,
-    });
+      ...(this.coordinator && !isDetour
+        ? { nextLessonId: nextLesson?.id ?? null }
+        : {}),
+    };
+    const result = this.sessionRepo.completeCurrentNode(sessionId, baseVersion, completionOptions);
 
-    // 2. If a detour completed and a previous lesson was restored, publish lesson.activated
-    if (result.resumedLessonId) {
-      const resumedSnapshot = this.sessionRepo.getSessionSnapshot(sessionId);
-      if (resumedSnapshot && resumedSnapshot.lesson.id === result.resumedLessonId) {
-        const activatedEvent: LessonActivatedEventData = {
-          lesson: resumedSnapshot.lesson,
-          previousLessonId: snapshot.lesson.id,
-        };
-        this.eventBus.publish(sessionId, 'lesson.activated', activatedEvent);
+    const nextSnapshot = this.sessionRepo.getSessionSnapshot(sessionId);
+    if (
+      nextSnapshot &&
+      nextSnapshot.lesson.id !== snapshot.lesson.id &&
+      !nextSnapshot.lesson.id.startsWith('empty-lesson-')
+    ) {
+      const activatedEvent: LessonActivatedEventData = {
+        lesson: nextSnapshot.lesson,
+        previousLessonId: snapshot.lesson.id,
+      };
+      this.eventBus.publish(sessionId, 'lesson.activated', activatedEvent);
 
-        const lessonUpdate: LessonUpdatedEventData = {
-          lessonId: resumedSnapshot.lesson.id,
-          version: resumedSnapshot.lesson.version,
-          changes: {
-            title: resumedSnapshot.lesson.title,
-            objective: resumedSnapshot.lesson.objective,
-            status: resumedSnapshot.lesson.status,
-          },
-        };
-        this.eventBus.publish(sessionId, 'lesson.updated', lessonUpdate);
-      }
+      const lessonUpdate: LessonUpdatedEventData = {
+        lessonId: nextSnapshot.lesson.id,
+        version: nextSnapshot.lesson.version,
+        changes: {
+          title: nextSnapshot.lesson.title,
+          objective: nextSnapshot.lesson.objective,
+          status: nextSnapshot.lesson.status,
+        },
+      };
+      this.eventBus.publish(sessionId, 'lesson.updated', lessonUpdate);
     }
 
     const eventData: PathPatchEventData = {
@@ -158,6 +203,35 @@ export class SessionService {
       patches: result.patches,
     };
     this.eventBus.publish(sessionId, 'path.patch', eventData);
+
+    if (deferNextLesson && nextNode && this.coordinator) {
+      nextLesson = await this.coordinator.ensureLessonForNode(
+        sessionId,
+        snapshot.courseId ?? snapshot.lesson.courseId,
+        nextNode.knowledgeNodeId,
+        nextNode.title
+      );
+      const currentSnapshot = this.sessionRepo.getSessionSnapshot(sessionId);
+      const stillOnNextNode = currentSnapshot?.path.some(
+        (node) => node.id === nextNode.id && node.status === 'current'
+      );
+      if (stillOnNextNode) {
+        this.sessionRepo.setActiveLesson(sessionId, nextLesson.id);
+        this.eventBus.publish(sessionId, 'lesson.activated', {
+          lesson: nextLesson,
+          previousLessonId: snapshot.lesson.id,
+        });
+        this.eventBus.publish(sessionId, 'lesson.updated', {
+          lessonId: nextLesson.id,
+          version: nextLesson.version,
+          changes: {
+            title: nextLesson.title,
+            objective: nextLesson.objective,
+            status: nextLesson.status,
+          },
+        });
+      }
+    }
 
     return { path: result.path, newVersion: result.newVersion };
   }

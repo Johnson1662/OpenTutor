@@ -164,9 +164,14 @@ export class CourseEvalSuite {
         throw new ModelSetupRequiredError('MODEL_SETUP_REQUIRED: No live AI model credentials or driver available for production course evaluation.');
       }
       const prefsRepo = new ModelPreferencesRepository(db);
-      const first = available[0];
+      const preferredProvider = process.env.OPENTUTOR_DEFAULT_PROVIDER;
+      const preferredModel = process.env.OPENTUTOR_DEFAULT_MODEL;
+      const first = available.find((model) =>
+        (!preferredProvider || model.provider === preferredProvider) &&
+        (!preferredModel || model.id === preferredModel)
+      ) ?? available[0];
       if (first) {
-        prefsRepo.setPreferences('eval-user', {
+        prefsRepo.setPreferences('default-user', {
           defaultProviderId: first.provider,
           defaultModelId: first.id,
           thinkingLevel: 'off',

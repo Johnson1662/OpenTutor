@@ -1,115 +1,149 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   AssessmentCompletedEventData,
   AssessmentResult,
   AgentCompletedEventData,
-  LearningPathNode,
-  Lesson,
+  LearningEvent,
+  LearningSessionSnapshot,
+  LessonActivatedEventData,
   LessonPatchEventData,
+  LessonProgressEventData,
   LessonUpdatedEventData,
   PathPatchEventData,
-  TutorAction,
+  LessonStepProgress,
 } from '@opentutor/protocol';
 import { applyLessonPatches, applyPathPatches } from '../runtime/patch.ts';
+import { isNewLearningEvent } from '../runtime/events.ts';
 import {
+  advanceLessonProgress,
+  getLessonProgress,
   getSession,
-  runTutorAction,
   sendTutorMessage,
   submitQuizAnswer,
   subscribeToLearningEvents,
 } from '../runtime/api.ts';
 import { LessonCanvas } from './LessonCanvas.tsx';
-import { TutorPanel } from './TutorPanel.tsx';
+
+const contextActions = [
+  { label: '讲简单一点', message: '请把当前步骤讲得更简单，只保留一个小例子。' },
+  { label: '给一个代码例子', message: '请针对当前步骤补一个最小、可读的代码例子。' },
+  { label: '画关系图', message: '请用一个简单关系图解释当前步骤，不要展开新主题。' },
+  { label: '我卡住了', message: '我卡住了，请先给我一个小探针问题，不要直接告诉答案。' },
+];
+
+function shortText(value: string) {
+  const clean = value.replace(/\s+/gu, ' ').trim();
+  return clean.length > 80 ? clean.slice(0, 80) + '…' : clean;
+}
 
 export function LearningRoom({
-  sessionId = 'prototype',
+  sessionId,
   onNavigate,
   onFlash,
   onConnectionChange,
 }: {
-  sessionId?: string;
+  sessionId: string;
   onNavigate: (route: string) => void;
-  onFlash: (msg: string) => void;
+  onFlash: (message: string) => void;
   onConnectionChange?: (connected: boolean) => void;
 }) {
-  const [lesson, setLesson] = useState<Lesson | null>(null);
-  const [path, setPath] = useState<LearningPathNode[]>([]);
-  const [pathVersion, setPathVersion] = useState(0);
+  const [snapshot, setSnapshot] = useState<LearningSessionSnapshot | null>(null);
+  const [progress, setProgress] = useState<LessonStepProgress | null>(null);
   const [busy, setBusy] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [messages, setMessages] = useState<string[]>([
-    '你好，我会根据你的学习进度解释概念、补充例子，并在需要时调整这节课。',
-  ]);
-  const [assessment, setAssessment] = useState<AssessmentResult>();
+  const [lastUser, setLastUser] = useState('');
+  const [lastAgent, setLastAgent] = useState('');
+  const [submittedBlockId, setSubmittedBlockId] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<AssessmentResult>();
   const lastSeqRef = useRef(0);
+  const refreshRef = useRef(0);
 
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
     let disposed = false;
+    let unsubscribe: (() => void) | undefined;
 
     async function bootstrap() {
       try {
-        const snapshot = await getSession(sessionId);
-        if (disposed) return;
-        setLesson(snapshot.lesson);
-        setPath(snapshot.path);
-        setPathVersion(snapshot.pathVersion);
-        lastSeqRef.current = snapshot.lastSeq;
-
-        const closeSubscription = subscribeToLearningEvents(
-          sessionId,
-          lastSeqRef.current,
-          (event) => {
-            if (event.seq <= lastSeqRef.current) return;
-            lastSeqRef.current = event.seq;
-
-            if (event.type === 'agent.started') {
-              setBusy(true);
-            }
-
-            if (event.type === 'agent.completed') {
-              const data = event.data as AgentCompletedEventData;
-              setBusy(false);
-              setMessages((prev) => [...prev, data.message]);
-              onFlash('Tutor updated the learning session.');
-            }
-
-            if (event.type === 'lesson.patch') {
-              const data = event.data as LessonPatchEventData;
-              setLesson((prev) => (prev ? applyLessonPatches(prev, data.patches, data.version) : prev));
-            }
-
-            if (event.type === 'lesson.updated') {
-              const data = event.data as LessonUpdatedEventData;
-              setLesson((prev) => (prev ? { ...prev, ...data.changes, version: data.version } : prev));
-            }
-
-            if (event.type === 'path.patch') {
-              const data = event.data as PathPatchEventData;
-              setPath((prev) => applyPathPatches(prev, data.patches));
-              setPathVersion(data.version);
-            }
-
-            if (event.type === 'assessment.completed') {
-              const data = event.data as AssessmentCompletedEventData;
-              setAssessment(data.assessment);
-            }
-
-            if (event.type === 'error') {
-              setBusy(false);
-              onFlash(`Agent error: ${(event.data as any)?.error || 'Operation failed'}`);
-            }
-          },
-          (status) => {
-            setConnected(status);
-            onConnectionChange?.(status);
+        const loaded = await getSession(sessionId);
+        let nextSnapshot = loaded;
+        let nextProgress = loaded.lessonProgress;
+        if (!nextProgress) {
+          try {
+            nextProgress = await getLessonProgress(sessionId, loaded.lesson.id);
+            nextSnapshot = { ...loaded, lessonProgress: nextProgress };
+          } catch {
+            // Older synthetic sessions can lack a persisted lesson row.
           }
-        );
-        if (disposed) closeSubscription();
-        else unsubscribe = closeSubscription;
-      } catch (err) {
-        if (!disposed) setError(err instanceof Error ? err.message : String(err));
+        }
+        if (disposed) return;
+        setSnapshot(nextSnapshot);
+        setProgress(nextProgress ?? null);
+        lastSeqRef.current = nextSnapshot.lastSeq;
+        const close = subscribeToLearningEvents(sessionId, lastSeqRef.current, handleEvent, (status) => {
+          setConnected(status);
+          onConnectionChange?.(status);
+        });
+        if (disposed) close();
+        else unsubscribe = close;
+      } catch (cause) {
+        if (!disposed) setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    }
+
+    function handleEvent(event: LearningEvent) {
+      if (!isNewLearningEvent(lastSeqRef.current, event.seq)) return;
+      lastSeqRef.current = event.seq;
+      if (event.type === 'agent.started') setBusy(true);
+      if (event.type === 'agent.completed') {
+        const data = event.data as AgentCompletedEventData;
+        setBusy(false);
+        setLastAgent(shortText(data.message));
+      }
+      if (event.type === 'lesson.progress') {
+        const data = event.data as LessonProgressEventData;
+        setProgress((current) => current && current.lessonId !== data.lessonId ? current : current && current.version >= data.version ? current : data);
+        setSnapshot((current) => current && current.lesson.id === data.lessonId && (!current.lessonProgress || current.lessonProgress.version < data.version) ? { ...current, lessonProgress: data } : current);
+      }
+      if (event.type === 'lesson.activated') {
+        const data = event.data as LessonActivatedEventData;
+        setBusy(false);
+        const refreshId = ++refreshRef.current;
+        void getSession(sessionId).then((fresh) => {
+          if (refreshId !== refreshRef.current) return;
+          setSnapshot(fresh);
+          setProgress(fresh.lessonProgress ?? null);
+          setSubmittedBlockId(null);
+        }).catch(() => {
+          setSnapshot((current) => current ? { ...current, lesson: data.lesson } : current);
+          setProgress(null);
+        });
+      }
+      if (event.type === 'lesson.patch') {
+        const data = event.data as LessonPatchEventData;
+        setSnapshot((current) => current && current.lesson.id === data.lessonId ? { ...current, lesson: applyLessonPatches(current.lesson, data.patches, data.version) } : current);
+      }
+      if (event.type === 'lesson.updated') {
+        const data = event.data as LessonUpdatedEventData;
+        setSnapshot((current) => current && current.lesson.id === data.lessonId && data.version > current.lesson.version ? { ...current, lesson: { ...current.lesson, ...data.changes, version: data.version } } : current);
+      }
+      if (event.type === 'path.patch') {
+        const data = event.data as PathPatchEventData;
+        setSnapshot((current) => current && data.version > current.pathVersion ? { ...current, path: applyPathPatches(current.path, data.patches), pathVersion: data.version } : current);
+      }
+      if (event.type === 'assessment.completed') {
+        setAssessment((event.data as AssessmentCompletedEventData).assessment);
+      }
+      if (event.type === 'knowledge.updated') {
+        const data = event.data as { status?: string };
+        setLastAgent(shortText('知识状态已更新：' + (data.status || '学习中')));
+      }
+      if (event.type === 'error') {
+        setBusy(false);
+        onFlash('助教处理失败：' + ((event.data as { error?: string })?.error || '请重试'));
       }
     }
 
@@ -120,102 +154,102 @@ export function LearningRoom({
     };
   }, [sessionId]);
 
-  const current = useMemo(() => path.find((node) => node.status === 'current'), [path]);
+  const lesson = snapshot?.lesson;
+  const path = snapshot?.path ?? [];
+  const currentNode = path.find((node) => node.status === 'current');
+  const activeBlock = lesson && progress?.activeBlockId ? lesson.blocks.find((block) => block.id === progress.activeBlockId) : undefined;
+  const currentIndex = Math.max(0, path.findIndex((node) => node.status === 'current'));
+  const completedNodes = path.filter((node) => node.status === 'completed').length;
+  const routeProgress = path.length ? Math.round(completedNodes / path.length * 100) : 0;
+  const courseId = snapshot?.courseId || lesson?.courseId;
+  const canAdvance = Boolean(progress && progress.activeBlockId && activeBlock && activeBlock.id === progress.activeBlockId);
 
-  async function handleRunAction(action: TutorAction) {
+  async function refreshSnapshot() {
+    const fresh = await getSession(sessionId);
+    setSnapshot(fresh);
+    setProgress(fresh.lessonProgress ?? null);
+    setSubmittedBlockId(null);
+  }
+
+  async function tutor(messageToSend: string) {
+    const trimmed = messageToSend.trim();
+    if (!trimmed || busy || advancing) return;
+    setMessage('');
+    setLastUser(shortText(trimmed));
+    setBusy(true);
     try {
-      setBusy(true);
-      await runTutorAction(action, sessionId);
-    } catch (err) {
+      await sendTutorMessage(trimmed, sessionId);
+    } catch (cause) {
       setBusy(false);
-      onFlash(err instanceof Error ? err.message : 'Action failed');
+      onFlash(cause instanceof Error ? cause.message : '消息发送失败');
     }
   }
 
-  async function handleSendMessage(message: string) {
+  async function submitAnswer(blockId: string, answer: string) {
+    if (!lesson || busy || advancing) return;
+    setBusy(true);
     try {
-      setBusy(true);
-      setMessages((prev) => [...prev, `Learner: ${message}`]);
-      await sendTutorMessage(message, sessionId);
-    } catch (err) {
-      setBusy(false);
-      onFlash(err instanceof Error ? err.message : 'Message failed');
-    }
-  }
-
-  async function handleQuiz(blockId: string, answer: string) {
-    if (!lesson) return;
-    try {
-      setBusy(true);
       await submitQuizAnswer(lesson.id, blockId, answer, sessionId);
+      setSubmittedBlockId(blockId);
       setBusy(false);
-      onFlash('Answer submitted for assessment diagnosis.');
-    } catch (err) {
+      setLastUser(shortText('提交了当前步骤的回答'));
+    } catch (cause) {
       setBusy(false);
-      onFlash(err instanceof Error ? err.message : 'Submission failed');
+      onFlash(cause instanceof Error ? cause.message : '答案提交失败');
     }
   }
 
-  if (error) {
-    return (
-      <div className="boot-state">
-        <h1>Learning Session Unavailable</h1>
-        <p>{error}</p>
-        <button className="btn-primary" onClick={() => onNavigate('/courses')}>Return to Courses</button>
-      </div>
-    );
+  async function advance() {
+    if (!snapshot || !lesson || !progress || !canAdvance || advancing) return;
+    const requestRefreshId = refreshRef.current;
+    setAdvancing(true);
+    setBusy(true);
+    try {
+      const result = await advanceLessonProgress(sessionId, {
+        lessonId: lesson.id,
+        activeBlockId: progress.activeBlockId,
+        version: progress.version,
+      });
+      if (requestRefreshId !== refreshRef.current) return;
+      setSnapshot(result.snapshot);
+      setProgress(result.snapshot.lessonProgress ?? result.progress);
+      setSubmittedBlockId(null);
+      setAssessment(undefined);
+      setBusy(false);
+    } catch (cause) {
+      setBusy(false);
+      try {
+        await refreshSnapshot();
+        onFlash('学习进度有更新，已重新读取当前步骤。');
+      } catch {
+        onFlash(cause instanceof Error ? cause.message : '无法保存学习进度');
+      }
+    } finally {
+      setAdvancing(false);
+    }
   }
 
-  if (!lesson) {
-    return <div className="boot-state">Loading Learning Room...</div>;
-  }
+  if (error) return <main className="player-error"><span className="eyebrow">Learning session</span><h1>学习空间暂时打不开</h1><p>{error}</p><button type="button" className="btn-primary" onClick={() => onNavigate('/courses')}>返回我的学习</button></main>;
+  if (!snapshot || !lesson) return <main className="player-loading"><span className="loading-spinner" />正在打开学习空间…</main>;
 
-  const nextNode =
-    path.find((node) => node.status === 'current' && node.knowledgeNodeId !== lesson.knowledgeNodeId) ??
-    path.find((node) => node.status === 'upcoming' && node.type === 'main');
-  const visiblePath = path.filter((node) => node.knowledgeNodeId !== 'gpt').slice(0, 4);
-  const currentIndex = Math.max(visiblePath.findIndex((node) => node.status === 'current'), 0);
+  return <main className="player-page">
+    <header className="player-header">
+      <button type="button" className="player-back" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')} aria-label="返回课程路径">←</button>
+      <div className="player-course"><span>{currentNode?.title || lesson.title}</span><strong>{lesson.title}</strong></div>
+      <div className="player-progress"><div className="progress-line"><i style={{ width: routeProgress + '%' }} /></div><small>路径 {currentIndex + 1} / {path.length || '—'}</small></div>
+      <span className={'connection-state ' + (connected ? 'online' : '')}><i />{connected ? '同步中' : '连接中'}</span>
+      <div className="player-menu-wrap"><button type="button" className="player-menu-button" onClick={() => setMenuOpen((open) => !open)} aria-expanded={menuOpen} aria-label="打开课程菜单">•••</button>{menuOpen && <div className="player-menu"><button type="button" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')}>课程路径</button><button type="button" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=knowledge' : '/courses')}>知识关系</button><button type="button" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=materials' : '/courses')}>课程资料</button></div>}</div>
+    </header>
 
-  return (
-    <div className="learning-room-shell">
-      <div className="room-subnav"><span>课程</span><i>/</i><span>{lesson.title}</span><i>/</i><strong>学习空间</strong></div>
+    <section className="player-content">
+      <LessonCanvas lesson={lesson} activeBlock={activeBlock} assessment={assessment?.blockId === activeBlock?.id ? assessment : undefined} busy={busy} submitted={submittedBlockId === activeBlock?.id} canAdvance={canAdvance} onQuizSubmit={submitAnswer} onAdvance={() => void advance()} />
+      <div className="player-feedback" aria-live="polite">{lastUser && <p><small>你</small>{lastUser}</p>}{lastAgent && <p><small>OpenTutor</small>{lastAgent}</p>}</div>
+      {!activeBlock && <button type="button" className="btn-primary player-complete" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')}>返回课程路径 <span aria-hidden="true">→</span></button>}
+    </section>
 
-      <div className="learning-room-grid">
-
-        <LessonCanvas
-          lesson={lesson}
-          assessment={assessment}
-          busy={busy}
-          stepLabel={`${currentIndex + 1} / ${Math.max(visiblePath.length, 1)}`}
-          onQuizSubmit={handleQuiz}
-          onAdvance={() => {
-            if (nextNode?.title) {
-              handleSendMessage(`I'm ready to move on to the next concept: ${nextNode.title}`);
-            } else {
-              onNavigate('/courses');
-            }
-          }}
-          nextNodeTitle={nextNode?.title}
-        />
-
-        <TutorPanel
-          busy={busy}
-          connected={connected}
-          messages={messages}
-          onAction={handleRunAction}
-          onSendMessage={handleSendMessage}
-        />
-      </div>
-
-      <div className="room-action-bar">
-        <button className="btn-primary" disabled={busy} onClick={() => {
-          if (nextNode?.title) void handleSendMessage(`我准备继续学习下一个知识点：${nextNode.title}`);
-          else onNavigate('/courses');
-        }}>→ 继续下一个知识点</button>
-        <button className="btn-secondary" disabled={busy} onClick={() => void handleRunAction('softmax_unknown')}>✦ 生成诊断题</button>
-        <button className="btn-secondary" onClick={() => onNavigate(`/knowledge?courseId=${encodeURIComponent(lesson.courseId)}`)}>⌘ 查看图谱关联</button>
-        <span className="room-autosave">✓ 学习进度自动保存</span>
-      </div>
-    </div>
-  );
+    <section className="player-assist" aria-label="学习帮助">
+      <div className="context-actions">{contextActions.map((item) => <button type="button" key={item.label} disabled={busy || advancing} onClick={() => void tutor(item.message)}>{item.label}</button>)}</div>
+      <form className="player-composer" onSubmit={(event) => { event.preventDefault(); void tutor(message); }}><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={1} placeholder="告诉助教你卡在哪里…" disabled={busy || advancing} /><button type="submit" className="btn-primary" disabled={busy || advancing || !message.trim()}>发送</button></form>
+    </section>
+  </main>;
 }

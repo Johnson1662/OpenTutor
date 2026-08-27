@@ -79,11 +79,21 @@ export class LearningSessionCoordinator {
    artifact = compiled.content;
   }
 
-  const lesson = await this.lessonGenerator.generate({
+  let lesson = await this.lessonGenerator.generate({
    courseId,
    knowledgeNodeId,
    artifact,
   });
+
+  const conflictingLesson = this.db
+   .prepare('SELECT course_id, knowledge_node_id FROM lessons WHERE id = ?')
+   .get(lesson.id) as { course_id: string; knowledge_node_id: string } | undefined;
+  if (
+   conflictingLesson &&
+   (conflictingLesson.course_id !== courseId || conflictingLesson.knowledge_node_id !== knowledgeNodeId)
+  ) {
+   lesson = { ...lesson, id: `${lesson.id}-${sessionId}` };
+  }
 
   // Persist new lesson
   this.db

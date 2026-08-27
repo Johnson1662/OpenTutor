@@ -61,8 +61,13 @@ export async function handleCourseRoutes(
   if (method === 'POST' && sourcesMatch) {
     const courseId = sourcesMatch[1]!;
     const body = await readJson<{ title: string; content: string }>(req);
-    const source = ctx.courseService.addSource(courseId, body.title, body.content);
-    json(res, 201, { source }, req);
+    try {
+      const source = ctx.courseService.addSource(courseId, body.title, body.content);
+      json(res, 201, { source }, req);
+    } catch (err: any) {
+      const status = err.message === 'UNSUPPORTED_SOURCE_FORMAT' || err.message === 'SOURCE_CONTENT_REQUIRED' ? 400 : 404;
+      json(res, status, { error: err.message ?? String(err) }, req);
+    }
     return true;
   }
 

@@ -161,7 +161,7 @@ export class DiagnosticLearningCoordinator {
     });
 
     // 4. Patch the active lesson Canvas with the probe block
-    const patchResult = this.lessonService.applyPatches(
+    this.lessonService.applyPatches(
       params.sessionId,
       activeLesson.id,
       activeLesson.version,
@@ -173,6 +173,7 @@ export class DiagnosticLearningCoordinator {
         },
       ]
     );
+    this.progressService.activateBlock(params.sessionId, activeLesson.id, probeBlock.id);
 
     return {
       success: true,
@@ -201,6 +202,12 @@ export class DiagnosticLearningCoordinator {
     if (block.type !== 'quiz') {
       throw new Error('BLOCK_NOT_ASSESSABLE');
     }
+    if (snapshot.lesson.id !== input.lessonId) {
+      throw new Error(`LESSON_NOT_ACTIVE: ${input.lessonId}`);
+    }
+    if (snapshot.lessonProgress && snapshot.lessonProgress.activeBlockId !== input.blockId) {
+      throw new Error(`BLOCK_NOT_ACTIVE: ${input.blockId}`);
+    }
 
     // 1. Execute assessment evaluation and learning transaction (Single Authority)
     const result = this.assessmentService.submitAnswer(input);
@@ -221,6 +228,19 @@ export class DiagnosticLearningCoordinator {
     replanAction = replanDecision.action;
 
     if (replanDecision.action === 'insert_detour' && replanDecision.targetNodeId && replanDecision.diagnosisId) {
+      const isProbe = ('assessmentKind' in block && block.assessmentKind === 'probe') || input.blockId.startsWith('probe-');
+      if (isProbe && assessment.result === 'incorrect' && snapshot.lessonProgress) {
+        const resumeBlockId = lesson.blocks.find(
+          (candidate) =>
+            candidate.id !== input.blockId && !snapshot.lessonProgress!.completedBlockIds.includes(candidate.id)
+        )?.id;
+        if (resumeBlockId) {
+          this.progressService.activateBlock(input.sessionId, lesson.id, resumeBlockId);
+          this.lessonService.applyPatches(input.sessionId, lesson.id, lesson.version, [
+            { op: 'remove', blockId: input.blockId },
+          ]);
+        }
+      }
       const activePathNode = snapshot.path.find((n) => n.status === 'current');
       if (activePathNode && activePathNode.knowledgeNodeId !== replanDecision.targetNodeId) {
         const detourId = `detour-${replanDecision.targetNodeId}-${randomUUID().slice(0, 8)}`;
@@ -242,9 +262,7 @@ export class DiagnosticLearningCoordinator {
         detourInserted = true;
       }
     }
-    // 4. Check if current active detour is mastered and can be resumed
-    const updatedSnapshot = this.sessionService.getSnapshot(input.sessionId);
-    // 4. If target knowledge node is mastered, resolve any active confirmed diagnoses for it
+    // If the target is mastered, resolve any active confirmed diagnoses for it
     const targetState = this.knowledgeService.getUserKnowledgeState(userId, assessment.knowledgeNodeId);
     if (targetState && targetState.status === 'mastered' && this.diagnosisRepo) {
       const matchingDiagnoses = this.diagnosisRepo.listDiagnosesBySession(input.sessionId)

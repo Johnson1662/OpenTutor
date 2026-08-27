@@ -2,6 +2,7 @@ import type { LearningPathNode, LearningPathPatch } from './learning.ts';
 import type { Lesson } from './lesson.ts';
 import type { LessonPatch } from './patch.ts';
 import type { LearningDiagnosis } from './knowledge.ts';
+import type { LessonStepProgress } from './progress.ts';
 export type TutorAction = 'simpler' | 'show_code' | 'visualize' | 'softmax_unknown';
 
 export interface AssessmentResult {
@@ -23,6 +24,7 @@ export type LearningEventType =
   | 'lesson.patch'
   | 'lesson.updated'
   | 'lesson.activated'
+  | 'lesson.progress'
   | 'path.patch'
   | 'assessment.completed'
   | 'knowledge.updated'
@@ -111,4 +113,5 @@ export interface LearningSessionSnapshot {
   path: LearningPathNode[];
   pathVersion: number;
   lastSeq: number;
+  lessonProgress?: LessonStepProgress;
 }

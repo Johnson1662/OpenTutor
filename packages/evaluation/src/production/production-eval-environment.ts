@@ -169,6 +169,20 @@ export async function createProductionTutorEvalEnvironment(
     const eventBus = new EventBus(eventRepo);
 
     const modelSelectionService = new ModelSelectionService(modelRuntime, preferencesRepo);
+    const availableModels = await modelRuntime.getAvailable();
+    const preferredProvider = process.env.OPENTUTOR_DEFAULT_PROVIDER;
+    const preferredModel = process.env.OPENTUTOR_DEFAULT_MODEL;
+    const firstAvailableModel = availableModels.find((model: { provider: string; id: string }) =>
+      (!preferredProvider || model.provider === preferredProvider) &&
+      (!preferredModel || model.id === preferredModel)
+    ) ?? availableModels[0];
+    if (firstAvailableModel) {
+      preferencesRepo.setPreferences('default-user', {
+        defaultProviderId: firstAvailableModel.provider,
+        defaultModelId: firstAvailableModel.id,
+        thinkingLevel: 'off',
+      });
+    }
     const sessionModelResolver = new SessionModelResolver(modelSelectionService, modelRuntime, agentSessionRepo);
     const roleModelResolver = new RoleModelResolver(modelSelectionService, modelRuntime, preferencesRepo);
     const modelExecutionService = new DefaultModelExecutionService(roleModelResolver, new PiModelDriver(modelRuntime));

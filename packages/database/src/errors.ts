@@ -75,3 +75,13 @@ export class ImmutablePropertyError extends Error {
     this.property = property;
   }
 }
+
+export class ActiveBlockRemovalError extends Error {
+  readonly blockId: string;
+
+  constructor(blockId: string) {
+    super(`Cannot remove the active lesson block '${blockId}'`);
+    this.name = 'ActiveBlockRemovalError';
+    this.blockId = blockId;
+  }
+}

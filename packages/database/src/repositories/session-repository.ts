@@ -8,6 +8,7 @@ import type {
  LessonBlock,
 } from '@opentutor/protocol';
 import { NotFoundError, VersionConflictError } from '../errors.ts';
+import { LessonProgressRepository } from './lesson-progress-repository.ts';
 
 export function enforceSingleCurrentInvariant(nodes: LearningPathNode[]): LearningPathNode[] {
  let foundCurrent = false;
@@ -119,9 +120,11 @@ export interface CreateSessionParams {
 
 export class SessionRepository {
  private readonly db: Database.Database;
+ private readonly lessonProgressRepo: LessonProgressRepository;
 
- constructor(db: Database.Database) {
+ constructor(db: Database.Database, lessonProgressRepo?: LessonProgressRepository) {
   this.db = db;
+  this.lessonProgressRepo = lessonProgressRepo ?? new LessonProgressRepository(db);
  }
 
  getSession(sessionId: string): {
@@ -150,6 +153,15 @@ export class SessionRepository {
    createdAt: sessionRow.created_at,
    updatedAt: sessionRow.updated_at,
   };
+ }
+
+ findSessionByCourse(courseId: string, userId = 'default-user'): ReturnType<SessionRepository['getSession']> {
+  const row = this.db
+   .prepare(
+    'SELECT id FROM learning_sessions WHERE course_id = ? AND user_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1'
+   )
+   .get(courseId, userId) as { id: string } | undefined;
+  return row ? this.getSession(row.id) : null;
  }
 
  pushFrame(frame: {
@@ -318,6 +330,9 @@ export class SessionRepository {
   const maxSeqRow = this.db
    .prepare('SELECT COALESCE(MAX(seq), 0) AS max_seq FROM learning_events WHERE session_id = ?')
    .get(sessionId) as { max_seq: number } | undefined;
+  const lessonProgress = lesson.id.startsWith('empty-lesson-')
+   ? undefined
+   : this.lessonProgressRepo.getOrCreate(sessionRow.id, lesson.id, lesson.blocks.map((block) => block.id));
 
   return {
    sessionId: sessionRow.id,
@@ -326,6 +341,7 @@ export class SessionRepository {
    path,
    pathVersion: sessionRow.path_version,
    lastSeq: maxSeqRow?.max_seq ?? 0,
+   lessonProgress,
   };
  }
 
@@ -594,6 +610,7 @@ export class SessionRepository {
   baseVersion: number,
   options?: {
    popDetourFrame?: boolean;
+  nextLessonId?: string | null;
   }
  ): {
   path: LearningPathNode[];
@@ -630,7 +647,10 @@ export class SessionRepository {
     resumedFrame = this.popActiveFrame(sessionId);
     if (resumedFrame) {
      nextActiveLessonId = resumedFrame.savedLessonId;
+   }
     }
+  if (activeNode.type !== 'detour' && options && 'nextLessonId' in options) {
+   nextActiveLessonId = options.nextLessonId ?? null;
    }
 
    const nextNode = currentNodes.slice(activeIdx + 1).find((n) => n.status === 'upcoming');

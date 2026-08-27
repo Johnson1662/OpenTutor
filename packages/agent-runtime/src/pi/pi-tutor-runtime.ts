@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentSession } from '@earendil-works/pi-coding-agent';
 import type { DomainToolsExecutor } from '@opentutor/tutor-tools';
 import type { TraceRepository } from '@opentutor/database';
-import type { TutorRuntime, TutorTurnInput, TutorTurnResult } from '../tutor-runtime.ts';
+import { formatTutorPrompt, type TutorRuntime, type TutorTurnInput, type TutorTurnResult } from '../tutor-runtime.ts';
 import { FakeTutorRuntime } from '../fake-tutor-runtime.ts';
 import {
   PiSessionRegistry,
@@ -187,6 +187,7 @@ export class PiTutorRuntime implements TutorRuntime {
     const eventAdapter = new PiEventAdapter(input);
 
     let assistantReply = '';
+    let assistantError: string | undefined;
 
     try {
       if (controller.signal.aborted) {
@@ -205,14 +206,48 @@ export class PiTutorRuntime implements TutorRuntime {
             typeof event.text === 'string'
           ) {
             assistantReply += event.text;
+          } else if (evType === 'message_update' && 'assistantMessageEvent' in event) {
+            const assistantMessageEvent = event.assistantMessageEvent;
+            if (assistantMessageEvent && typeof assistantMessageEvent === 'object' && 'type' in assistantMessageEvent && assistantMessageEvent.type === 'text_delta' && 'delta' in assistantMessageEvent && typeof assistantMessageEvent.delta === 'string') {
+              assistantReply += assistantMessageEvent.delta;
+            }
+          } else if (evType === 'message_end' && 'message' in event) {
+            const message = event.message;
+            if (message && typeof message === 'object' && 'role' in message && message.role === 'assistant') {
+              if ('errorMessage' in message && typeof message.errorMessage === 'string') {
+                assistantError = message.errorMessage;
+              }
+            }
           }
         }
       });
 
       try {
-        await session.prompt(input.message ?? input.action ?? '');
+        await session.prompt(formatTutorPrompt(input.message ?? input.action ?? '', input.activeStepContext));
       } finally {
         unsubscribe();
+      }
+
+      if (assistantError) {
+        throw new Error(`MODEL_PROVIDER_ERROR: ${assistantError}`);
+      }
+      if (!assistantReply) {
+        const messages = session.state.messages;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const message = messages[i];
+          if (message?.role !== 'assistant') continue;
+          if ('errorMessage' in message && typeof message.errorMessage === 'string') {
+            throw new Error(`MODEL_PROVIDER_ERROR: ${message.errorMessage}`);
+          }
+          if (!Array.isArray(message.content)) continue;
+          assistantReply = message.content
+            .filter((part): part is { type: 'text'; text: string } =>
+              Boolean(part && typeof part === 'object' && 'type' in part && part.type === 'text' && 'text' in part && typeof part.text === 'string')
+            )
+            .map((part) => part.text)
+            .join('');
+          if (assistantReply) break;
+        }
       }
 
       this.traceRepo?.completeRun(runId, 'completed');

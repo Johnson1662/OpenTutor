@@ -13,6 +13,16 @@ test('packages/agent-runtime - Live Model Integration Test', async (t) => {
     t.skip('No live AI credentials or models available');
     return;
   }
+  const preferredProvider = process.env.OPENTUTOR_DEFAULT_PROVIDER;
+  const preferredModel = process.env.OPENTUTOR_DEFAULT_MODEL;
+  const selectedModel = available.find((model) =>
+    (!preferredProvider || model.provider === preferredProvider) &&
+    (!preferredModel || model.id === preferredModel)
+  ) ?? available[0];
+  if (!selectedModel) {
+    t.skip('MODEL_SETUP_REQUIRED: configured live model is unavailable');
+    return;
+  }
 
   const db = createDatabase(':memory:');
   seedDatabase(db);
@@ -67,7 +77,7 @@ test('packages/agent-runtime - Live Model Integration Test', async (t) => {
 
   const runtime = new PiTutorRuntime(toolsExecutor, undefined, {
     modelRuntime,
-    model: available[0],
+    model: selectedModel,
     runtimeMode: 'pi',
   });
 
@@ -80,7 +90,7 @@ test('packages/agent-runtime - Live Model Integration Test', async (t) => {
       const turn1Result = await runtime.runTurn({
         sessionId,
         message:
-          'Please remember this secret test verification code: OT-7391. Reply acknowledging you remembered it.',
+          'For this self-attention lesson, remember the study marker OT-7391. Confirm the marker and connect it to the current lesson.',
       });
 
       assert.ok(turn1Result.reply);
@@ -90,13 +100,13 @@ test('packages/agent-runtime - Live Model Integration Test', async (t) => {
       const turn2Result = await runtime.runTurn({
         sessionId,
         message:
-          'What was the secret test verification code I just told you to remember? Reply with the code.',
+          'What study marker did I give you for this self-attention lesson? Reply with the marker.',
       });
 
       assert.ok(turn2Result.reply);
       assert.ok(
         turn2Result.reply.includes('OT-7391') || turn2Result.reply.includes('7391'),
-        `Turn 2 response must recall session memory code OT-7391. Got: ${turn2Result.reply}`
+        `Turn 2 response must recall study marker OT-7391. Got: ${turn2Result.reply}`
       );
     }
   );

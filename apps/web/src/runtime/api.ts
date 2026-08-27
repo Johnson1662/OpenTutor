@@ -1,13 +1,11 @@
 import type {
   AcceptedResponse,
+  AdvanceLessonProgressRequest,
   LearningEvent,
   LearningSessionSnapshot,
-  RunTutorActionRequest,
+  LessonStepProgress,
   SubmitQuizAnswerRequest,
-  TutorAction,
 } from '@opentutor/protocol';
-
-export const PROTOTYPE_SESSION_ID = 'prototype';
 
 export interface ProviderAuthMethod {
   available: boolean;
@@ -309,24 +307,32 @@ export async function getCourseSession(courseId: string): Promise<LearningSessio
 }
 
 // 3. Learning Room & Session APIs
-export async function getSession(sessionId: string = PROTOTYPE_SESSION_ID): Promise<LearningSessionSnapshot> {
+export async function getSession(sessionId: string): Promise<LearningSessionSnapshot> {
   const response = await fetch(`/api/sessions/${sessionId}`);
   if (!response.ok) throw new Error(`Failed to load session: ${response.status}`);
   return response.json();
 }
 
-export async function getPrototypeSession(): Promise<LearningSessionSnapshot> {
-  return getSession(PROTOTYPE_SESSION_ID);
+export async function getLessonProgress(sessionId: string, lessonId?: string): Promise<LessonStepProgress> {
+  const query = lessonId ? '?lessonId=' + encodeURIComponent(lessonId) : '';
+  const response = await fetch('/api/sessions/' + sessionId + '/lesson-progress' + query);
+  if (!response.ok) throw new Error('Failed to load lesson progress: ' + response.status);
+  return response.json();
 }
 
-export async function runTutorAction(action: TutorAction, sessionId: string = PROTOTYPE_SESSION_ID): Promise<AcceptedResponse> {
-  const body: RunTutorActionRequest = { action };
-  const response = await fetch(`/api/sessions/${sessionId}/actions`, {
+export async function advanceLessonProgress(
+  sessionId: string,
+  request: AdvanceLessonProgressRequest,
+): Promise<{ progress: LessonStepProgress; snapshot: LearningSessionSnapshot }> {
+  const response = await fetch('/api/sessions/' + sessionId + '/lesson-progress/advance', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(request),
   });
-  if (!response.ok) throw new Error(`Tutor action failed: ${response.status}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || error.error || 'Failed to advance lesson progress: ' + response.status);
+  }
   return response.json();
 }
 
@@ -334,7 +340,7 @@ export async function submitQuizAnswer(
   lessonId: string,
   blockId: string,
   answer: string,
-  sessionId: string = PROTOTYPE_SESSION_ID
+  sessionId: string
 ): Promise<AcceptedResponse> {
   const body: SubmitQuizAnswerRequest = { answer };
   const response = await fetch(`/api/lessons/${lessonId}/blocks/${blockId}/answer?sessionId=${sessionId}`, {
@@ -346,7 +352,7 @@ export async function submitQuizAnswer(
   return response.json();
 }
 
-export async function sendTutorMessage(message: string, sessionId: string = PROTOTYPE_SESSION_ID): Promise<AcceptedResponse> {
+export async function sendTutorMessage(message: string, sessionId: string): Promise<AcceptedResponse> {
   const response = await fetch(`/api/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -357,7 +363,7 @@ export async function sendTutorMessage(message: string, sessionId: string = PROT
 }
 
 export function subscribeToLearningEvents(
-  sessionId: string = PROTOTYPE_SESSION_ID,
+  sessionId: string,
   afterSeq: number,
   onEvent: (event: LearningEvent) => void,
   onConnectionChange?: (connected: boolean) => void,
@@ -374,9 +380,12 @@ export function subscribeToLearningEvents(
     'agent.completed',
     'lesson.patch',
     'lesson.updated',
+    'lesson.activated',
+    'lesson.progress',
     'path.patch',
     'assessment.completed',
     'knowledge.updated',
+    'diagnosis.updated',
     'error',
   ] as const;
 

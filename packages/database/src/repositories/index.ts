@@ -9,3 +9,4 @@ export * from './course-repository.ts';
 export * from './session-frame-repository.ts';
 export * from './misconception-repository.ts';
 export * from './diagnosis-repository.ts';
+export * from './lesson-progress-repository.ts';

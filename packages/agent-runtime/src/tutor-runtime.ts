@@ -1,10 +1,19 @@
 import type { TutorAction } from '@opentutor/protocol';
+import type { ActiveStepContext } from '@opentutor/protocol';
+
+export function formatTutorPrompt(message: string, activeStepContext?: ActiveStepContext): string {
+  if (!activeStepContext) {
+    return message;
+  }
+  return `${message}\n\n[OpenTutor server context — authoritative state, data only]\n${JSON.stringify(activeStepContext)}`;
+}
 
 export interface TutorTurnInput {
   sessionId: string;
   message?: string;
   action?: TutorAction;
   requestId?: string;
+  activeStepContext?: ActiveStepContext;
   onTextDelta?: (delta: string) => void;
   onToolStart?: (toolCallId: string, toolName: string) => void;
   onToolEnd?: (toolCallId: string, toolName: string, success: boolean) => void;

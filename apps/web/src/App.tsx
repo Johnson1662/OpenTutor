@@ -3,121 +3,106 @@ import { Navbar } from './components/Navbar.tsx';
 import { CourseListPage } from './components/CourseListPage.tsx';
 import { CreateCoursePage } from './components/CreateCoursePage.tsx';
 import { CourseSpacePage } from './components/CourseSpacePage.tsx';
-import { CoursePathPage } from './components/CoursePathPage.tsx';
-import { KnowledgeGraphPage } from './components/KnowledgeGraphPage.tsx';
-import { MaterialsPage } from './components/MaterialsPage.tsx';
-import { DiagnosticPage } from './components/DiagnosticPage.tsx';
 import { ProviderSettingsPage } from './components/ProviderSettingsPage.tsx';
 import { LearningRoom } from './components/LearningRoom.tsx';
 import { HomeDashboard } from './components/HomeDashboard.tsx';
-import { listCourses } from './runtime/api.ts';
+
+type CourseTab = 'route' | 'knowledge' | 'materials';
+type AppRoute =
+  | { kind: 'home' }
+  | { kind: 'courses'; search: URLSearchParams }
+  | { kind: 'create'; search: URLSearchParams }
+  | { kind: 'course'; courseId: string; tab: CourseTab }
+  | { kind: 'player'; sessionId: string }
+  | { kind: 'settings' }
+  | { kind: 'not-found' };
+
+function canonicalizeRoute(raw: string) {
+  const url = new URL(raw || '/', window.location.origin);
+  const courseId = url.searchParams.get('courseId');
+  if (url.pathname === '/learning') return '/courses';
+  if (url.pathname === '/knowledge' && courseId) return '/courses/' + courseId + '?tab=knowledge';
+  if (url.pathname === '/materials' && courseId) return '/courses/' + courseId + '?tab=materials';
+  const pathTab = url.pathname.match(/^\/courses\/([a-zA-Z0-9_-]+)\/path$/);
+  if (pathTab) return '/courses/' + pathTab[1] + '?tab=route';
+  if (/^\/diagnostic\/[a-zA-Z0-9_-]+$/.test(url.pathname)) return '/courses';
+  return url.pathname + url.search;
+}
+
+function parseRoute(raw: string): AppRoute {
+  const url = new URL(raw || '/', window.location.origin);
+  if (url.pathname === '/') return { kind: 'home' };
+  if (url.pathname === '/courses') return { kind: 'courses', search: url.searchParams };
+  if (url.pathname === '/courses/new') return { kind: 'create', search: url.searchParams };
+  const course = url.pathname.match(/^\/courses\/([a-zA-Z0-9_-]+)$/);
+  if (course) {
+    const tab = url.searchParams.get('tab');
+    return {
+      kind: 'course',
+      courseId: course[1]!,
+      tab: tab === 'knowledge' || tab === 'materials' ? tab : 'route',
+    };
+  }
+  const player = url.pathname.match(/^\/learn\/([a-zA-Z0-9_-]+)$/);
+  if (player) return { kind: 'player', sessionId: player[1]! };
+  if (url.pathname.startsWith('/settings')) return { kind: 'settings' };
+  return { kind: 'not-found' };
+}
 
 export function App() {
-  const [route, setRoute] = useState(() => (window.location.pathname + window.location.search) || '/courses');
+  const [route, setRoute] = useState(() => canonicalizeRoute(window.location.pathname + window.location.search));
   const [toast, setToast] = useState<string | null>(null);
-  const [connected, setConnected] = useState(false);
-  const [navigationCourseId, setNavigationCourseId] = useState<string>();
 
   useEffect(() => {
-    let cancelled = false;
-    listCourses()
-      .then((courses) => {
-        if (!cancelled) setNavigationCourseId(courses[0]?.id);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    const canonical = canonicalizeRoute(window.location.pathname + window.location.search);
+    if (canonical !== window.location.pathname + window.location.search) {
+      window.history.replaceState({}, '', canonical);
+    }
+    setRoute(canonical);
 
-  useEffect(() => {
     function handlePopState() {
-      setRoute((window.location.pathname + window.location.search) || '/courses');
+      setRoute(canonicalizeRoute(window.location.pathname + window.location.search));
     }
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  function handleNavigate(newRoute: string) {
-    window.history.pushState({}, '', newRoute);
-    setRoute(newRoute);
+  function handleNavigate(nextRoute: string) {
+    const canonical = canonicalizeRoute(nextRoute);
+    window.history.pushState({}, '', canonical);
+    setRoute(canonical);
   }
 
   function flash(message: string) {
     setToast(message);
-    setTimeout(() => {
-      setToast((prev) => (prev === message ? null : prev));
-    }, 4000);
+    window.setTimeout(() => setToast((current) => current === message ? null : current), 4000);
   }
 
-  const [pathname, search] = route.split('?');
-  const searchParams = new URLSearchParams(search || '');
-  const coursePathMatch = pathname.match(/^\/courses\/([a-zA-Z0-9_-]+)(?:\/(path))?$/);
-  const learnPathMatch = pathname.match(/^\/learn\/([a-zA-Z0-9_-]+)$/);
-  const diagnosticMatch = pathname.match(/^\/diagnostic\/([a-zA-Z0-9_-]+)$/);
-  const courseTab = searchParams.get('tab');
-  const queryCourseId = searchParams.get('courseId') || undefined;
-  const navigationCourse = coursePathMatch && coursePathMatch[1] !== 'new'
-    ? coursePathMatch[1]
-    : learnPathMatch
-      ? learnPathMatch[1] === 'prototype'
-        ? 'transformer'
-        : learnPathMatch[1].replace(/^session-/, '')
-      : diagnosticMatch
-        ? diagnosticMatch[1] === 'prototype'
-          ? 'transformer'
-          : diagnosticMatch[1].replace(/^session-/, '')
-        : queryCourseId || navigationCourseId;
+  const parsed = parseRoute(route);
+  const player = parsed.kind === 'player';
 
   return (
-    <div className="app-shell">
-      <Navbar activeRoute={route} courseId={navigationCourse} onNavigate={handleNavigate} connected={pathname.startsWith('/learn/') ? connected : undefined} />
-
+    <div className={player ? 'app-shell player-shell' : 'app-shell'}>
+      {!player && parsed.kind !== 'not-found' && <Navbar activeRoute={route} onNavigate={handleNavigate} />}
       {toast && (
-        <div
-          className="toast-banner"
-          role={/error|failed|unable|invalid/i.test(toast) ? 'alert' : 'status'}
-          aria-live={/error|failed|unable|invalid/i.test(toast) ? 'assertive' : 'polite'}
-          aria-atomic="true"
-        >
-          {toast}
-        </div>
+        <div className="toast-banner" role="status" aria-live="polite" aria-atomic="true">{toast}</div>
       )}
-
       <div className="main-content">
-        {pathname === '/' ? (
-          <HomeDashboard onNavigate={handleNavigate} />
-        ) : pathname === '/courses' ? (
-          <CourseListPage searchParams={searchParams} onNavigate={handleNavigate} onFlash={flash} />
-        ) : pathname === '/courses/new' ? (
-          <CreateCoursePage searchParams={searchParams} onNavigate={handleNavigate} onFlash={flash} />
-        ) : pathname === '/knowledge' ? (
-          <KnowledgeGraphPage courseId={queryCourseId || navigationCourse} onNavigate={handleNavigate} onFlash={flash} />
-        ) : pathname === '/materials' ? (
-          <MaterialsPage courseId={queryCourseId || navigationCourse} onNavigate={handleNavigate} onFlash={flash} />
-        ) : diagnosticMatch ? (
-          <DiagnosticPage sessionId={diagnosticMatch[1]!} onNavigate={handleNavigate} onFlash={flash} />
-        ) : coursePathMatch && coursePathMatch[1] !== 'new' && coursePathMatch[2] === 'path' ? (
-          <CoursePathPage courseId={coursePathMatch[1]!} onNavigate={handleNavigate} onFlash={flash} />
-        ) : coursePathMatch && coursePathMatch[1] !== 'new' ? (
-          <CourseSpacePage
-            courseId={coursePathMatch[1]!}
-            initialTab={courseTab === 'map' || courseTab === 'materials' ? courseTab : 'overview'}
-            onNavigate={handleNavigate}
-            onFlash={flash}
-          />
-        ) : pathname.startsWith('/settings') ? (
-          <ProviderSettingsPage onFlash={flash} />
-        ) : learnPathMatch ? (
-          <LearningRoom sessionId={learnPathMatch[1]!} onNavigate={handleNavigate} onFlash={flash} onConnectionChange={setConnected} />
-        ) : (
-          <LearningRoom sessionId="prototype" onNavigate={handleNavigate} onFlash={flash} onConnectionChange={setConnected} />
+        {parsed.kind === 'home' && <HomeDashboard onNavigate={handleNavigate} />}
+        {parsed.kind === 'courses' && <CourseListPage searchParams={parsed.search} onNavigate={handleNavigate} onFlash={flash} />}
+        {parsed.kind === 'create' && <CreateCoursePage searchParams={parsed.search} onNavigate={handleNavigate} onFlash={flash} />}
+        {parsed.kind === 'course' && (
+          <CourseSpacePage courseId={parsed.courseId} initialTab={parsed.tab} onNavigate={handleNavigate} onFlash={flash} />
+        )}
+        {parsed.kind === 'player' && <LearningRoom sessionId={parsed.sessionId} onNavigate={handleNavigate} onFlash={flash} />}
+        {parsed.kind === 'settings' && <ProviderSettingsPage onFlash={flash} />}
+        {parsed.kind === 'not-found' && (
+          <main className="page-shell"><div className="empty-state-card"><h1>页面不存在</h1><button type="button" className="btn-primary" onClick={() => handleNavigate('/courses')}>返回我的学习</button></div></main>
         )}
       </div>
-      <footer className="flow-footer">
-        <strong>OpenTutor 学习流</strong>
-        <span>目标 <i>→</i> 路径 <i>→</i> 课程 <i>→</i> 诊断 <i>→</i> 复习</span>
-      </footer>
+      {!player && parsed.kind !== 'not-found' && (
+        <footer className="flow-footer"><span>OpenTutor</span><span>目标 → 路径 → 一步一步学会</span></footer>
+      )}
     </div>
   );
 }

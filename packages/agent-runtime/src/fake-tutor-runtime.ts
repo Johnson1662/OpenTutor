@@ -76,9 +76,9 @@ export class FakeTutorRuntime implements TutorRuntime {
     let reply = '';
 
     try {
-      let activeLessonId = 'lesson-self-attention';
+      let activeLessonId = input.activeStepContext?.lessonId ?? 'lesson-self-attention';
       let currentLessonVersion = 1;
-      const snap = await this.toolsExecutor.executeTool(input.sessionId, 'lesson_get', {});
+      const snap = await this.toolsExecutor.executeTool(input.sessionId, 'lesson_get', { lessonId: activeLessonId });
       if (
         snap.success &&
         snap.data &&
@@ -193,19 +193,23 @@ export class FakeTutorRuntime implements TutorRuntime {
         lower.includes('do not know') ||
         lower.includes('do not understand') ||
         lower.includes('not sure') ||
+        lower.includes('uncertain') ||
+        lower.includes('卡住') ||
+        lower.includes('探针') ||
         lower.includes('unknown') ||
         lower.includes('softmax_unknown') ||
         lower.includes('probe_request')
       ) {
         const toolCallId = `tc-${randomUUID()}`;
         input.onToolStart?.(toolCallId, 'probe_request');
+        const probeArgs: Record<string, unknown> = {
+          reason: 'Learner expressed uncertainty regarding prerequisite concept',
+        };
+        if (lower.includes('softmax')) probeArgs.prerequisiteNodeId = 'softmax';
         const probeRes = await this.toolsExecutor.executeTool(
           input.sessionId,
           'probe_request',
-          {
-            prerequisiteNodeId: 'softmax',
-            reason: 'Learner expressed uncertainty regarding prerequisite concept',
-          }
+          probeArgs
         );
         input.onToolEnd?.(toolCallId, 'probe_request', probeRes.success);
 
@@ -213,19 +217,17 @@ export class FakeTutorRuntime implements TutorRuntime {
           id: toolCallId,
           runId,
           toolName: 'probe_request',
-          arguments: {
-            prerequisiteNodeId: 'softmax',
-          },
+          arguments: probeArgs,
           result: probeRes,
           status: probeRes.success ? 'success' : 'error',
         });
 
         executedToolCalls.push({
           tool: 'probe_request',
-          args: { prerequisiteNodeId: 'softmax' },
+          args: probeArgs,
           result: probeRes,
         });
-        reply = 'Generated and placed a diagnostic probe on the canvas to check your understanding of Softmax.';
+        reply = 'Generated and placed a diagnostic probe on the canvas to check the prerequisite concept.';
       } else if (
         lower.includes('softmax') ||
         lower.includes('detour') ||

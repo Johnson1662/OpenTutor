@@ -80,10 +80,11 @@ test('packages/agent-runtime - TutorAgent execution & fallback loop', async (t) 
   );
 
   await t.test(
-    '3. User indicates prerequisite gap -> agent invokes path_insert_detour',
+    '3. User indicates prerequisite gap -> agent requests a probe before any detour',
     async () => {
       const result = await agent.run('prototype', 'I do not understand Softmax yet');
-      assert.ok(result.toolCalls.some((tc) => tc.tool === 'path_insert_detour'));
+      assert.ok(result.toolCalls.some((tc) => tc.tool === 'probe_request'));
+      assert.equal(result.toolCalls.some((tc) => tc.tool === 'path_insert_detour'), false);
     }
   );
 });

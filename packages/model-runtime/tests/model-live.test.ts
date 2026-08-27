@@ -19,12 +19,22 @@ test('packages/model-runtime - Live AI Model Integration Test', async (t) => {
     t.skip('No live AI credentials or models available');
     return;
   }
+  const preferredProvider = process.env.OPENTUTOR_DEFAULT_PROVIDER;
+  const preferredModel = process.env.OPENTUTOR_DEFAULT_MODEL;
+  const selectedModel = available.find((model) =>
+    (!preferredProvider || model.provider === preferredProvider) &&
+    (!preferredModel || model.id === preferredModel)
+  ) ?? available[0];
+  if (!selectedModel) {
+    t.skip('MODEL_SETUP_REQUIRED: configured live model is unavailable');
+    return;
+  }
 
   const db = createDatabase(':memory:');
   seedDatabase(db);
 
   const prefsRepo = new ModelPreferencesRepository(db);
-  const first = available[0];
+  const first = selectedModel;
   if (first) {
     prefsRepo.setPreferences('default-user', {
       defaultProviderId: first.provider,

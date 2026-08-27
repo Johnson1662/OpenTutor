@@ -108,7 +108,10 @@ export class CourseService {
       throw new Error(`Course not found: ${courseId}`);
     }
 
-    const sessionId = courseId === 'transformer' ? 'prototype' : `session-${courseId}`;
+    const existingSession = this.sessionRepo.findSessionByCourse(courseId, userId);
+    // The seeded prototype is a demo fixture, not a course-owned learner session.
+    const reusableSession = existingSession?.id === 'prototype' ? null : existingSession;
+    const sessionId = reusableSession?.id ?? `session-${randomUUID()}`;
     const now = new Date().toISOString();
 
     // 1. Ensure learning session exists before appending events
@@ -166,20 +169,24 @@ export class CourseService {
         artifact,
         learningGoal,
       });
+      const scopedLesson = {
+        ...initialLesson,
+        id: `${initialLesson.id}-${courseId}`,
+      };
 
-      // Save lesson via lessonRepo
-      try {
-        this.lessonRepo.saveLesson(initialLesson);
-      } catch {
-        // Safe update
-      }
+      this.lessonRepo.saveLesson(scopedLesson);
+
+      const sessionPath = compiled.initialPath.map((node) => ({
+        ...node,
+        id: `${node.id}-${sessionId}`,
+      }));
 
       this.sessionRepo.createSession({
         id: sessionId,
         courseId,
         userId,
-        activeLessonId: initialLesson.id,
-        path: compiled.initialPath,
+        activeLessonId: scopedLesson.id,
+        path: sessionPath,
       });
 
       // 6. Mark ready and complete event
@@ -212,8 +219,11 @@ export class CourseService {
   }
 
   getOrCreateSessionForCourse(courseId: string, userId: string = 'default-user'): LearningSessionSnapshot {
-    const sessionId = courseId === 'transformer' ? 'prototype' : `session-${courseId}`;
-    const existing = this.sessionRepo.getSnapshot(sessionId);
+    const existingSession = this.sessionRepo.findSessionByCourse(courseId, userId);
+    // The seeded prototype is a demo fixture, not a course-owned learner session.
+    const reusableSession = existingSession?.id === 'prototype' ? null : existingSession;
+    const sessionId = reusableSession?.id ?? `session-${randomUUID()}`;
+    const existing = reusableSession ? this.sessionRepo.getSnapshot(reusableSession.id) : null;
     if (existing) {
       return existing;
     }
@@ -225,7 +235,7 @@ export class CourseService {
 
     const defaultLesson = {
       schemaVersion: '1.0' as const,
-      id: `lesson-${knId}`,
+      id: `lesson-${courseId}-${randomUUID().slice(0, 8)}`,
       courseId,
       knowledgeNodeId: knId,
       title: knTitle,
@@ -234,15 +244,54 @@ export class CourseService {
         {
           id: 'blk-1',
           type: 'text' as const,
-          variant: 'paragraph' as const,
-          content: `Welcome to ${knTitle}.`,
+          variant: 'definition' as const,
+          content: `先把 ${knTitle} 放回整体问题里：它是这条学习路径的第一个关键概念。`,
+        },
+        {
+          id: 'blk-2',
+          type: 'text' as const,
+          variant: 'example' as const,
+          content: `想象一个真实任务：你需要用 ${knTitle} 解释一个输入如何得到结果。`,
+        },
+        {
+          id: 'blk-3',
+          type: 'diagram' as const,
+          diagramType: 'flow' as const,
+          nodes: [
+            { id: 'input', label: '输入' },
+            { id: 'concept', label: knTitle },
+            { id: 'output', label: '结果' },
+          ],
+          edges: [
+            { from: 'input', to: 'concept', label: '观察' },
+            { from: 'concept', to: 'output', label: '应用' },
+          ],
+        },
+        {
+          id: 'blk-4',
+          type: 'code' as const,
+          language: 'text',
+          code: `输入 → ${knTitle} → 结果`,
+          explanation: '先说清楚输入、概念和结果，再进入细节。',
+        },
+        {
+          id: 'blk-5',
+          type: 'quiz' as const,
+          question: `你会怎样用一句话解释 ${knTitle} 在这条路径中的作用？`,
+          answerSpec: {
+            type: 'open' as const,
+            rubric: {
+              concepts: [knTitle, '输入', '结果'],
+              referenceAnswer: `${knTitle} 把输入转化为可以观察或应用的结果。`,
+            },
+          },
         },
       ],
       status: 'active' as const,
     };
 
     const defaultPath = courseMap.nodes.map((n, i) => ({
-      id: `path-node-${n.knowledgeNodeId}`,
+      id: `path-node-${sessionId}-${n.knowledgeNodeId}`,
       knowledgeNodeId: n.knowledgeNodeId,
       title: n.title,
       type: 'main' as const,
@@ -250,14 +299,16 @@ export class CourseService {
       position: n.position,
     }));
 
+    this.lessonRepo.saveLesson(defaultLesson);
+
     this.sessionRepo.createSession({
       id: sessionId,
       courseId,
       userId,
-      activeLessonId: `lesson-${knId}`,
+      activeLessonId: defaultLesson.id,
       path: defaultPath.length > 0 ? defaultPath : [
         {
-          id: 'path-node-self-attention',
+          id: `path-node-${sessionId}-self-attention`,
           knowledgeNodeId: 'self-attention',
           title: 'Self Attention',
           type: 'main',

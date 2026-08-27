@@ -28,9 +28,17 @@ export class CourseSourceService {
     title: string,
     content: string
   ): CourseSourceRecord {
+    const normalizedTitle = title.trim();
+    const extension = normalizedTitle.match(/\.([a-z0-9]+)$/i)?.[1];
+    if (extension && !/^(txt|md|markdown)$/i.test(extension)) {
+      throw new Error('UNSUPPORTED_SOURCE_FORMAT');
+    }
+    if (!content.trim()) {
+      throw new Error('SOURCE_CONTENT_REQUIRED');
+    }
     const ingested = this.ingestionService.ingest({
-      sourceUri: title,
-      title,
+      sourceUri: normalizedTitle,
+      title: normalizedTitle,
       input: content,
     });
 
@@ -40,7 +48,7 @@ export class CourseSourceService {
       id: ingested.documentId,
       courseId,
       documentId: ingested.documentId,
-      title,
+      title: normalizedTitle,
       content,
       version: ingested.version,
       status: 'active',

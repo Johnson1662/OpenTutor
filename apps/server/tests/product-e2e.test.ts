@@ -25,6 +25,35 @@ test('Product E2E Golden Path v0.6: Usable AI Tutor MVP Full Lifecycle', async (
     await context.close();
   });
 
+  let sessionId = '';
+  const getSessionSnapshot = async () =>
+    (await (await fetch(`${baseUrl}/api/sessions/${sessionId}`)).json()) as LearningSessionSnapshot;
+
+  const advanceActiveStep = async () => {
+    const current = await getSessionSnapshot();
+    assert.ok(current.lessonProgress);
+    const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/lesson-progress/advance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lessonId: current.lesson.id,
+        activeBlockId: current.lessonProgress.activeBlockId,
+        version: current.lessonProgress.version,
+      }),
+    });
+    assert.equal(response.status, 200);
+  };
+
+  const advanceUntilActive = async (lessonId: string, blockId: string) => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const current = await getSessionSnapshot();
+      assert.equal(current.lesson.id, lessonId);
+      if (current.lessonProgress?.activeBlockId === blockId) return;
+      await advanceActiveStep();
+    }
+    assert.fail(`Could not activate ${lessonId}/${blockId}`);
+  };
+
   // 2. Configure AI Provider Preferences (HTTP PUT /api/ai/preferences)
   const prefRes = await fetch(`${baseUrl}/api/ai/preferences`, {
     method: 'PUT',
@@ -89,7 +118,7 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   assert.ok(compileData.snapshot.sessionId);
   assert.ok(compileData.snapshot.path.length >= 2);
 
-  const sessionId = compileData.snapshot.sessionId;
+  sessionId = compileData.snapshot.sessionId;
 
   // 6. Inspect Course Map (HTTP GET /api/courses/:id/map)
   const mapRes = await fetch(`${baseUrl}/api/courses/${course.id}/map`);
@@ -101,7 +130,6 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   const sessionRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
   assert.equal(sessionRes.status, 200);
   const sessionSnap = (await sessionRes.json()) as LearningSessionSnapshot;
-  console.log('Session initial lesson ID:', sessionSnap.lesson.id);
   assert.ok(sessionSnap.lesson.blocks.length >= 2);
   const quizBlock = sessionSnap.lesson.blocks.find((b) => b.type === 'quiz') as any;
   assert.ok(quizBlock);
@@ -162,18 +190,23 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   assert.ok(detourNode);
   assert.equal(detourNode.status, 'current');
   assert.equal(detourSnap.lesson.knowledgeNodeId, 'softmax');
+  const detourLessonId = detourSnap.lesson.id;
+  const detourQuizBlocks = detourSnap.lesson.blocks.filter((block) => block.type === 'quiz');
+  assert.ok(detourQuizBlocks.length >= 3, 'Detour lesson exposes distinct assessment items');
+  const answerDetourQuiz = async (blockId: string, answer: string) => {
+    await advanceUntilActive(detourLessonId, blockId);
+    return fetch(`${baseUrl}/api/lessons/${detourLessonId}/blocks/${blockId}/answer?sessionId=${sessionId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer }),
+    });
+  };
 
   // 11. Diagnostic Assessment Quiz Submission on distinct items (HTTP POST /api/lessons/:id/blocks/:id/answer)
   // Answer 1: Verify single answer does not prematurely complete the detour
-  const quizAnswerRes1 = await fetch(
-    `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz/answer?sessionId=${sessionId}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        answer: 'Softmax ensures that each probability output forms a positive distribution and sum to exactly 1.',
-      }),
-    }
+  const quizAnswerRes1 = await answerDetourQuiz(
+    detourQuizBlocks[0].id,
+    'Softmax ensures that each probability output forms a positive distribution and sum to exactly 1.'
   );
   assert.equal(quizAnswerRes1.status, 200);
   const quizBody1 = (await quizAnswerRes1.json()) as { assessment: { result: string; confidence: number } };
@@ -186,23 +219,15 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   assert.equal(midDetour?.status, 'current');
 
   // Answer 2 & 3: Accumulate distinct evidence to meet mastery threshold (distinctSourceItemCount >= 2, effectiveEvidenceCount >= 3, and p >= 0.85)
-  const quizAnswerRes2 = await fetch(
-    `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer?sessionId=${sessionId}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: 'opt-exp-1' }),
-    }
+  const quizAnswerRes2 = await answerDetourQuiz(
+    detourQuizBlocks[1].id,
+    'opt-exp-1'
   );
   assert.equal(quizAnswerRes2.status, 200);
 
-  const quizAnswerRes3 = await fetch(
-    `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-3/answer?sessionId=${sessionId}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer: 'opt-sum-1' }),
-    }
+  const quizAnswerRes3 = await answerDetourQuiz(
+    detourQuizBlocks[2].id,
+    'opt-sum-1'
   );
   assert.equal(quizAnswerRes3.status, 200);
 

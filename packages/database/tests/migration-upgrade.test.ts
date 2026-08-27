@@ -11,8 +11,8 @@ import {
 } from '../src/index.ts';
 import type { LearningEvidence } from '@opentutor/protocol';
 
-describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017)', () => {
-  it('upgrades database from 013 to 017 preserving existing data and enabling new score repository features', () => {
+describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 019)', () => {
+  it('upgrades database from 013 to 019 preserving existing data and enabling lesson progress', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
 
@@ -67,9 +67,17 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017)', () => {
       now
     );
 
-    // 3. Run migrations 014, 015, 016, 017
+    // 3. Run migrations 014 through 019
     const countRemaining = runMigrations(db, ALL_MIGRATIONS);
-    assert.equal(countRemaining, 5);
+    assert.equal(countRemaining, 6);
+    const progressTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lesson_step_progress'")
+      .get() as { name: string } | undefined;
+    assert.equal(progressTable?.name, 'lesson_step_progress');
+    const progressPrimaryKey = db
+      .prepare("SELECT name, pk FROM pragma_table_info('lesson_step_progress') WHERE pk > 0 ORDER BY pk")
+      .all() as Array<{ name: string; pk: number }>;
+    assert.deepEqual(progressPrimaryKey.map((column) => column.name), ['session_id', 'lesson_id']);
     // 4. Verify learning_evidence schema after migration 014
     const v14Cols = db
       .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
@@ -276,11 +284,11 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017)', () => {
       );
 
       const executed = runMigrations(db, ALL_MIGRATIONS);
-      assert.equal(executed, 2);
+      assert.equal(executed, 3);
       const appliedV17 = db
         .prepare('SELECT version FROM schema_migrations ORDER BY version ASC')
         .all() as Array<{ version: number }>;
-      assert.deepEqual(appliedV17.map((row) => row.version), [...Array.from({ length: 18 }, (_, index) => index + 1)]);
+      assert.deepEqual(appliedV17.map((row) => row.version), [...Array.from({ length: 19 }, (_, index) => index + 1)]);
       const columnsAfter = db
         .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
         .all() as Array<{ name: string }>;

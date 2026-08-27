@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { InMemoryCredentialStore } from '@earendil-works/pi-ai';
 
 export interface OpenTutorModelRuntimeOptions {
   dataDir?: string;
@@ -13,18 +14,23 @@ export async function createOpenTutorModelRuntime(
   options: OpenTutorModelRuntimeOptions = {}
 ): Promise<ModelRuntime> {
   const dataDir = options.dataDir ?? process.env.OPENTUTOR_DATA_DIR ?? join(homedir(), '.opentutor');
+  const inMemory = dataDir === ':memory:' || options.authPath === ':memory:' || options.modelsPath === ':memory:';
   const piDir = join(dataDir, 'pi');
 
-  try {
-    mkdirSync(piDir, { recursive: true });
-  } catch {
-    // Directory may already exist
+  if (!inMemory) {
+    try {
+      mkdirSync(piDir, { recursive: true });
+    } catch {
+      // Directory may already exist
+    }
   }
 
-  const authPath = options.authPath ?? join(piDir, 'auth.json');
-  const modelsPath = options.modelsPath ?? join(piDir, 'models.json');
+  const inMemoryAuth = inMemory;
+  const authPath = inMemoryAuth ? undefined : (options.authPath ?? join(piDir, 'auth.json'));
+  const modelsPath = inMemory ? null : (options.modelsPath ?? join(piDir, 'models.json'));
 
   return await ModelRuntime.create({
+    credentials: inMemoryAuth ? new InMemoryCredentialStore() : undefined,
     authPath,
     modelsPath,
   });

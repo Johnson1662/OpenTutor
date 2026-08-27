@@ -11,7 +11,9 @@ import {
   DefaultModelExecutionService,
 } from '../src/index.ts';
 
-test('packages/model-runtime - Live AI Model Integration Test', async (t) => {
+test('packages/model-runtime - Live AI Model Integration Test', {
+  skip: process.env.OPENTUTOR_RUN_LIVE !== '1',
+}, async (t) => {
   const modelRuntime = await createOpenTutorModelRuntime();
   const available = await modelRuntime.getAvailable();
 

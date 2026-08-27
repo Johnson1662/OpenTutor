@@ -15,7 +15,9 @@ import {
   ModelArtifactSynthesizer,
 } from '../src/index.ts';
 
-test('packages/knowledge-core - Live Knowledge Compiler Integration Test', async (t) => {
+test('packages/knowledge-core - Live Knowledge Compiler Integration Test', {
+  skip: process.env.OPENTUTOR_RUN_LIVE !== '1',
+}, async (t) => {
   const runtime = await createOpenTutorModelRuntime();
   const available = await runtime.getAvailable();
 

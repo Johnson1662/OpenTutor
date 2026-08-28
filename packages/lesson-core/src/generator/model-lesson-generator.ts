@@ -47,9 +47,9 @@ const QuizBlockSchema = Type.Object({
   type: Type.Literal('quiz'),
   question: Type.String(),
   options: Type.Optional(Type.Array(QuizOptionSchema)),
-  difficulty: Type.Optional(Type.Union([Type.Number(), Type.Literal('easy'), Type.Literal('medium'), Type.Literal('hard')])),
-  assessmentKind: Type.Optional(Type.Literal('lesson_quiz')),
-  targetKnowledgeNodeId: Type.Optional(Type.String()),
+  difficulty: Type.Union([Type.Number(), Type.Literal('easy'), Type.Literal('medium'), Type.Literal('hard')]),
+  assessmentKind: Type.Literal('lesson_quiz'),
+  targetKnowledgeNodeId: Type.String(),
   answerSpec: Type.Union([
     Type.Object({
       type: Type.Literal('single_choice'),
@@ -83,6 +83,36 @@ export const GeneratedLessonSchema = Type.Object({
 });
 
 export type GeneratedLessonData = Static<typeof GeneratedLessonSchema>;
+
+function assertGeneratedLessonShape(data: GeneratedLessonData, knowledgeNodeId: string): void {
+  const blocks = data.blocks;
+  const quizzes = blocks.filter((block) => block.type === 'quiz');
+  if (quizzes.length !== 3) {
+    throw new Error(`Generated lesson assessment shape: expected exactly 3 QuizBlocks, got ${quizzes.length}`);
+  }
+  if (blocks[0]?.type === 'quiz') {
+    throw new Error('Generated lesson assessment shape: first block must not be a quiz');
+  }
+  if (blocks[blocks.length - 1]?.type !== 'quiz') {
+    throw new Error('Generated lesson assessment shape: final block must be a quiz');
+  }
+  for (let i = 1; i < blocks.length; i++) {
+    if (blocks[i]?.type === 'quiz' && blocks[i - 1]?.type === 'quiz') {
+      throw new Error('Generated lesson assessment shape: quizzes must not be consecutive');
+    }
+  }
+  for (const quiz of quizzes) {
+    if (quiz.difficulty !== 'medium') {
+      throw new Error(`Generated lesson assessment shape: quiz ${quiz.id} difficulty must be 'medium'`);
+    }
+    if (quiz.assessmentKind !== 'lesson_quiz') {
+      throw new Error(`Generated lesson assessment shape: quiz ${quiz.id} assessmentKind must be 'lesson_quiz'`);
+    }
+    if (quiz.targetKnowledgeNodeId !== knowledgeNodeId) {
+      throw new Error(`Generated lesson assessment shape: quiz ${quiz.id} targetKnowledgeNodeId must be '${knowledgeNodeId}'`);
+    }
+  }
+}
 
 export class ModelLessonGenerator implements LessonGenerator {
   private readonly executionService: ModelExecutionService;
@@ -132,6 +162,7 @@ Write the lesson title, objective, every block's content, quiz question, option 
       prompt,
       schema: GeneratedLessonSchema,
     });
+    assertGeneratedLessonShape(response, input.knowledgeNodeId);
 
     const lesson: Lesson = {
       schemaVersion: '1.0',

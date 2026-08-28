@@ -107,6 +107,14 @@ test('Mastery Single Authority Integration - One-Answer Mastery Impossible & Mul
     assert.equal(currentNodeAfter2.id, initialPathNode.id, 'Path must still remain on current node after 2 answers');
 
     // 4. Submit THIRD correct answer on distinct item (quiz-3)
+    const pathAdvanced = new Promise<void>((resolve) => {
+      const unsubscribe = context.eventBus.subscribe(sessionId, (event) => {
+        if (event.type === 'path.patch') {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
     const thirdResult = context.assessmentService.submitAnswer({
       sessionId,
       userId,
@@ -115,6 +123,7 @@ test('Mastery Single Authority Integration - One-Answer Mastery Impossible & Mul
       answer: 'opt-a',
     });
     assert.equal(thirdResult.assessment.result, 'correct');
+    await pathAdvanced;
 
     const stateAfterFinal = context.knowledgeService.getUserKnowledgeState(userId, 'self-attention');
     assert.ok(stateAfterFinal);

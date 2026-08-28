@@ -30,6 +30,7 @@ const contextActions = [
   { label: '画关系图', message: '请用一个简单关系图解释当前步骤，不要展开新主题。' },
   { label: '我卡住了', message: '我卡住了，请先给我一个小探针问题，不要直接告诉答案。' },
 ];
+const reinforcementPrompt = '当前已有学习步骤已经完成，但我还没有掌握这个知识点。请根据我的学习和评估结果，为当前知识点新增一个最有价值的补充教学或检查步骤。主要内容通过 lesson_patch 加入 Canvas，只用一句话回复我。';
 
 function shortText(value: string) {
   const clean = value.replace(/\s+/gu, ' ').trim();
@@ -163,6 +164,7 @@ export function LearningRoom({
   const routeProgress = path.length ? Math.round(completedNodes / path.length * 100) : 0;
   const courseId = snapshot?.courseId || lesson?.courseId;
   const canAdvance = Boolean(progress && progress.activeBlockId && activeBlock && activeBlock.id === progress.activeBlockId);
+  const needsReinforcement = progress?.activeBlockId === null && Boolean(currentNode);
 
   async function refreshSnapshot() {
     const fresh = await getSession(sessionId);
@@ -244,7 +246,7 @@ export function LearningRoom({
     <section className="player-content">
       <LessonCanvas lesson={lesson} activeBlock={activeBlock} assessment={assessment?.blockId === activeBlock?.id ? assessment : undefined} busy={busy} submitted={submittedBlockId === activeBlock?.id} canAdvance={canAdvance} onQuizSubmit={submitAnswer} onAdvance={() => void advance()} />
       <div className="player-feedback" aria-live="polite">{lastUser && <p><small>你</small>{lastUser}</p>}{lastAgent && <p><small>OpenTutor</small>{lastAgent}</p>}</div>
-      {!activeBlock && <button type="button" className="btn-primary player-complete" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')}>返回课程路径 <span aria-hidden="true">→</span></button>}
+      {needsReinforcement ? <div className="player-complete"><p>这一轮内容已经完成，但这个知识点还需要再巩固一下。</p><button type="button" className="btn-primary" disabled={busy || advancing} onClick={() => void tutor(reinforcementPrompt)}>再巩固一下</button></div> : !activeBlock && <button type="button" className="btn-primary player-complete" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')}>返回课程路径 <span aria-hidden="true">→</span></button>}
     </section>
 
     <section className="player-assist" aria-label="学习帮助">

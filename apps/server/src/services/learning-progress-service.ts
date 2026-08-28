@@ -132,15 +132,6 @@ export class LearningProgressService {
     };
     this.eventBus.publish(sessionId, 'lesson.progress', progressEvent);
 
-    if (result.completed) {
-      this.lessonRepo.saveLesson({ ...snapshot.lesson, status: 'completed' });
-      this.eventBus.publish(sessionId, 'lesson.updated', {
-        lessonId,
-        version: snapshot.lesson.version,
-        changes: { status: 'completed' },
-      });
-    }
-
     const nextSnapshot = this.sessionService.getSnapshot(sessionId);
     return { progress: result.progress ?? progress, snapshot: nextSnapshot };
   }
@@ -153,7 +144,7 @@ export class LearningProgressService {
     if (!currentNode || currentNode.knowledgeNodeId !== state.knowledgeNodeId) return;
 
     if (state.status === 'mastered') {
-      void this.sessionService.completeCurrentNode(sessionId, snapshot.pathVersion, { deferNextLesson: true }).catch((error) => {
+      void this.sessionService.completeCurrentNode(sessionId, snapshot.pathVersion).catch((error) => {
         this.eventBus.publish(sessionId, 'error', { error: error instanceof Error ? error.message : String(error) });
       });
     }

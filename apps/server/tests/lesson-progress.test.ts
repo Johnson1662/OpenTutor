@@ -110,6 +110,52 @@ test('lesson progress API keeps the server authoritative', async (t) => {
   assert.equal(unknownSession.status, 404);
 });
 
+test('mastery keeps the current lesson when next lesson generation fails', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { context, sessionRepo, close } = await createServerContext(':memory:');
+  t.after(close);
+
+  const coordinator = (context.sessionService as any).coordinator;
+  coordinator.lessonGenerator.generate = async () => {
+    throw new Error('NEXT_LESSON_FAILED');
+  };
+  const nextLessonFailure = new Promise<void>((resolve) => {
+    const unsubscribe = context.eventBus.subscribe('prototype', (event) => {
+      if (event.type === 'error' && (event.data as { error?: string }).error === 'NEXT_LESSON_FAILED') {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+
+  const before = sessionRepo.getSessionSnapshot('prototype')!;
+  for (const sourceItemId of ['fail-a', 'fail-b', 'fail-c']) {
+    const state = context.knowledgeService!.recordAssessment(
+      'prototype',
+      {
+        id: 'failure-assessment-' + sourceItemId,
+        knowledgeNodeId: 'self-attention',
+        lessonId: before.lesson.id,
+        blockId: 'quiz',
+        result: 'correct',
+        confidence: 1,
+        feedback: 'correct',
+      },
+      'default-user',
+      { difficulty: 2, confidence: 1, score: 1, sourceItemId, type: 'quiz' }
+    );
+    context.learningProgressService!.onKnowledgeStateUpdated('prototype', state);
+    if (sourceItemId === 'fail-c') assert.equal(state.status, 'mastered');
+  }
+
+  await nextLessonFailure;
+  const after = sessionRepo.getSessionSnapshot('prototype')!;
+  assert.equal(after.pathVersion, before.pathVersion);
+  assert.equal(after.path.find((node) => node.status === 'current')?.id, before.path.find((node) => node.status === 'current')?.id);
+  assert.equal(after.lesson.id, before.lesson.id);
+  assert.equal(after.lesson.knowledgeNodeId, before.lesson.knowledgeNodeId);
+});
+
 test('lesson completion waits for mastered knowledge before advancing path', async (t) => {
   process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
   const { server, context, close, sessionRepo } = await createServerContext(':memory:');
@@ -143,7 +189,7 @@ test('lesson completion waits for mastered knowledge before advancing path', asy
   }
 
   assert.equal(snapshot.lessonProgress?.activeBlockId, null);
-  assert.equal(snapshot.lesson.status, 'completed');
+  assert.equal(snapshot.lesson.status, 'active');
   assert.equal(snapshot.lesson.id, 'lesson-self-attention');
   assert.equal(snapshot.path.find((node) => node.status === 'current')?.knowledgeNodeId, 'self-attention');
 
@@ -183,12 +229,25 @@ test('lesson completion waits for mastered knowledge before advancing path', asy
   assert.equal(masteredSnapshot.path.find((node) => node.status === 'current')?.knowledgeNodeId, 'multi-head');
 });
 
-test('lesson patches preserve the active step and reject removing it', async (t) => {
+test('lesson patches activate a new block after exhaustion without resetting progress', async (t) => {
   process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
   const { context, sessionRepo, close } = await createServerContext(':memory:');
   t.after(close);
 
-  const snapshot = sessionRepo.getSessionSnapshot('prototype')!;
+  let snapshot = sessionRepo.getSessionSnapshot('prototype')!;
+  while (snapshot.lessonProgress?.activeBlockId) {
+    const currentProgress = snapshot.lessonProgress;
+    const result = await context.learningProgressService!.advance(
+      'prototype',
+      snapshot.lesson.id,
+      currentProgress.version,
+      currentProgress.activeBlockId
+    );
+    snapshot = result.snapshot!;
+  }
+
+  const completedBlockIds = snapshot.lessonProgress?.completedBlockIds ?? [];
+  assert.equal(snapshot.lessonProgress?.activeBlockId, null);
   const inserted: LessonPatch = {
     op: 'insert',
     position: { after: 'intro' },
@@ -196,11 +255,12 @@ test('lesson patches preserve the active step and reject removing it', async (t)
   };
   const result = context.lessonService.applyPatches('prototype', snapshot.lesson.id, snapshot.lesson.version, [inserted]);
   const afterPatch = sessionRepo.getSessionSnapshot('prototype')!;
-  assert.equal(afterPatch.lessonProgress?.activeBlockId, 'intro');
+  assert.equal(afterPatch.lessonProgress?.activeBlockId, 'patch-example');
+  assert.deepEqual(afterPatch.lessonProgress?.completedBlockIds, completedBlockIds);
   assert.ok(afterPatch.lesson.blocks.some((block) => block.id === 'patch-example'));
 
   assert.throws(
-    () => context.lessonService.applyPatches('prototype', snapshot.lesson.id, result.newVersion, [{ op: 'remove', blockId: 'intro' }]),
+    () => context.lessonService.applyPatches('prototype', snapshot.lesson.id, result.newVersion, [{ op: 'remove', blockId: 'patch-example' }]),
     ActiveBlockRemovalError
   );
 });

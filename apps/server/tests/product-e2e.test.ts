@@ -244,3 +244,78 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   assert.equal(restoredMainNode?.status, 'current');
   assert.equal(resumedSnap.lesson.id, sessionSnap.lesson.id);
 });
+
+test('reinforcement request inserts one block that becomes the active step', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const context = await createServerContext(':memory:');
+  const server = context.server;
+  const baseUrl = await new Promise<string>((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 8787;
+      resolve(`http://127.0.0.1:${port}`);
+    });
+  });
+  t.after(async () => {
+    await context.close();
+  });
+
+  const createRes = await fetch(`${baseUrl}/api/courses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'Reinforcement Course', description: 'Attention fundamentals' }),
+  });
+  assert.equal(createRes.status, 201);
+  const { course } = (await createRes.json()) as { course: { id: string } };
+  await fetch(`${baseUrl}/api/courses/${course.id}/sources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'doc.md', content: '# Self Attention\nSelf attention weights token context across the sequence.' }),
+  });
+  const compileRes = await fetch(`${baseUrl}/api/courses/${course.id}/compile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ learningGoal: 'Learn attention.' }),
+  });
+  assert.equal(compileRes.status, 200);
+  const { snapshot: compiled } = (await compileRes.json()) as { snapshot: LearningSessionSnapshot };
+  const sessionId = compiled.sessionId;
+  const getSnap = async () =>
+    (await (await fetch(`${baseUrl}/api/sessions/${sessionId}`)).json()) as LearningSessionSnapshot;
+
+  let snap = await getSnap();
+  while (snap.lessonProgress?.activeBlockId) {
+    const progress = snap.lessonProgress;
+    const advanceRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/lesson-progress/advance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lessonId: snap.lesson.id,
+        activeBlockId: progress.activeBlockId,
+        version: progress.version,
+      }),
+    });
+    assert.equal(advanceRes.status, 200);
+    snap = ((await advanceRes.json()) as { snapshot: LearningSessionSnapshot }).snapshot;
+  }
+  assert.equal(snap.lessonProgress?.activeBlockId, null);
+
+  const { promise: completed, resolve: resolveCompleted } = Promise.withResolvers<void>();
+  const un = context.context.eventBus.subscribe(sessionId, (evt) => {
+    if (evt.type === 'agent.completed') resolveCompleted();
+  });
+  const msgRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: '当前已有学习步骤已经完成，请补充教学内容来巩固这个知识点。' }),
+  });
+  assert.equal(msgRes.status, 202);
+  await completed;
+  un();
+
+  const after = await getSnap();
+  const inserted = after.lesson.blocks.find((block) => block.id.startsWith('reinforce-'));
+  assert.ok(inserted, 'Reinforcement must insert exactly one new block');
+  assert.equal(after.lesson.blocks.filter((block) => block.id.startsWith('reinforce-')).length, 1);
+  assert.equal(after.lessonProgress?.activeBlockId, inserted.id, 'New block must become active via reconcile');
+});

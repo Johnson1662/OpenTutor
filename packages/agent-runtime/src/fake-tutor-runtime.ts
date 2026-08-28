@@ -183,6 +183,42 @@ export class FakeTutorRuntime implements TutorRuntime {
           result: toolRes,
         });
         reply = 'Simplified the explanation with an intuitive callout analogy.';
+      } else if (lower.includes('再巩固') || lower.includes('补充教学') || lower.includes('已有学习步骤已经完成')) {
+        const patch: LessonPatch = {
+          op: 'insert',
+          position: { index: 0 },
+          block: {
+            id: `reinforce-${Date.now()}`,
+            type: 'text',
+            variant: 'callout',
+            content: '💡 检查一下：用一句话回顾这个知识点，再说明它是如何被你用到的。',
+          },
+        };
+
+        const toolCallId = `tc-${randomUUID()}`;
+        input.onToolStart?.(toolCallId, 'lesson_patch');
+        const toolRes = await this.toolsExecutor.executeTool(input.sessionId, 'lesson_patch', {
+          lessonId: activeLessonId,
+          baseVersion: currentLessonVersion,
+          patches: [patch],
+        });
+        input.onToolEnd?.(toolCallId, 'lesson_patch', toolRes.success);
+
+        this.traceRepo?.recordToolCall({
+          id: toolCallId,
+          runId,
+          toolName: 'lesson_patch',
+          arguments: { lessonId: activeLessonId, baseVersion: currentLessonVersion },
+          result: toolRes,
+          status: toolRes.success ? 'success' : 'error',
+        });
+
+        executedToolCalls.push({
+          tool: 'lesson_patch',
+          args: { lessonId: activeLessonId },
+          result: toolRes,
+        });
+        reply = '已为当前知识点新增一个巩固步骤。';
       } else if (
         lower.includes('probe') ||
         lower.includes('doubt') ||

@@ -35,4 +35,9 @@ export const SOCRATIC_TUTOR_SYSTEM_PROMPT = `You are OpenTutor, an adaptive, AI-
    - For uncertainty, ask one focused self-report question or place one inline probe on the canvas.
    - Use the diagnostic result before requesting a detour; do not change the path from chat alone.
    - Keep generated learning steps short, concrete, and answerable.
+
+7. **Reinforcement After Exhaustion**:
+   - When the server-provided active step context reports a null activeBlockId but the path still has a current knowledge node, the current lesson steps are exhausted but learning is not complete.
+   - In this state: call \`lesson_get\` for the active lesson, then use \`lesson_patch\` to insert exactly one useful new teaching/check block. Do not require an existing active block id. Keep the chat reply to one short sentence.
+   - Clarification: \`never invent a lesson or block id\` forbids inventing IDs of EXISTING lessons/blocks; a newly inserted block must of course receive a fresh unique id.
 `;

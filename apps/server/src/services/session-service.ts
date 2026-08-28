@@ -167,8 +167,8 @@ export class SessionService {
 
     const completionOptions = {
       popDetourFrame: isDetour,
-      ...(this.coordinator && !isDetour
-        ? { nextLessonId: nextLesson?.id ?? null }
+      ...(nextNode && this.coordinator && !isDetour && !deferNextLesson
+        ? { nextLessonId: nextLesson!.id }
         : {}),
     };
     const result = this.sessionRepo.completeCurrentNode(sessionId, baseVersion, completionOptions);

@@ -61,6 +61,7 @@ export function CourseListPage({
         <section className="journey-grid" aria-label="学习路径列表">
           {journeys.map((journey, index) => {
             const path = journey.session?.path ?? [];
+            const courseCompleted = Boolean(journey.session && path.length > 0 && path.every((node) => node.status === 'completed'));
             const completed = path.filter((node) => node.status === 'completed').length;
             const current = path.find((node) => node.status === 'current');
             const progress = path.length ? Math.round((completed / path.length) * 100) : 0;
@@ -69,13 +70,13 @@ export function CourseListPage({
               <article className="journey-card" key={journey.id}>
                 <div className={'journey-card-accent accent-' + (index % 4)} />
                 <div className="journey-card-body">
-                  <div className="journey-card-top"><span className="status-pill">{statusLabel(journey.compileStatus)}</span><span className="journey-index">{String(index + 1).padStart(2, '0')}</span></div>
+                  <div className="journey-card-top"><span className="status-pill">{courseCompleted ? '学习完成' : statusLabel(journey.compileStatus)}</span><span className="journey-index">{String(index + 1).padStart(2, '0')}</span></div>
                   <h2>{journey.title}</h2>
                   <p>{journey.description || '从课程路径中逐步建立可用的知识结构。'}</p>
-                  <div className="journey-progress"><div className="progress-line"><i style={{ width: progress + '%' }} /></div><span>{path.length ? completed + ' / ' + path.length + ' 个节点' : '路径待生成'}</span></div>
+                  <div className="journey-progress"><div className="progress-line"><i style={{ width: progress + '%' }} /></div><span>{path.length ? (courseCompleted ? '100%' : completed + ' / ' + path.length + ' 个节点') : '路径待生成'}</span></div>
                   <div className="journey-current">{current ? <><small>当前节点</small><strong>{current.title}</strong></> : <small>{journey.compileStatus === 'compiling' ? '学习路径正在准备' : '打开查看课程路径'}</small>}</div>
                 </div>
-                <div className="journey-card-actions"><button type="button" className="text-action" onClick={() => onNavigate('/courses/' + journey.id)}>查看路径</button><button type="button" className="btn-primary" disabled={journey.compileStatus === 'compiling'} onClick={() => onNavigate(continueRoute)}>{journey.session ? '继续学习' : '进入课程'} <span aria-hidden="true">→</span></button></div>
+                <div className="journey-card-actions">{courseCompleted ? <button type="button" className="btn-primary" onClick={() => onNavigate('/courses/' + journey.id)}>查看路径 <span aria-hidden="true">→</span></button> : <><button type="button" className="text-action" onClick={() => onNavigate('/courses/' + journey.id)}>查看路径</button><button type="button" className="btn-primary" disabled={journey.compileStatus === 'compiling'} onClick={() => onNavigate(continueRoute)}>{journey.session ? '继续学习' : '进入课程'} <span aria-hidden="true">→</span></button></>}</div>
               </article>
             );
           })}

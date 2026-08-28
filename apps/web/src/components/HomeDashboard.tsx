@@ -66,17 +66,20 @@ export function HomeDashboard({ onNavigate }: { onNavigate: (route: string) => v
         <div className="home-course-list">
           {courses.slice(0, 3).map((course) => {
             const session = sessions[course.id];
+            const courseCompleted = Boolean(session && session.path.length > 0 && session.path.every((node) => node.status === 'completed'));
             const completed = session?.path.filter((node) => node.status === 'completed').length ?? 0;
             const total = session?.path.length ?? 0;
             const current = session?.path.find((node) => node.status === 'current');
             const status = session
-              ? current?.title || (total > 0 && completed === total ? '学习完成' : '继续学习')
+              ? courseCompleted
+                ? '学习完成'
+                : current?.title || '继续学习'
               : course.compileStatus === 'compiling'
                 ? '正在生成学习路径'
                 : course.compileStatus === 'failed'
                   ? '生成失败，请查看课程'
                   : '尚未开始';
-            const route = session ? '/learn/' + session.sessionId : '/courses/' + course.id;
+            const route = session ? (courseCompleted ? '/courses/' + course.id : '/learn/' + session.sessionId) : '/courses/' + course.id;
             return (
               <button type="button" className="home-course-row" key={course.id} onClick={() => onNavigate(route)}>
                 <span className="course-row-mark">{course.title.slice(0, 1)}</span>

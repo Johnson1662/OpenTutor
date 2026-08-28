@@ -163,3 +163,50 @@ test('failed course sessions are rebuilt on retry', async (t) => {
   assert.ok(snapshot.lesson.blocks.length > 0);
   assert.ok(snapshot.path.length > 0);
 });
+
+test('completed course keeps its last real lesson and session as a valid journey', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { context, courseService, sessionRepo, close } = await createServerContext(':memory:');
+  t.after(close);
+
+  const course = courseService.createCourse({ id: 'final-course', title: 'Final course' });
+  courseService.addSource(
+    course.id,
+    'attention.md',
+    '# Self Attention\nSelf attention weights token representations across sequence context.\n\n# Multi-Head\nMultiple attention heads run parallel projections.'
+  );
+  const { snapshot: initial } = await courseService.compileCourse(course.id, 'Understand attention.');
+
+  let snap = initial;
+  let steps = 0;
+  while (snap.path.some((node) => node.status === 'current')) {
+    assert.ok(steps < 20, 'Path must eventually complete');
+    await context.sessionService.completeCurrentNode(snap.sessionId, snap.pathVersion);
+    snap = sessionRepo.getSessionSnapshot(snap.sessionId)!;
+    steps += 1;
+  }
+
+  const finalLessonId = snap.lesson.id;
+  assert.ok(snap.path.length > 0);
+  assert.ok(snap.path.every((node) => node.status === 'completed'), 'Final path must be fully completed');
+  assert.equal(snap.path.filter((node) => node.status === 'current').length, 0, 'No current node after final completion');
+  assert.equal(snap.lesson.id, finalLessonId, 'Last real lesson must remain active');
+  assert.ok(!snap.lesson.id.startsWith('empty-lesson-'));
+
+  const existing = courseService.getExistingSessionForCourse(course.id);
+  assert.ok(existing, 'Completed course must still expose its session');
+  assert.equal(existing.sessionId, snap.sessionId);
+  assert.deepEqual(existing.path, snap.path);
+
+  let compiled = 0;
+  const originalCompile = courseService.compileCourse.bind(courseService);
+  courseService.compileCourse = async (...args: Parameters<typeof courseService.compileCourse>) => {
+    compiled += 1;
+    return originalCompile(...args);
+  };
+  const again = await courseService.startSessionForCourse(course.id);
+  assert.equal(compiled, 0, 'Completed course must not recompile');
+  assert.equal(again.sessionId, snap.sessionId, 'Completed course must return the existing session');
+  assert.equal(again.pathVersion, snap.pathVersion);
+  assert.deepEqual(again.path, snap.path);
+});

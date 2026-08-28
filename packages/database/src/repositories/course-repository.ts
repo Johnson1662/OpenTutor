@@ -9,6 +9,7 @@ export interface CourseRecord {
  compiledAt?: string;
  compileError?: string;
  createdAt: string;
+  language?: 'zh' | 'en';
 }
 
 export interface CourseSourceRecord {
@@ -63,20 +64,23 @@ export class CourseRepository {
   title: string;
   description?: string;
   compileStatus?: CourseRecord['compileStatus'];
+  language?: 'zh' | 'en';
  }): CourseRecord {
   const now = new Date().toISOString();
   const status = course.compileStatus ?? 'draft';
+  const language = course.language ?? 'zh';
 
   this.db
    .prepare(
-    `INSERT INTO courses (id, title, description, compile_status, created_at)
-         VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO courses (id, title, description, compile_status, language, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            description = excluded.description,
-           compile_status = excluded.compile_status`
+           compile_status = excluded.compile_status,
+           language = excluded.language`
    )
-   .run(course.id, course.title, course.description ?? '', status, now);
+   .run(course.id, course.title, course.description ?? '', status, language, now);
 
   return this.getCourse(course.id)!;
  }
@@ -84,7 +88,7 @@ export class CourseRepository {
  getCourse(id: string): CourseRecord | null {
   const row = this.db
    .prepare(
-    'SELECT id, title, description, compile_status, compiled_at, compile_error, created_at FROM courses WHERE id = ?'
+    'SELECT id, title, description, compile_status, compiled_at, compile_error, created_at, language FROM courses WHERE id = ?'
    )
    .get(id) as any;
 
@@ -97,13 +101,14 @@ export class CourseRepository {
    compiledAt: row.compiled_at ?? undefined,
    compileError: row.compile_error ?? undefined,
    createdAt: row.created_at,
+   language: (row.language as 'zh' | 'en') ?? 'zh',
   };
  }
 
  listCourses(): CourseRecord[] {
   const rows = this.db
    .prepare(
-    'SELECT id, title, description, compile_status, compiled_at, compile_error, created_at FROM courses ORDER BY created_at DESC'
+    'SELECT id, title, description, compile_status, compiled_at, compile_error, created_at, language FROM courses ORDER BY created_at DESC'
    )
    .all() as any[];
 
@@ -115,6 +120,7 @@ export class CourseRepository {
    compiledAt: row.compiled_at ?? undefined,
    compileError: row.compile_error ?? undefined,
    createdAt: row.created_at,
+   language: (row.language as 'zh' | 'en') ?? 'zh',
   }));
  }
 

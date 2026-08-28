@@ -20,7 +20,7 @@ export async function handleCourseRoutes(
 
   // 1. POST /api/courses
   if (method === 'POST' && path === '/api/courses') {
-    const body = await readJson<{ id?: string; title: string; description?: string }>(req);
+    const body = await readJson<{ id?: string; title: string; description?: string; language?: 'zh' | 'en' }>(req);
     const course = ctx.courseService.createCourse(body);
     json(res, 201, { course }, req);
     return true;

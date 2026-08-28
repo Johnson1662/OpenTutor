@@ -72,6 +72,10 @@ export class LearningSessionCoordinator {
    };
   }
 
+  const courseLanguage = (this.db
+   .prepare('SELECT language FROM courses WHERE id = ?')
+   .get(courseId) as { language?: string } | undefined)?.language;
+
   // 2. Otherwise fetch or compile artifact and generate lesson
   let artifact = this.artifactCompiler.getLatestArtifact(knowledgeNodeId);
   if (!artifact) {
@@ -83,6 +87,7 @@ export class LearningSessionCoordinator {
    courseId,
    knowledgeNodeId,
    artifact,
+   language: courseLanguage === 'en' ? 'en' : 'zh',
   });
 
   const conflictingLesson = this.db

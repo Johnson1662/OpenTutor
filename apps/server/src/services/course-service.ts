@@ -51,13 +51,14 @@ export class CourseService {
       );
   }
 
-  createCourse(params: { id?: string; title: string; description?: string }): CourseRecord {
+  createCourse(params: { id?: string; title: string; description?: string; language?: 'zh' | 'en' }): CourseRecord {
     const id = params.id || `course-${randomUUID().slice(0, 8)}`;
     return this.courseRepo.createCourse({
       id,
       title: params.title,
       description: params.description,
       compileStatus: 'draft',
+      language: params.language ?? 'zh',
     });
   }
 
@@ -103,6 +104,7 @@ export class CourseService {
     if (!course) {
       throw new Error(`Course not found: ${courseId}`);
     }
+    const language = course.language ?? 'zh';
 
     const existingSession = this.sessionRepo.findSessionByCourse(courseId, userId);
     // The seeded prototype is a demo fixture, not a course-owned learner session.
@@ -159,6 +161,7 @@ export class CourseService {
         knowledgeNodeId,
         artifact,
         learningGoal,
+        language,
       });
       const scopedLesson = {
         ...initialLesson,

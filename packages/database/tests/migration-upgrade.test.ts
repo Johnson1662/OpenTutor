@@ -11,8 +11,8 @@ import {
 } from '../src/index.ts';
 import type { LearningEvidence } from '@opentutor/protocol';
 
-describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 019)', () => {
-  it('upgrades database from 013 to 019 preserving existing data and enabling lesson progress', () => {
+describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 019 -> 020)', () => {
+  it('upgrades database from 013 to 020 preserving existing data and enabling lesson progress', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
 
@@ -69,7 +69,7 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 
 
     // 3. Run migrations 014 through 019
     const countRemaining = runMigrations(db, ALL_MIGRATIONS);
-    assert.equal(countRemaining, 6);
+    assert.equal(countRemaining, ALL_MIGRATIONS.length - 13);
     const progressTable = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lesson_step_progress'")
       .get() as { name: string } | undefined;
@@ -280,11 +280,11 @@ describe('Database Migration Upgrade (013 -> 014 -> 015 -> 016 -> 017 -> 018 -> 
       );
 
       const executed = runMigrations(db, ALL_MIGRATIONS);
-      assert.equal(executed, 3);
+      assert.equal(executed, ALL_MIGRATIONS.length - 16);
       const appliedV17 = db
         .prepare('SELECT version FROM schema_migrations ORDER BY version ASC')
         .all() as Array<{ version: number }>;
-      assert.deepEqual(appliedV17.map((row) => row.version), [...Array.from({ length: 19 }, (_, index) => index + 1)]);
+      assert.deepEqual(appliedV17.map((row) => row.version), [...Array.from({ length: ALL_MIGRATIONS.length }, (_, index) => index + 1)]);
       const columnsAfter = db
         .prepare("SELECT name FROM pragma_table_info('learning_evidence')")
         .all() as Array<{ name: string }>;

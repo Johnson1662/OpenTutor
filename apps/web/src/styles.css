@@ -180,3 +180,16 @@ fieldset { padding: 0; border: 0; }legend { margin-bottom: 10px; color: #514c5a;
 }
 
 
+
+.player-complete-actions { display: flex; gap: 10px; margin-top: 12px; }
+.markdown-body p { margin: 0 0 10px; }.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body ul, .markdown-body ol { margin: 0 0 10px; padding-left: 20px; }
+.markdown-body li { margin: 3px 0; }
+.markdown-body pre { background: #f6f5fa; padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
+.markdown-body code { background: #f2f0f8; padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+.markdown-body pre code { background: none; padding: 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 12px 0 8px; font-size: 1.1em; }
+.markdown-body table { border-collapse: collapse; }.markdown-body th, .markdown-body td { border: 1px solid var(--line); padding: 4px 8px; }
+.markdown-body .katex { font-size: 1.05em; }
+.step-quiz .quiz-question-md { margin: 18px 0 22px; font-size: 22px; line-height: 1.5; }.step-quiz .quiz-question-md .markdown-body p { margin: 0; }
+.quiz-options .option-md { flex: 1; min-width: 0; }.quiz-options .option-md .markdown-body { display: block; }.quiz-options .option-md .markdown-body p { margin: 0; }

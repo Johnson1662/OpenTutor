@@ -16,6 +16,7 @@ export function CreateCoursePage({
   const [learningGoal, setLearningGoal] = useState(() => searchParams?.get('goal') || '');
   const [background, setBackground] = useState('零基础');
   const [outcome, setOutcome] = useState('理解');
+  const [language, setLanguage] = useState<'zh' | 'en'>(() => (localStorage.getItem('opentutor.learningLanguage') === 'en' ? 'en' : 'zh'));
   const [materialTitle, setMaterialTitle] = useState('');
   const [materialContent, setMaterialContent] = useState('');
   const [compiling, setCompiling] = useState(false);
@@ -45,7 +46,7 @@ export function CreateCoursePage({
     try {
       setCompiling(true);
       setModelSetupError(false);
-      const course = await createCourse(courseTitle, enrichedGoal);
+      const course = await createCourse(courseTitle, enrichedGoal, language);
       if (materialContent.trim()) {
         await addCourseSource(course.id, materialTitle.trim() || '学习资料.md', materialContent.trim());
       }
@@ -114,6 +115,17 @@ export function CreateCoursePage({
                 <label key={item} className={outcome === item ? 'choice selected' : 'choice'}>
                   <input type="radio" name="outcome" value={item} checked={outcome === item} onChange={() => setOutcome(item)} />
                   {item}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>课程语言</legend>
+            <div className="choice-list">
+              {([['zh', '中文'], ['en', 'English']] as const).map(([value, label]) => (
+                <label key={value} className={language === value ? 'choice selected' : 'choice'}>
+                  <input type="radio" name="language" value={value} checked={language === value} onChange={() => setLanguage(value)} />
+                  {label}
                 </label>
               ))}
             </div>

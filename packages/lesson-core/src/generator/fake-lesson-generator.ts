@@ -5,6 +5,7 @@ export class FakeLessonGenerator implements LessonGenerator {
   async generate(input: GenerateLessonInput): Promise<Lesson> {
     const art = input.artifact;
     const isSoftmax = input.knowledgeNodeId.includes('softmax');
+    const langZh = input.language === 'zh';
 
     const blocks: LessonBlock[] = [
       {
@@ -101,8 +102,8 @@ export class FakeLessonGenerator implements LessonGenerator {
       id: `lesson-${input.knowledgeNodeId}`,
       courseId: input.courseId,
       knowledgeNodeId: input.knowledgeNodeId,
-      title: art.title,
-      objective: `Master ${art.title} principles and applications.`,
+      title: langZh ? `${art.title}（中文）` : art.title,
+      objective: langZh ? `掌握 ${art.title} 的原理与应用。` : `Master ${art.title} principles and applications.`,
       version: 1,
       blocks,
       status: 'active',

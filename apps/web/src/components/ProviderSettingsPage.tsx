@@ -39,6 +39,12 @@ const PRESETS: ProviderPreset[] = [
   },
 ];
 
+const LEARNING_LANGUAGE_KEY = 'opentutor.learningLanguage';
+
+function readLearningLanguage(): 'zh' | 'en' {
+  return localStorage.getItem(LEARNING_LANGUAGE_KEY) === 'en' ? 'en' : 'zh';
+}
+
 export function ProviderSettingsPage({
   onFlash,
 }: {
@@ -49,6 +55,7 @@ export function ProviderSettingsPage({
   const [prefs, setPrefs] = useState<UserAiPreferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [learningLanguage, setLearningLanguage] = useState<'zh' | 'en'>(readLearningLanguage);
 
   // API key connect
   const [apiKey, setApiKey] = useState('');
@@ -279,6 +286,22 @@ export function ProviderSettingsPage({
                 {prefs?.defaultModelId || '（请先连接服务商）'}
               </option>
             )}
+          </select>
+        </label>
+
+        <label className="settings-field">
+          <span>课程语言</span>
+          <select
+            value={learningLanguage}
+            onChange={(e) => {
+              const language = e.target.value as 'zh' | 'en';
+              setLearningLanguage(language);
+              localStorage.setItem(LEARNING_LANGUAGE_KEY, language);
+              onFlash(language === 'zh' ? '新课程默认使用中文。' : 'New courses will default to English.');
+            }}
+          >
+            <option value="zh">中文</option>
+            <option value="en">English</option>
           </select>
         </label>
 

@@ -52,11 +52,16 @@ export class LessonService {
     }
 
     const result = this.lessonRepo.applyPatches(lessonId, baseVersion, patches);
-    const progress = this.progressRepo?.reconcile(
+    let progress = this.progressRepo?.reconcile(
       sessionId,
       lessonId,
       result.lesson.blocks.map((block) => block.id)
     );
+    const insertedBlock = patches.find((patch) => patch.op === 'insert');
+    if (progress && this.progressRepo && insertedBlock) {
+      // Surface the newly inserted step immediately instead of keeping the old active block.
+      progress = this.progressRepo.activate(sessionId, lessonId, insertedBlock.block.id);
+    }
     if (progress) {
       this.eventBus.publish(sessionId, 'lesson.progress', {
         ...progress,

@@ -264,3 +264,17 @@ test('lesson patches activate a new block after exhaustion without resetting pro
     ActiveBlockRemovalError
   );
 });
+
+test('lesson patch insert surfaces the new block as the active step', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { context, sessionRepo, close } = await createServerContext(':memory:');
+  t.after(close);
+
+  const before = sessionRepo.getSessionSnapshot('prototype')!;
+  assert.equal(before.lessonProgress?.activeBlockId, 'intro');
+  context.lessonService.applyPatches('prototype', before.lesson.id, before.lesson.version, [
+    { op: 'insert', position: { after: 'intro' }, block: { id: 'live-patch', type: 'text', variant: 'example', content: 'Immediate visibility.' } },
+  ]);
+  const after = sessionRepo.getSessionSnapshot('prototype')!;
+  assert.equal(after.lessonProgress?.activeBlockId, 'live-patch', 'Inserted block must become active immediately');
+});

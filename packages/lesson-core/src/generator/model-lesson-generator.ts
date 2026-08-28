@@ -115,7 +115,10 @@ Examples: ${(art.examples || []).map((e) => e.text).join(' ')}
 
 Target Audience Level: ${input.userState?.status ?? 'beginner'}
 Teaching Strategy: ${input.strategy ?? 'intro'}
-Course ID: ${input.courseId}`;
+Course ID: ${input.courseId}
+
+Language: ${input.language === 'en' ? 'English' : 'Simplified Chinese'}
+Write the lesson title, objective, every block's content, quiz question, option texts and rubric in that language. Keep code, identifiers and technical terms in English.`;
 
     const response = await this.executionService.completeStructured<GeneratedLessonData>({
       role: 'lesson_generator',

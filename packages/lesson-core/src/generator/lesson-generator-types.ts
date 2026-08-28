@@ -9,6 +9,7 @@ export interface GenerateLessonInput {
   artifact: KnowledgeArtifact;
   userState?: UserKnowledgeState | null;
   learningGoal?: string;
+  language?: 'zh' | 'en';
   neighboringNodes?: {
     prerequisites: string[];
     next: string[];

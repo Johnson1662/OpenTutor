@@ -275,11 +275,11 @@ export async function getCourse(id: string): Promise<CourseSummary> {
   return data.course;
 }
 
-export async function createCourse(title: string, description?: string): Promise<CourseSummary> {
+export async function createCourse(title: string, description?: string, language?: 'zh' | 'en'): Promise<CourseSummary> {
   const res = await fetch('/api/courses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, description }),
+    body: JSON.stringify({ title, description, language }),
   });
   if (!res.ok) throw new Error('Failed to create course');
   const data = await res.json();
@@ -318,6 +318,18 @@ export async function compileCourse(courseId: string, learningGoal: string): Pro
   }
   return res.json();
 }
+
+export async function advanceLearningPath(sessionId: string, pathVersion: number): Promise<void> {
+  const res = await fetch(`/api/sessions/${sessionId}/advance-path`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pathVersion }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message ?? err.error ?? '前进失败');
+  }
+ }
 
 export async function getCourseMap(courseId: string): Promise<CourseMapInfo> {
   const res = await fetch(`/api/courses/${courseId}/map`);

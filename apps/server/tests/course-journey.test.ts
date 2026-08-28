@@ -210,3 +210,75 @@ test('completed course keeps its last real lesson and session as a valid journey
   assert.equal(again.pathVersion, snap.pathVersion);
   assert.deepEqual(again.path, snap.path);
 });
+
+test('course language flows into generated lessons', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { context, courseService, sessionRepo, close } = await createServerContext(':memory:');
+  t.after(close);
+
+  const course = courseService.createCourse({ id: 'zh-course', title: '中文课程', language: 'zh' });
+  courseService.addSource(course.id, 'doc.md', '# Self Attention\nSelf attention weights token context across the sequence.');
+  const { snapshot } = await courseService.compileCourse(course.id, 'I want to understand transformer.');
+  assert.ok(snapshot.path.length >= 2, 'Transformer goal needs at least two path nodes');
+  assert.ok(snapshot.lesson.title.endsWith('（中文）'), 'First lesson must honor course language');
+
+  await context.sessionService.completeCurrentNode(snapshot.sessionId, snapshot.pathVersion);
+  const next = sessionRepo.getSessionSnapshot(snapshot.sessionId)!;
+  assert.ok(next.path.some((node) => node.status === 'current'), 'Path must advance');
+  assert.ok(next.lesson.title.endsWith('（中文）'), 'Follow-up lesson must honor course language');
+});
+
+test('advance-path completes the current node and switches to the next lesson', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { server, context, close } = await createServerContext(':memory:');
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 8787;
+  const baseUrl = `http://localhost:${port}`;
+  t.after(() => close());
+
+  const created = await fetch(`${baseUrl}/api/courses`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Advance Course', description: 'Attention' }),
+  });
+  const { course } = await json<{ course: { id: string } }>(created);
+  await fetch(`${baseUrl}/api/courses/${course.id}/sources`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'doc.md', content: '# Self Attention\nSelf attention weights token context.' }),
+  });
+  const compiled = await json<{ snapshot: LearningSessionSnapshot }>(
+    await fetch(`${baseUrl}/api/courses/${course.id}/compile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ learningGoal: 'I want to understand transformer.' }),
+    })
+  );
+  const sessionId = compiled.snapshot.sessionId;
+  let snap = compiled.snapshot;
+  while (snap.lessonProgress?.activeBlockId) {
+    const p = snap.lessonProgress;
+    const advanced = await json<{ snapshot: LearningSessionSnapshot }>(
+      await fetch(`${baseUrl}/api/sessions/${sessionId}/lesson-progress/advance`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ lessonId: snap.lesson.id, activeBlockId: p.activeBlockId, version: p.version }),
+      })
+    );
+    snap = advanced.snapshot;
+  }
+  assert.equal(snap.lessonProgress?.activeBlockId, null);
+
+  const currentBefore = snap.path.find((node) => node.status === 'current')!;
+  const advanceRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/advance-path`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pathVersion: snap.pathVersion }),
+  });
+  assert.equal(advanceRes.status, 200);
+  const after = await json<LearningSessionSnapshot>(await fetch(`${baseUrl}/api/sessions/${sessionId}`));
+  assert.equal(after.path.find((node) => node.id === currentBefore.id)?.status, 'completed');
+  assert.ok(after.path.some((node) => node.status === 'current' && node.id !== currentBefore.id));
+  assert.notEqual(after.lesson.id, snap.lesson.id, 'Next lesson must be activated');
+});

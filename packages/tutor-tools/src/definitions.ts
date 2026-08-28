@@ -186,9 +186,6 @@ export const ProbeRequestParamsSchema = Type.Object({
 });
 export type ProbeRequestParams = Static<typeof ProbeRequestParamsSchema>;
 
-export const PathAdvanceParamsSchema = Type.Object({});
-export type PathAdvanceParams = Static<typeof PathAdvanceParamsSchema>;
-
 export const KnowledgeSearchParamsSchema = Type.Object({
   query: Type.String({ description: 'Search term or concept' }),
   limit: Type.Optional(Type.Number({ minimum: 1, maximum: 20, description: 'Max results to return (1-20, default: 5)' })),
@@ -274,15 +271,6 @@ export const TUTOR_TOOL_DEFINITIONS = [
     name: 'path_insert_detour',
     description: 'Insert a prerequisite Detour node immediately before the current active lesson node.',
     parameters: PathInsertDetourParamsSchema,
-    category: 'path',
-    retrieval: false,
-    retrievalCost: 0,
-    mutation: true,
-  },
-  {
-    name: 'path_advance',
-    description: 'Mark the current active node as completed and advance the session to the next upcoming node.',
-    parameters: PathAdvanceParamsSchema,
     category: 'path',
     retrieval: false,
     retrievalCost: 0,

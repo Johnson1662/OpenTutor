@@ -557,9 +557,9 @@ export class LearnerEvalSuite {
     // Verify that status corresponds exactly to the mathematical bounds:
     // - evidenceCount < 1 => 'unknown'
     // - p < 0.40 => 'weak'
-    // - 0.40 <= p < 0.85 => 'learning'
-    // - p >= 0.85 and count < 3 => 'learning'
-    // - p >= 0.85 and count >= 3 => 'mastered'
+    // - 0.40 <= p < 0.75 => 'learning'
+    // - p >= 0.75 and count < 3 => 'learning'
+    // - p >= 0.75 and count >= 3 => 'mastered'
     let thresholdChecks = 0;
     let thresholdMatches = 0;
 
@@ -572,7 +572,7 @@ export class LearnerEvalSuite {
         for (const cnt of counts) {
           thresholdChecks++;
           const p = a / (a + b);
-          const distinctItems = cnt >= 3 ? 2 : cnt;
+          const distinctItems = cnt;
           const computedStatus = this.aggregator.computeStatus(p, cnt, distinctItems, cnt);
 
           let expectedStatus: 'unknown' | 'weak' | 'learning' | 'mastered';
@@ -580,7 +580,7 @@ export class LearnerEvalSuite {
             expectedStatus = 'unknown';
           } else if (p < 0.40) {
             expectedStatus = 'weak';
-          } else if (p >= 0.85 && cnt >= 3 && distinctItems >= 2) {
+          } else if (p >= 0.75 && cnt >= 3 && distinctItems >= 3) {
             expectedStatus = 'mastered';
           } else {
             expectedStatus = 'learning';

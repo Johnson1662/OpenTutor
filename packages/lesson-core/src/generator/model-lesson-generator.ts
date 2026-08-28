@@ -47,6 +47,9 @@ const QuizBlockSchema = Type.Object({
   type: Type.Literal('quiz'),
   question: Type.String(),
   options: Type.Optional(Type.Array(QuizOptionSchema)),
+  difficulty: Type.Optional(Type.Union([Type.Number(), Type.Literal('easy'), Type.Literal('medium'), Type.Literal('hard')])),
+  assessmentKind: Type.Optional(Type.Literal('lesson_quiz')),
+  targetKnowledgeNodeId: Type.Optional(Type.String()),
   answerSpec: Type.Union([
     Type.Object({
       type: Type.Literal('single_choice'),
@@ -100,8 +103,11 @@ Generate a structured, engaging, interactive Lesson for '${art.title}' (Node: '$
 CRITICAL PEDAGOGICAL INVARIANTS:
 1. Ground the lesson strictly in the verified Knowledge Artifact.
 2. Generate exactly 5–8 short blocks. Keep each block focused on one small idea.
-3. Use a cohesive Canvas-first sequence of TextBlocks, CodeBlocks, DiagramBlocks, and a culminating inline QuizBlock.
-4. Every QuizBlock MUST include a full 'answerSpec' ('single_choice', 'multiple_choice', or 'open' with rubric concepts).
+3. Use a cohesive Canvas-first sequence of TextBlocks, CodeBlocks, DiagramBlocks, and exactly THREE inline QuizBlocks distributed through the lesson (never consecutive):
+   - Quiz 1 early: comprehension check right after the introduction.
+   - Quiz 2 middle: mechanism/application check after the core explanation.
+   - Quiz 3 final: transfer check after examples and diagrams.
+4. Every QuizBlock MUST include a full 'answerSpec' ('single_choice', 'multiple_choice', or 'open' with rubric concepts), unique id, difficulty 'medium', assessmentKind 'lesson_quiz', and targetKnowledgeNodeId matching the current node.
 5. For open questions, the rubric MUST make a concise self-report probe possible before diagnosing mastery.
 6. Do NOT output arbitrary HTML or JavaScript.`;
 

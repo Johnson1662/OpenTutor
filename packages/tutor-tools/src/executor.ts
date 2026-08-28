@@ -9,7 +9,6 @@ import {
   type KnowledgeSearchParams,
   type LessonGetParams,
   type LessonPatchParams,
-  type PathAdvanceParams,
   type PathGetParams,
   type PathInsertDetourParams,
   type ProbeRequestParams,
@@ -371,50 +370,6 @@ export class DomainToolsExecutor {
                 success: false,
                 error: {
                   code: (err as Record<string, unknown>).code as TutorToolErrorCode,
-                  message: getErrorMessage(err),
-                },
-              };
-            }
-            return {
-              success: false,
-              error: {
-                code: 'INTERNAL_DOMAIN_ERROR',
-                message: getErrorMessage(err),
-              },
-            };
-          }
-        }
-
-        case 'path_advance': {
-          if (typeof this.services.sessionService.completeCurrentNode !== 'function') {
-            return {
-              success: false,
-              error: {
-                code: 'DOMAIN_CAPABILITY_UNAVAILABLE',
-                message: 'completeCurrentNode capability unavailable on session service',
-              },
-            };
-          }
-          const snapshot = await this.services.sessionService.getSnapshot(sessionId);
-          if (!snapshot) {
-            return {
-              success: false,
-              error: {
-                code: 'NOT_FOUND',
-                message: `Session not found: ${sessionId}`,
-              },
-            };
-          }
-          const baseVersion = snapshot.pathVersion;
-          try {
-            const result = await this.services.sessionService.completeCurrentNode(sessionId, baseVersion);
-            return { success: true, data: result as unknown as T };
-          } catch (err: unknown) {
-            if (isVersionConflict(err)) {
-              return {
-                success: false,
-                error: {
-                  code: 'VERSION_CONFLICT',
                   message: getErrorMessage(err),
                 },
               };

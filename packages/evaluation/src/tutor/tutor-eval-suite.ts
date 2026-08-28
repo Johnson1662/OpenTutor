@@ -79,25 +79,6 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
       };
     }
 
-    // 2. Detect Advance / Next Concept intent
-    if (
-      text.includes('proceed') ||
-      text.includes('advance') ||
-      text.includes('next topic') ||
-      text.includes('finished the quiz') ||
-      text.includes('ready to move on')
-    ) {
-      intentDetected = 'ADVANCE_PATH';
-      invokedTools.push('path_advance');
-      return {
-        invokedTools,
-        successfulTools: [...invokedTools],
-        toolExecutions: invokedTools.map((t) => ({ toolName: t, success: true })),
-        responseText: `Great work mastering this topic! Advancing to the next lesson on your learning path.`,
-        intentDetected,
-      };
-    }
-
     // 3. Detect Canvas Modification (Simplify / Add Code / Add Diagram) intent
     if (
       text.includes('update the lesson') ||

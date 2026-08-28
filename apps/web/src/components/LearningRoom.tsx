@@ -16,7 +16,6 @@ import { applyLessonPatches, applyPathPatches } from '../runtime/patch.ts';
 import { isNewLearningEvent } from '../runtime/events.ts';
 import {
   advanceLessonProgress,
-  advanceLearningPath,
   getLessonProgress,
   getSession,
   sendTutorMessage,
@@ -231,19 +230,6 @@ export function LearningRoom({
     }
   }
 
-  async function advanceToNextLesson() {
-    if (!snapshot || !currentNode || advancing) return;
-    setAdvancing(true);
-    try {
-      await advanceLearningPath(sessionId, snapshot.pathVersion);
-    } catch (cause) {
-      onFlash(cause instanceof Error ? cause.message : '无法进入下一节');
-    } finally {
-      setAdvancing(false);
-      await refreshSnapshot().catch(() => {});
-    }
-  }
-
   if (error) return <main className="player-error"><span className="eyebrow">Learning session</span><h1>学习空间暂时打不开</h1><p>{error}</p><button type="button" className="btn-primary" onClick={() => onNavigate('/courses')}>返回我的学习</button></main>;
   if (!snapshot || !lesson) return <main className="player-loading"><span className="loading-spinner" />正在打开学习空间…</main>;
 
@@ -259,7 +245,7 @@ export function LearningRoom({
     <section className="player-content">
       <LessonCanvas lesson={lesson} activeBlock={activeBlock} assessment={assessment?.blockId === activeBlock?.id ? assessment : undefined} busy={busy} submitted={submittedBlockId === activeBlock?.id} canAdvance={canAdvance} onQuizSubmit={submitAnswer} onAdvance={() => void advance()} />
       <div className="player-feedback" aria-live="polite">{lastUser && <p><small>你</small>{lastUser}</p>}{lastAgent && <p><small>OpenTutor</small>{lastAgent}</p>}</div>
-      {needsReinforcement ? <div className="player-complete"><p>这一轮内容已经完成，但这个知识点还需要再巩固一下。</p><div className="player-complete-actions"><button type="button" className="btn-primary" disabled={busy || advancing} onClick={() => void advanceToNextLesson()}>进入下一节 <span aria-hidden="true">→</span></button><button type="button" className="btn-secondary" disabled={busy || advancing} onClick={() => void tutor(reinforcementPrompt)}>再巩固一下</button></div></div> : !activeBlock && <button type="button" className="btn-primary player-complete" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')}>返回课程路径 <span aria-hidden="true">→</span></button>}
+      {needsReinforcement ? <div className="player-complete"><p>这一轮内容已经完成，但这个知识点还需要再巩固一下。</p><div className="player-complete-actions"><button type="button" className="btn-primary" disabled={busy || advancing} onClick={() => void tutor(reinforcementPrompt)}>再巩固一下</button></div></div> : !activeBlock && <button type="button" className="btn-primary player-complete" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')}>返回课程路径 <span aria-hidden="true">→</span></button>}
     </section>
 
     <section className="player-assist" aria-label="学习帮助">

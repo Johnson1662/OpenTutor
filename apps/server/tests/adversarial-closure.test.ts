@@ -224,9 +224,9 @@ test('Adversarial & Closure Matrix (A - O)', async (t) => {
     const legitState = context.knowledgeService!.getUserKnowledgeState(legitimateUser, 'softmax');
     assert.ok(legitState);
     assert.equal(legitState.status, 'mastered');
-    assert.ok((legitState.distinctSourceItemCount ?? 0) >= 2);
+    assert.ok((legitState.distinctSourceItemCount ?? 0) >= 3);
     assert.ok((legitState.effectiveEvidenceCount ?? 0) >= 3);
-    assert.ok((legitState.masteryProbability ?? 0) >= 0.85);
+    assert.ok((legitState.masteryProbability ?? 0) >= 0.75);
   });
 
   await t.test('F. evidence transaction middle failure -> complete rollback with 0 partial state', async () => {

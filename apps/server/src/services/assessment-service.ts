@@ -48,7 +48,13 @@ export class AssessmentService {
     let evaluationConfidence = 1.0;
     let evaluationScore = 1.0;
     let feedback = '';
-    const difficulty = ('difficulty' in block && (typeof block.difficulty === 'number' || typeof block.difficulty === 'string')) ? block.difficulty : 'medium';
+    const hasDifficulty = 'difficulty' in block && (typeof block.difficulty === 'number' || typeof block.difficulty === 'string');
+    const isProbe = 'assessmentKind' in block && block.assessmentKind === 'probe';
+    // Probe blocks are weak diagnostic evidence: a failed probe must not outweigh
+    // correct quizzes, and two quizzes plus one failed probe must stay below mastery.
+    const difficulty = isProbe
+      ? 0.3
+      : (hasDifficulty ? block.difficulty : 'medium');
 
     if (block.answerSpec) {
       if (block.answerSpec.type === 'single_choice') {

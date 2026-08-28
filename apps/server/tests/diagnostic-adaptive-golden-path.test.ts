@@ -152,7 +152,15 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   });
   assert.equal(quiz2AdvanceRes.status, 200);
 
-  // 9. Answer 2nd and 3rd distinct assessment items on Softmax
+  // 9. Answer 2nd distinct assessment item; probe + repeated attempts + distinct checks
+  //    reach the calibrated mastery threshold, so subscribe to path.patch beforehand.
+  const { promise: resumePath, resolve: resolveResumePath } = Promise.withResolvers<void>();
+  const unsubscribe = ctx.context.eventBus.subscribe(sessionId, (event) => {
+    if (event.type === 'path.patch') {
+      unsubscribe();
+      resolveResumePath();
+    }
+  });
   const quiz2Res = await fetch(
     `${baseUrl}/api/lessons/lesson-softmax/blocks/softmax-quiz-2/answer?sessionId=${sessionId}`,
     {
@@ -185,7 +193,8 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
   );
   assert.equal(quiz3Res.status, 200, await quiz3Res.clone().text());
 
-  // 10. Verify Softmax is mastered, detour completes, and original lesson resumes
+  // 10. Verify Softmax is mastered, detour completes, and original lesson resumes.
+  await resumePath;
   const resumedSnapRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`);
   assert.equal(resumedSnapRes.status, 200);
   const resumedSnap = (await resumedSnapRes.json()) as LearningSessionSnapshot;
@@ -228,7 +237,7 @@ test('MVP Golden Path: Self-Attention requires Softmax Diagnostic Adaptive Arc +
     assert.ok(softmaxState);
     assert.equal(softmaxState.status, 'mastered');
     assert.ok((softmaxState.effectiveEvidenceCount ?? 0) >= 3);
-    assert.ok((softmaxState.distinctSourceItemCount ?? 0) >= 2);
+    assert.ok((softmaxState.distinctSourceItemCount ?? 0) >= 3);
 
     // Verify diagnosis resolution survived restart
     const diagnoses = restartedCtx.diagnosisRepo?.listDiagnosesBySession(sessionId) ?? [];

@@ -46,7 +46,7 @@ export const INITIAL_LESSON: Lesson = {
     {
       id: 'quiz',
       type: 'quiz',
-      difficulty: 2.0,
+      difficulty: 1.0,
       answerType: 'text',
       question: 'Why might a token need information from another token?',
       answerSpec: {
@@ -80,7 +80,7 @@ export const SOFTMAX_LESSON: Lesson = {
     {
       id: 'softmax-quiz',
       type: 'quiz',
-      difficulty: 3.5,
+      difficulty: 1.0,
       answerType: 'text',
       question: 'What does softmax ensure regarding the sum of output values?',
       answerSpec: {
@@ -94,7 +94,7 @@ export const SOFTMAX_LESSON: Lesson = {
     {
       id: 'softmax-quiz-2',
       type: 'quiz',
-      difficulty: 3.5,
+      difficulty: 1.0,
       answerType: 'single_choice',
       question: 'Why does softmax use exponentiation?',
       options: [
@@ -109,7 +109,7 @@ export const SOFTMAX_LESSON: Lesson = {
     {
       id: 'softmax-quiz-3',
       type: 'quiz',
-      difficulty: 3.5,
+      difficulty: 1.0,
       answerType: 'single_choice',
       question: 'What is the sum of all elements in a softmax output vector?',
       options: [

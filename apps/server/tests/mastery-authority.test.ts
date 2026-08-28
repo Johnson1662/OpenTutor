@@ -128,7 +128,7 @@ test('Mastery Single Authority Integration - One-Answer Mastery Impossible & Mul
     const stateAfterFinal = context.knowledgeService.getUserKnowledgeState(userId, 'self-attention');
     assert.ok(stateAfterFinal);
     assert.ok((stateAfterFinal.evidenceCount ?? 0) >= 3, 'Must have at least 3 pieces of evidence');
-    assert.ok((stateAfterFinal.masteryProbability ?? 0) >= 0.85, 'Must reach 0.85 probability threshold');
+    assert.ok((stateAfterFinal.masteryProbability ?? 0) >= 0.75, 'Must reach 0.75 probability threshold');
     assert.equal(stateAfterFinal.status, 'mastered');
 
     // 5. Verify Learning Path advanced once mastered

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@10.0.0 --activate
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Check
+        run: pnpm check
+      - name: Product E2E
+        run: pnpm test:product:e2e
+      - name: Runtime smoke
+        run: pnpm test:runtime:smoke
+      - name: Adversarial
+        run: pnpm test:adversarial
+      - name: Learner eval
+        run: pnpm eval:learner

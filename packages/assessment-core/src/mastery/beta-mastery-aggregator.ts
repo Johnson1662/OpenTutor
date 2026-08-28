@@ -87,7 +87,7 @@ export class BetaMasteryAggregator {
     if (p < 0.40) {
       return 'weak';
     }
-    if (p >= 0.85 && effectiveEvidenceCount >= 3.0 && distinctSourceItemCount >= 2) {
+    if (p >= 0.75 && effectiveEvidenceCount >= 3.0 && distinctSourceItemCount >= 3) {
       return 'mastered';
     }
     return 'learning';

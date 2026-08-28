@@ -77,7 +77,7 @@ describe('BetaMasteryAggregator', () => {
     assert.notEqual(state.status, 'mastered');
   });
 
-  it('Test 3: Distinct items requirement (must have at least 2 distinct items + 3 effective evidence)', () => {
+  it('Test 3: Distinct items requirement (must have at least 3 distinct items + 3 effective evidence)', () => {
     let state: UserKnowledgeStateV2 | null = null;
 
     // Item 1, attempt 1 (hard: weight=1.4, attempt=1 -> mult=1.0) -> effectiveEvidence=1.0, distinct=1
@@ -93,21 +93,21 @@ describe('BetaMasteryAggregator', () => {
     assert.equal(state.status, 'learning'); // effective evidence 2.0 < 3.0
 
     // Item 3, attempt 1 (hard: weight=1.4, attempt=1 -> mult=1.0) -> effectiveEvidence=3.0, distinct=3
-    // alpha = 1.0 + 1.4*3 = 5.2, beta = 1.0, p = 5.2/6.2 = 0.8387 < 0.85
+    // alpha = 1.0 + 1.4*3 = 5.2, beta = 1.0, p = 5.2/6.2 = 0.8387 >= 0.75
     state = aggregator.updateMastery(state, makeEvidence('node-mastery', 'correct', 'hard', 1.0, undefined, 1, 'item-3'));
     assert.equal(state.distinctSourceItemCount, 3);
     assert.equal(state.effectiveEvidenceCount, 3.0);
-    assert.equal(state.status, 'learning'); // p < 0.85
+    assert.equal(state.status, 'mastered'); // p >= 0.75, 3 distinct items
 
-    // Item 4, attempt 1 (hard: weight=1.4) -> alpha = 6.6, beta = 1.0, p = 6.6/7.6 = 0.8684 >= 0.85
+    // Item 4, attempt 1 (hard: weight=1.4) -> alpha = 6.6, beta = 1.0, p = 6.6/7.6 = 0.8684
     state = aggregator.updateMastery(state, makeEvidence('node-mastery', 'correct', 'hard', 1.0, undefined, 1, 'item-4'));
     assert.equal(state.distinctSourceItemCount, 4);
     assert.equal(state.effectiveEvidenceCount, 4.0);
-    assert.ok(state.masteryProbability >= 0.85);
+    assert.ok(state.masteryProbability >= 0.75);
     assert.equal(state.status, 'mastered');
   });
 
-  it('Test 3b: Exactly 2 distinct items with 3 effective evidence and high weight reaches mastered', () => {
+  it('Test 3b: Exactly 2 distinct items with 3 effective evidence cannot reach mastered', () => {
     let state: UserKnowledgeStateV2 | null = null;
 
     // Item 1, attempt 1 (diff=2.0) -> eff=1.0, distinct=1
@@ -128,7 +128,12 @@ describe('BetaMasteryAggregator', () => {
     state = aggregator.updateMastery(state, makeEvidence('node-2items', 'correct', 2.0, 1.0, undefined, 3, 'item-A'));
     assert.equal(state.distinctSourceItemCount, 2);
     assert.ok(state.effectiveEvidenceCount >= 3.0);
-    assert.ok(state.masteryProbability >= 0.85);
+    assert.ok(state.masteryProbability >= 0.75);
+    assert.equal(state.status, 'learning'); // 2 distinct < 3 required
+
+    // Item 3, attempt 1 (diff=2.0) -> distinct=3
+    state = aggregator.updateMastery(state, makeEvidence('node-2items', 'correct', 2.0, 1.0, undefined, 1, 'item-C'));
+    assert.equal(state.distinctSourceItemCount, 3);
     assert.equal(state.status, 'mastered');
   });
 
@@ -136,18 +141,17 @@ describe('BetaMasteryAggregator', () => {
     let state: UserKnowledgeStateV2 | null = null;
     state = aggregator.updateMastery(state, makeEvidence('node-inc', 'correct', 2.0, 1.0, undefined, 1, 'item-1'));
     state = aggregator.updateMastery(state, makeEvidence('node-inc', 'correct', 2.0, 1.0, undefined, 1, 'item-2'));
-    state = aggregator.updateMastery(state, makeEvidence('node-inc', 'correct', 2.0, 1.0, undefined, 1, 'item-3'));
 
-    assert.equal(state.status, 'mastered');
+    assert.equal(state.status, 'learning'); // 2 distinct, effective 2.0 < 3.0
     const prevProb = state.masteryProbability;
     const prevBeta = state.beta;
 
-    state = aggregator.updateMastery(state, makeEvidence('node-inc', 'incorrect', 'medium', 1.0, undefined, 1, 'item-4'));
+    state = aggregator.updateMastery(state, makeEvidence('node-inc', 'incorrect', 'medium', 1.0, undefined, 1, 'item-3'));
 
     assert.ok(state.masteryProbability < prevProb);
     assert.ok(state.beta > prevBeta);
     assert.equal(state.incorrectCount, 1);
-    assert.equal(state.status, 'learning');
+    assert.equal(state.status, 'learning'); // 2 correct + 1 incorrect cannot master (p < 0.75)
     assert.notEqual(state.status, 'mastered');
   });
 

@@ -10,8 +10,8 @@ import type { Lesson, LearningPathNode } from '@opentutor/protocol';
 
 test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
   await t.test('1. Tool definitions and metadata integrity', () => {
-    assert.equal(TUTOR_TOOL_DEFINITIONS.length, 11);
-    assert.equal(TUTOR_TOOL_NAMES.size, 11);
+    assert.equal(TUTOR_TOOL_DEFINITIONS.length, 10);
+    assert.equal(TUTOR_TOOL_NAMES.size, 10);
 
     const expectedNames = [
       'lesson_get',
@@ -19,7 +19,6 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       'probe_request',
       'path_get',
       'path_insert_detour',
-      'path_advance',
       'knowledge_search',
       'artifact_read',
       'source_search',
@@ -34,6 +33,9 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       assert.ok(def.description.length > 0);
       assert.ok(def.parameters);
     }
+
+    // path completion must not be a Tutor capability; mastery is the only authority.
+    assert.ok(!TUTOR_TOOL_NAMES.has('path_advance'), 'path_advance must not be exposed');
 
     // Disallowed legacy tools
     assert.equal(TUTOR_TOOL_NAMES.has('session_get'), false);
@@ -233,7 +235,7 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       assert.equal(invalidPatch.error.code, 'INVALID_ARGUMENT');
     }
   });
-  await t.test('3. Successful execution across all 11 tools', async () => {
+  await t.test('3. Successful execution across all 10 tools', async () => {
     // 1. lesson_get with lessonId
     const l1 = await executor.executeTool('s1', 'lesson_get', { lessonId: 'lesson-1' });
     assert.equal(l1.success, true);
@@ -301,15 +303,6 @@ test('packages/tutor-tools - Definitions & Executor Suite', async (t) => {
       assert.equal(data.newVersion, 2);
       assert.equal(data.path[0]?.type, 'detour');
       assert.equal(data.path[0]?.status, 'current');
-    }
-
-    // 6. path_advance
-    const advanceRes = await executor.executeTool('s1', 'path_advance', {});
-    assert.equal(advanceRes.success, true);
-    if (advanceRes.success) {
-      const data = advanceRes.data as { path: LearningPathNode[]; newVersion: number };
-      assert.equal(data.newVersion, 2);
-      assert.equal(data.path[0]?.status, 'completed');
     }
 
     // 7. knowledge_search

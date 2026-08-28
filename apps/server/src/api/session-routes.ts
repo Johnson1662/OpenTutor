@@ -123,38 +123,6 @@ export async function handleSessionRoutes(
     return true;
   }
 
-  const advancePathMatch = path.match(/^\/api\/sessions\/([a-zA-Z0-9_-]+)\/advance-path$/);
-  if (method === 'POST' && advancePathMatch) {
-    const sessionId = advancePathMatch[1]!;
-    let body: { pathVersion?: number };
-    try {
-      body = await readJson<{ pathVersion?: number }>(req);
-    } catch {
-      json(res, 400, { error: 'INVALID_BODY' }, req);
-      return true;
-    }
-    if (typeof body?.pathVersion !== 'number' || !Number.isInteger(body.pathVersion) || body.pathVersion < 1) {
-      json(res, 400, { error: 'INVALID_PATH_VERSION' }, req);
-      return true;
-    }
-    if (!ctx.sessionService.getSnapshot(sessionId)) {
-      json(res, 404, { error: 'SESSION_NOT_FOUND' }, req);
-      return true;
-    }
-    try {
-      await ctx.sessionService.completeCurrentNode(sessionId, body.pathVersion);
-      const nextSnapshot = ctx.sessionService.getSnapshot(sessionId)!;
-      json(res, 200, { path: nextSnapshot.path, pathVersion: nextSnapshot.pathVersion }, req);
-    } catch (err: unknown) {
-      const status =
-        err instanceof Error && err.name === 'VersionConflictError' ? 409
-        : err instanceof Error && err.name === 'NotFoundError' ? 404
-        : 500;
-      json(res, status, { error: err instanceof Error ? err.name : 'ADVANCE_PATH_ERROR', message: err instanceof Error ? err.message : String(err) }, req);
-    }
-    return true;
-  }
-
   // 2. POST /api/sessions/:id/actions
   const actionMatch = path.match(/^\/api\/sessions\/([a-zA-Z0-9_-]+)\/actions$/);
   if (method === 'POST' && actionMatch) {

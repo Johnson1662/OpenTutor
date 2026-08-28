@@ -42,7 +42,9 @@ export function CreateCoursePage({
       return;
     }
     const courseTitle = goal.replace(/^我想(学会|学习|理解|掌握)?/u, '').replace(/[。！？!?].*$/u, '').trim().slice(0, 28) || '新的学习目标';
-    const enrichedGoal = goal + ' 学习者背景：' + background + '；期望结果：' + outcome + '。';
+    const enrichedGoal = language === 'en'
+      ? `${goal} Learner background: ${background}; Expected outcome: ${outcome}.`
+      : `${goal} 学习者背景：${background}；期望结果：${outcome}。`;
     try {
       setCompiling(true);
       setModelSetupError(false);

@@ -228,57 +228,129 @@ test('course language flows into generated lessons', async (t) => {
   assert.ok(next.lesson.title.endsWith('（中文）'), 'Follow-up lesson must honor course language');
 });
 
-test('advance-path completes the current node and switches to the next lesson', async (t) => {
+test('mastery requires three distinct correct assessments to advance the path', async (t) => {
   process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
-  const { server, context, close } = await createServerContext(':memory:');
+  const { context, courseService, sessionRepo, close } = await createServerContext(':memory:');
+  t.after(close);
+
+  const course = courseService.createCourse({ id: 'mastery-course', title: 'Mastery Course', language: 'zh' });
+  courseService.addSource(course.id, 'doc.md', '# Self Attention\nSelf attention weights token context across the sequence.');
+  const { snapshot } = await courseService.compileCourse(course.id, 'I want to understand transformer.');
+  const sessionId = snapshot.sessionId;
+  const nodeId = snapshot.lesson.knowledgeNodeId;
+  const initialNode = snapshot.path.find((n) => n.status === 'current')!;
+
+  const answer = (blockId: string, answerText: string) => context.assessmentService.submitAnswer({
+    sessionId,
+    userId: 'default-user',
+    lessonId: snapshot.lesson.id,
+    blockId,
+    answer: answerText,
+  });
+
+  // A. A single correct independent quiz must NOT master or move the path.
+  const one = await answer(`${nodeId}-quiz-1`, 'opt-1');
+  assert.equal(one.assessment.result, 'correct');
+  const stateAfterOne = context.knowledgeService!.getUserKnowledgeState('default-user', nodeId)!;
+  assert.notEqual(stateAfterOne.status, 'mastered');
+  assert.equal(sessionRepo.getSessionSnapshot(sessionId)!.path.find((n) => n.status === 'current')!.id, initialNode.id);
+
+  // B. Three distinct medium checks all correct -> mastered -> next node current -> next lesson activated.
+  const two = await answer(`${nodeId}-quiz-2`, 'opt-1');
+  assert.equal(two.assessment.result, 'correct');
+  const { promise: pathAdvanced, resolve: resolvePathAdvanced } = Promise.withResolvers<void>();
+  const unsubscribe = context.eventBus.subscribe(sessionId, (event) => {
+    if (event.type === 'path.patch') {
+      unsubscribe();
+      resolvePathAdvanced();
+    }
+  });
+  const three = await answer(`${nodeId}-quiz`, 'opt-1');
+  assert.equal(three.assessment.result, 'correct');
+
+  const stateAfterThree = context.knowledgeService!.getUserKnowledgeState('default-user', nodeId)!;
+  assert.equal(stateAfterThree.status, 'mastered');
+  await pathAdvanced;
+  const after = sessionRepo.getSessionSnapshot(sessionId)!;
+  assert.equal(after.path.find((n) => n.id === initialNode.id)?.status, 'completed');
+  const nextCurrent = after.path.find((n) => n.status === 'current');
+  assert.ok(nextCurrent, 'Path must advance to next node');
+  assert.notEqual(nextCurrent.id, initialNode.id);
+  assert.notEqual(after.lesson.id, snapshot.lesson.id, 'Next real lesson must be activated');
+});
+
+test('duplicate evidence and mixed incorrect answers cannot reach mastery', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { context, courseService, sessionRepo, close } = await createServerContext(':memory:');
+  t.after(close);
+
+  const course = courseService.createCourse({ id: 'no-mastery-course', title: 'No Mastery Course', language: 'zh' });
+  courseService.addSource(course.id, 'doc.md', '# Self Attention\nSelf attention weights token context across the sequence.');
+  const { snapshot } = await courseService.compileCourse(course.id, 'I want to understand transformer.');
+  const sessionId = snapshot.sessionId;
+  const nodeId = snapshot.lesson.knowledgeNodeId;
+  const initialNodeId = snapshot.path.find((n) => n.status === 'current')!.id;
+
+  const answer = (blockId: string, answerText: string) => context.assessmentService.submitAnswer({
+    sessionId,
+    userId: 'default-user',
+    lessonId: snapshot.lesson.id,
+    blockId,
+    answer: answerText,
+  });
+
+  // C. Repeated answers to the same quiz must NOT reach mastery through duplicate evidence.
+  for (let i = 0; i < 20; i++) {
+    const res = await answer(`${nodeId}-quiz-1`, 'opt-1');
+    assert.equal(res.assessment.result, 'correct');
+  }
+  const spamState = context.knowledgeService!.getUserKnowledgeState('default-user', nodeId)!;
+  assert.notEqual(spamState.status, 'mastered');
+  assert.equal(spamState.distinctSourceItemCount, 1);
+
+  // D. Two distinct correct plus one incorrect -> NOT mastered.
+  const fresh = courseService.createCourse({ id: 'mixed-course', title: 'Mixed Course', language: 'zh' });
+  courseService.addSource(fresh.id, 'doc.md', '# Self Attention\nSelf attention weights token context across the sequence.');
+  const mixed = await courseService.compileCourse(fresh.id, 'I want to understand transformer.');
+  const mixedSessionId = mixed.snapshot.sessionId;
+  const mixedBlock = (blockId: string, answerText: string) => context.assessmentService.submitAnswer({
+    sessionId: mixedSessionId,
+    userId: 'default-user',
+    lessonId: mixed.snapshot.lesson.id,
+    blockId,
+    answer: answerText,
+  });
+  assert.equal((await mixedBlock(`${nodeId}-quiz-1`, 'opt-1')).assessment.result, 'correct');
+  assert.equal((await mixedBlock(`${nodeId}-quiz`, 'opt-1')).assessment.result, 'correct');
+  assert.equal((await mixedBlock(`${nodeId}-quiz-2`, 'opt-2')).assessment.result, 'incorrect');
+  const mixedState = context.knowledgeService!.getUserKnowledgeState('default-user', nodeId)!;
+  assert.notEqual(mixedState.status, 'mastered');
+  assert.equal(
+    sessionRepo.getSessionSnapshot(mixedSessionId)!.path.find((n) => n.status === 'current')!.knowledgeNodeId,
+    nodeId
+  );
+});
+
+test('no HTTP /advance-path mastery bypass endpoint exists', async (t) => {
+  process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
+  const { server, context, courseService, close } = await createServerContext(':memory:');
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 8787;
   const baseUrl = `http://localhost:${port}`;
   t.after(() => close());
 
-  const created = await fetch(`${baseUrl}/api/courses`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'Advance Course', description: 'Attention' }),
-  });
-  const { course } = await json<{ course: { id: string } }>(created);
-  await fetch(`${baseUrl}/api/courses/${course.id}/sources`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'doc.md', content: '# Self Attention\nSelf attention weights token context.' }),
-  });
-  const compiled = await json<{ snapshot: LearningSessionSnapshot }>(
-    await fetch(`${baseUrl}/api/courses/${course.id}/compile`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ learningGoal: 'I want to understand transformer.' }),
-    })
-  );
-  const sessionId = compiled.snapshot.sessionId;
-  let snap = compiled.snapshot;
-  while (snap.lessonProgress?.activeBlockId) {
-    const p = snap.lessonProgress;
-    const advanced = await json<{ snapshot: LearningSessionSnapshot }>(
-      await fetch(`${baseUrl}/api/sessions/${sessionId}/lesson-progress/advance`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ lessonId: snap.lesson.id, activeBlockId: p.activeBlockId, version: p.version }),
-      })
-    );
-    snap = advanced.snapshot;
-  }
-  assert.equal(snap.lessonProgress?.activeBlockId, null);
+  const course = courseService.createCourse({ id: 'bypass-course', title: 'Bypass Course', language: 'zh' });
+  courseService.addSource(course.id, 'doc.md', '# Self Attention\nSelf attention weights token context across the sequence.');
+  const { snapshot } = await courseService.compileCourse(course.id, 'I want to understand transformer.');
 
-  const currentBefore = snap.path.find((node) => node.status === 'current')!;
-  const advanceRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/advance-path`, {
+  const res = await fetch(`${baseUrl}/api/sessions/${snapshot.sessionId}/advance-path`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pathVersion: snap.pathVersion }),
+    body: JSON.stringify({ pathVersion: snapshot.pathVersion }),
   });
-  assert.equal(advanceRes.status, 200);
-  const after = await json<LearningSessionSnapshot>(await fetch(`${baseUrl}/api/sessions/${sessionId}`));
-  assert.equal(after.path.find((node) => node.id === currentBefore.id)?.status, 'completed');
-  assert.ok(after.path.some((node) => node.status === 'current' && node.id !== currentBefore.id));
-  assert.notEqual(after.lesson.id, snap.lesson.id, 'Next lesson must be activated');
+  assert.notEqual(res.status, 200, 'advance-path endpoint must not exist');
+  const after = await fetch(`${baseUrl}/api/sessions/${snapshot.sessionId}`);
+  const afterSnap = (await after.json()) as LearningSessionSnapshot;
+  assert.equal(afterSnap.path.find((n) => n.status === 'current')?.knowledgeNodeId, snapshot.path.find((n) => n.status === 'current')?.knowledgeNodeId);
 });

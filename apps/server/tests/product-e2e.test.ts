@@ -218,7 +218,7 @@ Multi-head attention applies multiple self-attention projections in parallel.`,
   const midDetour = midSnap.path.find((n) => n.knowledgeNodeId === 'softmax');
   assert.equal(midDetour?.status, 'current');
 
-  // Answer 2 & 3: Accumulate distinct evidence to meet mastery threshold (distinctSourceItemCount >= 2, effectiveEvidenceCount >= 3, and p >= 0.85)
+  // Answer 2 & 3: Accumulate distinct evidence to meet mastery threshold (distinctSourceItemCount >= 3, effectiveEvidenceCount >= 3, and p >= 0.75)
   const quizAnswerRes2 = await answerDetourQuiz(
     detourQuizBlocks[1].id,
     'opt-exp-1'

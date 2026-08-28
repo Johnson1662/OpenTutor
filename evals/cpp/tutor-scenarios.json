@@ -27,8 +27,8 @@
     "id": "cpp-tutor-advance-templates",
     "userMessage": "I have fully understood smart pointers and RAII. Let's move on to Template Metaprogramming.",
     "contextTopic": "smart-pointers",
-    "expectedTools": ["path_advance"],
-    "forbiddenTools": ["path_insert_detour"],
-    "expectedIntent": "ADVANCE_PATH"
+    "expectedTools": [],
+    "forbiddenTools": ["path_advance", "path_insert_detour"],
+    "expectedIntent": "MASTERY_GATED_PROGRESS"
   }
 ]

@@ -27,8 +27,8 @@
     "id": "transformer-tutor-advance",
     "userMessage": "I understand Self-Attention now and finished the quiz. Let's proceed to Multi-Head Attention.",
     "contextTopic": "self-attention",
-    "expectedTools": ["path_advance"],
-    "forbiddenTools": ["path_insert_detour"],
-    "expectedIntent": "ADVANCE_PATH"
+    "expectedTools": [],
+    "forbiddenTools": ["path_advance", "path_insert_detour"],
+    "expectedIntent": "MASTERY_GATED_PROGRESS"
   }
 ]

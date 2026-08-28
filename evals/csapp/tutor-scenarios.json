@@ -27,8 +27,8 @@
     "id": "csapp-tutor-advance-concurrency",
     "userMessage": "I've mastered process and thread differences and passed the quiz. Let's move to socket concurrency.",
     "contextTopic": "process-vs-thread",
-    "expectedTools": ["path_advance"],
-    "forbiddenTools": ["path_insert_detour"],
-    "expectedIntent": "ADVANCE_PATH"
+    "expectedTools": [],
+    "forbiddenTools": ["path_advance", "path_insert_detour"],
+    "expectedIntent": "MASTERY_GATED_PROGRESS"
   }
 ]

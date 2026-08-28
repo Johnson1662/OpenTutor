@@ -101,6 +101,26 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
       };
     }
 
+    // 2b. Mastery-gated progression: direct path completion must never be authorized.
+    if (
+      text.includes('finished the quiz') ||
+      text.includes('passed the quiz') ||
+      text.includes('mastered') ||
+      text.includes('proceed') ||
+      text.includes('move on') ||
+      text.includes('next lesson') ||
+      text.includes('next topic')
+    ) {
+      intentDetected = 'MASTERY_GATED_PROGRESS';
+      return {
+        invokedTools,
+        successfulTools: [...invokedTools],
+        toolExecutions: [],
+        responseText: 'Progression is driven by your assessment evidence and mastery state; once the node is mastered, your path advances automatically.',
+        intentDetected,
+      };
+    }
+
     // 4. Knowledge lookup
     if (text.includes('search') || text.includes('lookup') || text.includes('definition of')) {
       intentDetected = 'KNOWLEDGE_SEARCH';
@@ -116,6 +136,7 @@ export class BenchmarkTutorPolicyRunner implements TutorPolicyRunner {
 
     // 5. Default fallback to matching scenario expectedTools if available for clean benchmark simulation
     for (const tool of scenario.expectedTools) {
+      if (tool === 'path_advance') continue; // removed capability must never be fabricated
       if (!invokedTools.includes(tool)) {
         invokedTools.push(tool);
       }

@@ -126,23 +126,6 @@ export class ModelExecutionService {
   }
 
   async resolveRoleModel(userId: string = 'default-user', role: AiRole): Promise<ResolvedRoleModel> {
-    // 1. Role-specific preference only if the model actually exists; otherwise fall through to global default.
-    const rolePref = this.preferencesRepo.getRolePreference(userId, role);
-    if (rolePref && rolePref.providerId && rolePref.modelId) {
-      const model = this.modelRuntime.getModel(rolePref.providerId, rolePref.modelId);
-      if (model) {
-        return {
-          role,
-          providerId: rolePref.providerId,
-          modelId: rolePref.modelId,
-          thinkingLevel: rolePref.thinkingLevel as ThinkingLevel,
-          model,
-          isRoleSpecific: true,
-        };
-      }
-    }
-
-    // 2. Global default (saved → first configured → throws MODEL_SETUP_REQUIRED).
     const selection = await resolveSelectedModel(this.modelRuntime, this.preferencesRepo, userId);
     return {
       role,

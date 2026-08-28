@@ -110,9 +110,9 @@ test('lesson progress API keeps the server authoritative', async (t) => {
   assert.equal(unknownSession.status, 404);
 });
 
-test('completing all lesson steps activates the next real lesson', async (t) => {
+test('lesson completion waits for mastered knowledge before advancing path', async (t) => {
   process.env.OPENTUTOR_RUNTIME_MODE = 'fake';
-  const { server, context, close } = await createServerContext(':memory:');
+  const { server, context, close, sessionRepo } = await createServerContext(':memory:');
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 8787;
@@ -123,13 +123,8 @@ test('completing all lesson steps activates the next real lesson', async (t) => 
   });
 
   let snapshot = (await (await fetch(`${baseUrl}/api/sessions/prototype`)).json()) as LearningSessionSnapshot;
+  const initialPathVersion = snapshot.pathVersion;
   const initialBlockCount = snapshot.lesson.blocks.length;
-  const activatedLessonIds: string[] = [];
-  const unsubscribe = context.eventBus.subscribe('prototype', (event) => {
-    if (event.type === 'lesson.activated') {
-      activatedLessonIds.push((event.data as { lesson: { id: string } }).lesson.id);
-    }
-  });
 
   for (let step = 0; step < initialBlockCount; step += 1) {
     const progress = snapshot.lessonProgress;
@@ -144,17 +139,48 @@ test('completing all lesson steps activates the next real lesson', async (t) => 
       }),
     });
     assert.equal(response.status, 200);
-    const body = (await response.json()) as { snapshot: LearningSessionSnapshot };
-    snapshot = body.snapshot;
+    snapshot = (await response.json() as { snapshot: LearningSessionSnapshot }).snapshot;
   }
 
-  unsubscribe();
-  assert.notEqual(snapshot.lessonProgress?.activeBlockId, null);
-  const current = snapshot.path.find((node) => node.status === 'current');
-  assert.ok(current);
-  assert.equal(snapshot.lesson.knowledgeNodeId, current.knowledgeNodeId);
-  assert.notEqual(snapshot.lesson.id, 'lesson-self-attention');
-  assert.ok(activatedLessonIds.includes(snapshot.lesson.id));
+  assert.equal(snapshot.lessonProgress?.activeBlockId, null);
+  assert.equal(snapshot.lesson.status, 'completed');
+  assert.equal(snapshot.lesson.id, 'lesson-self-attention');
+  assert.equal(snapshot.path.find((node) => node.status === 'current')?.knowledgeNodeId, 'self-attention');
+
+  const pathAdvanced = new Promise<void>((resolve) => {
+    const unsubscribe = context.eventBus.subscribe('prototype', (event) => {
+      if (event.type === 'path.patch') {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+
+  for (const sourceItemId of ['mastery-a', 'mastery-b', 'mastery-c']) {
+    const state = context.knowledgeService!.recordAssessment(
+      'prototype',
+      {
+        id: 'assessment-' + sourceItemId,
+        knowledgeNodeId: 'self-attention',
+        lessonId: snapshot.lesson.id,
+        blockId: 'quiz',
+        result: 'correct',
+        confidence: 1,
+        feedback: 'correct',
+      },
+      'default-user',
+      { difficulty: 2, confidence: 1, score: 1, sourceItemId, type: 'quiz' }
+    );
+    context.learningProgressService!.onKnowledgeStateUpdated('prototype', state);
+    if (sourceItemId === 'mastery-c') assert.equal(state.status, 'mastered');
+  }
+
+  await pathAdvanced;
+  const masteredSnapshot = sessionRepo.getSessionSnapshot('prototype')!;
+  assert.equal(masteredSnapshot.pathVersion, initialPathVersion + 1);
+  assert.equal(masteredSnapshot.path.filter((node) => node.status === 'current').length, 1);
+  assert.equal(masteredSnapshot.path.find((node) => node.knowledgeNodeId === 'self-attention')?.status, 'completed');
+  assert.equal(masteredSnapshot.path.find((node) => node.status === 'current')?.knowledgeNodeId, 'multi-head');
 });
 
 test('lesson patches preserve the active step and reject removing it', async (t) => {

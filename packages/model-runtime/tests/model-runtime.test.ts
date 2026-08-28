@@ -176,41 +176,30 @@ test('packages/model-runtime - AI Provider Control Plane & Auth Flow', async (t)
   assert.equal(newSessionResolution.thinkingLevel, 'low');
  });
 
- await t.test('7. RoleModelResolver resolves role-specific model over global preference', async () => {
+ await t.test('7. RoleModelResolver always uses the global preference for every role', async () => {
   const executionService = new ModelExecutionService(runtime, prefsRepo);
-
-  // Global preference is currently openai-codex / gpt-5.4
-  const tutorModel = await executionService.resolveRoleModel('default-user', 'tutor');
-  assert.equal(tutorModel.providerId, 'openai-codex');
-  assert.equal(tutorModel.modelId, 'gpt-5.4');
-  assert.equal(tutorModel.isRoleSpecific, false);
-
-  // Set role-specific preference for knowledge_compiler to claude-opus-4-5
-  prefsRepo.setRolePreference('default-user', 'knowledge_compiler', {
-   providerId: 'anthropic',
-   modelId: 'claude-opus-4-5',
-   thinkingLevel: 'high',
+  const deepseekModelId = runtime.getModels('deepseek')[0]?.id;
+  assert.ok(deepseekModelId);
+  prefsRepo.setPreferences('default-user', {
+   defaultProviderId: 'deepseek',
+   defaultModelId: deepseekModelId,
+   thinkingLevel: 'medium',
   });
 
-  const compilerModel = await executionService.resolveRoleModel('default-user', 'knowledge_compiler');
-  assert.equal(compilerModel.providerId, 'anthropic');
-  assert.equal(compilerModel.modelId, 'claude-opus-4-5');
-  assert.equal(compilerModel.thinkingLevel, 'high');
-  assert.equal(compilerModel.isRoleSpecific, true);
+  for (const role of ['course_planner', 'lesson_generator', 'tutor'] as const) {
+   prefsRepo.setRolePreference('default-user', role, {
+    providerId: 'anthropic',
+    modelId: 'claude-opus-4-5',
+    thinkingLevel: 'high',
+   });
+  }
 
-  // Other roles still inherit the global default
-  const lessonModel = await executionService.resolveRoleModel('default-user', 'lesson_generator');
-  assert.equal(lessonModel.providerId, 'openai-codex');
-  assert.equal(lessonModel.isRoleSpecific, false);
-
-  prefsRepo.setRolePreference('default-user', 'assessment', {
-   providerId: 'missing-provider',
-   modelId: 'missing-model',
-  });
-  const staleRoleModel = await executionService.resolveRoleModel('default-user', 'assessment');
-  assert.equal(staleRoleModel.providerId, 'openai-codex');
-  assert.equal(staleRoleModel.modelId, 'gpt-5.4');
-  assert.equal(staleRoleModel.isRoleSpecific, false);
+  for (const role of ['course_planner', 'lesson_generator', 'tutor'] as const) {
+   const resolved = await executionService.resolveRoleModel('default-user', role);
+   assert.equal(resolved.providerId, 'deepseek');
+   assert.equal(resolved.modelId, deepseekModelId);
+   assert.equal(resolved.isRoleSpecific, false);
+  }
  });
 
  await t.test('8. ModelExecutionService validates structured output and repairs once on invalid schema', async () => {

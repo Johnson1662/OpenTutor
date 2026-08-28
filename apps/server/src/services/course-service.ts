@@ -213,7 +213,13 @@ export class CourseService {
   getExistingSessionForCourse(courseId: string, userId: string = 'default-user'): LearningSessionSnapshot | null {
     const existingSession = this.sessionRepo.findSessionByCourse(courseId, userId);
     // The seeded prototype is a demo fixture, not a course-owned learner session.
-    return existingSession && existingSession.id !== 'prototype' ? this.sessionRepo.getSnapshot(existingSession.id) : null;
+    if (!existingSession || existingSession.id === 'prototype') return null;
+
+    const snapshot = this.sessionRepo.getSnapshot(existingSession.id);
+    if (!snapshot || !existingSession.activeLessonId || snapshot.lesson.id !== existingSession.activeLessonId || snapshot.lesson.blocks.length === 0 || snapshot.path.length === 0) {
+      return null;
+    }
+    return snapshot;
   }
 
   async startSessionForCourse(courseId: string, userId: string = 'default-user'): Promise<LearningSessionSnapshot> {

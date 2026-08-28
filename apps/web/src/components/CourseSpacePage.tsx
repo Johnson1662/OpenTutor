@@ -137,19 +137,15 @@ export function CourseSpacePage({
     try {
       setAddingSource(true);
       await addCourseSource(courseId, sourceTitle.trim() || '课程资料.md', sourceContent.trim());
-      const learningGoal = course?.description || '掌握这门课程的核心知识，并能应用它。';
-      setCompiling(true);
-      await compileCourse(courseId, learningGoal);
       setSourceTitle('');
       setSourceContent('');
-      onFlash('资料已添加，课程路径已重新编译。');
+      onFlash('资料已添加，当前学习进度保持不变。');
       await loadCourse();
       changeTab('materials');
     } catch (error: any) {
       onFlash('资料处理失败：' + (error.message || '请稍后重试'));
     } finally {
       setAddingSource(false);
-      setCompiling(false);
     }
   }
 
@@ -207,7 +203,7 @@ export function CourseSpacePage({
         <section className="materials-layout course-child-layout">
           <div className="materials-main"><div className="child-heading"><div><span className="eyebrow">Course sources</span><h2>课程资料</h2><p>只展示已经加入这门课程的文本来源。</p></div><span className="source-count">{sources.length} 份</span></div><div className="source-list">{sources.length ? sources.map((source) => <button type="button" key={source.documentId} className={'source-row ' + (source.documentId === selectedSourceId ? 'selected' : '')} onClick={() => setSelectedSourceId(source.documentId)}><span className="source-type">{source.title.toLowerCase().endsWith('.md') || source.title.toLowerCase().endsWith('.markdown') ? 'MD' : 'TXT'}</span><span><strong>{source.title}</strong><small>v{source.version} · {source.status}</small></span><span aria-hidden="true">→</span></button>) : <div className="empty-inline">还没有资料。添加一份 .txt、.md 或 .markdown 文件。</div>}</div></div>
           <aside className="source-drawer"><SourceDetail source={selectedSource} evidence={selectedSourceEvidence} onOpenNode={(nodeId) => { setSelectedNodeId(nodeId); changeTab('knowledge'); }} /></aside>
-          <form className="material-add-card" onSubmit={addSource}><div><span className="eyebrow">Add source</span><h2>补充学习资料</h2><p>加入后会自动重新编译课程路径。</p></div><label className="file-button">选择文本文件<input type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" onChange={readSourceFile} disabled={addingSource || compiling} /></label><input value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} placeholder="资料名称，例如：我的笔记.md" disabled={addingSource || compiling} /><textarea value={sourceContent} onChange={(event) => setSourceContent(event.target.value)} rows={6} placeholder="也可以直接粘贴文本或 Markdown…" disabled={addingSource || compiling} /><button type="submit" className="btn-primary" disabled={addingSource || compiling || !sourceContent.trim()}>{addingSource || compiling ? '正在编译…' : '添加并编译'}</button></form>
+          <form className="material-add-card" onSubmit={addSource}><div><span className="eyebrow">Add source</span><h2>补充学习资料</h2><p>资料会保存到课程，当前学习进度保持不变。</p></div><label className="file-button">选择文本文件<input type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" onChange={readSourceFile} disabled={addingSource || compiling} /></label><input value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} placeholder="资料名称，例如：我的笔记.md" disabled={addingSource || compiling} /><textarea value={sourceContent} onChange={(event) => setSourceContent(event.target.value)} rows={6} placeholder="也可以直接粘贴文本或 Markdown…" disabled={addingSource || compiling} /><button type="submit" className="btn-primary" disabled={addingSource || compiling || !sourceContent.trim()}>{addingSource ? '正在添加…' : '添加资料'}</button></form>
         </section>
       )}
     </main>

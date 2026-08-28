@@ -139,7 +139,6 @@ export class LearningProgressService {
         version: snapshot.lesson.version,
         changes: { status: 'completed' },
       });
-      await this.sessionService.completeCurrentNode(sessionId, snapshot.pathVersion);
     }
 
     const nextSnapshot = this.sessionService.getSnapshot(sessionId);

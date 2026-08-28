@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  createDatabase,
+  seedDatabase,
+  CourseRepository,
+  SessionRepository,
+  LessonRepository,
+  LessonProgressRepository,
+  EventRepository,
+} from '@opentutor/database';
+import { LivingKnowledgeCompiler } from '@opentutor/knowledge-core';
+import { CourseCompiler } from '@opentutor/course-core';
+import { FakeLessonGenerator, type LessonGenerator } from '@opentutor/lesson-core';
 import { createServerContext } from '../src/index.ts';
+import { EventBus } from '../src/events/event-bus.ts';
+import { CourseService } from '../src/services/course-service.ts';
 import type { LearningSessionSnapshot } from '@opentutor/protocol';
 
 async function json<T>(response: Response): Promise<T> {
@@ -87,6 +101,19 @@ test('course journey uses real sessions, text sources, and persisted active step
   assert.equal(afterAdvance.lessonProgress?.completedBlockIds[0], firstBlockId);
   assert.equal(afterAdvance.lessonProgress?.version, progress.version + 1);
 
+  const sourceWhileLearning = await fetch(`${baseUrl}/api/courses/${course.id}/sources`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'follow-up.md', content: 'Extra notes.' }),
+  });
+  assert.equal(sourceWhileLearning.status, 201);
+  const afterSource = await json<LearningSessionSnapshot>(await fetch(`${baseUrl}/api/sessions/${sessionId}`));
+  assert.equal(afterSource.sessionId, afterAdvance.sessionId);
+  assert.equal(afterSource.lesson.id, afterAdvance.lesson.id);
+  assert.deepEqual(afterSource.path, afterAdvance.path);
+  assert.deepEqual(afterSource.lessonProgress, afterAdvance.lessonProgress);
+  assert.equal(afterSource.pathVersion, afterAdvance.pathVersion);
+
   const recompileResponse = await fetch(`${baseUrl}/api/courses/${course.id}/compile`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -95,4 +122,44 @@ test('course journey uses real sessions, text sources, and persisted active step
   assert.equal(recompileResponse.status, 200);
   const recompiled = await json<{ snapshot: LearningSessionSnapshot }>(recompileResponse);
   assert.equal(recompiled.snapshot.sessionId, sessionId);
+});
+
+test('failed course sessions are rebuilt on retry', async (t) => {
+  const db = createDatabase(':memory:');
+  seedDatabase(db);
+  t.after(() => db.close());
+
+  const lessonProgressRepo = new LessonProgressRepository(db);
+  const sessionRepo = new SessionRepository(db, lessonProgressRepo);
+  const fakeLessonGenerator = new FakeLessonGenerator();
+  let modelConfigured = false;
+  const lessonGenerator: LessonGenerator = {
+    generate: async (input) => {
+      if (!modelConfigured) throw new Error('MODEL_SETUP_REQUIRED');
+      return fakeLessonGenerator.generate(input);
+    },
+  };
+  const courseService = new CourseService(
+    new CourseRepository(db),
+    sessionRepo,
+    new LessonRepository(db),
+    new LivingKnowledgeCompiler(db),
+    new CourseCompiler(db),
+    lessonGenerator,
+    new EventBus(new EventRepository(db))
+  );
+  const course = courseService.createCourse({ id: 'retry-course', title: 'Retry course' });
+
+  await assert.rejects(
+    () => courseService.compileCourse(course.id, 'Understand attention from first principles.'),
+    /MODEL_SETUP_REQUIRED/
+  );
+  assert.ok(sessionRepo.findSessionByCourse(course.id, 'default-user'));
+  assert.equal(courseService.getExistingSessionForCourse(course.id), null);
+
+  modelConfigured = true;
+  const snapshot = await courseService.startSessionForCourse(course.id);
+  assert.ok(!snapshot.lesson.id.startsWith('empty-lesson-'));
+  assert.ok(snapshot.lesson.blocks.length > 0);
+  assert.ok(snapshot.path.length > 0);
 });

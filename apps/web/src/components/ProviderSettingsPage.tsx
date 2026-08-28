@@ -220,13 +220,12 @@ export function ProviderSettingsPage({
     <main className="page-shell settings-page-v3">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">Settings</span>
-          <h1>AI 模型设置</h1>
-          <p>配置一个模型，OpenTutor 的所有 AI 能力都会使用它。</p>
+          <h1>设置</h1>
         </div>
       </header>
 
       <form className="settings-card" onSubmit={handleSave}>
+        <h2 className="settings-section">AI 模型</h2>
         <label className="settings-field">
           <span>服务商</span>
           <select
@@ -289,6 +288,7 @@ export function ProviderSettingsPage({
           </select>
         </label>
 
+        <h2 className="settings-section">学习偏好</h2>
         <label className="settings-field">
           <span>课程语言</span>
           <select

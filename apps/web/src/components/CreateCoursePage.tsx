@@ -69,18 +69,16 @@ export function CreateCoursePage({
   return (
     <main className="page-shell create-page">
       <header className="page-heading create-heading">
-        <div><span className="eyebrow">Create a goal</span><h1>创建学习目标</h1><p>先说清楚你想学会什么。</p></div>
-        <button type="button" className="text-action" onClick={() => onNavigate('/')}>返回首页</button>
+        <div><h1>创建学习目标</h1></div>
       </header>
 
       <form className="goal-builder" onSubmit={createAndCompile}>
-        <section className="builder-main">
-          <label className="field-label" htmlFor="learning-goal">我想学</label>
+          <label className="field-label" htmlFor="learning-goal">你想学什么？</label>
           <textarea
             id="learning-goal"
             value={learningGoal}
             onChange={(event) => setLearningGoal(event.target.value)}
-            rows={6}
+            rows={5}
             placeholder="例如：我想理解 Transformer，从自注意力开始，并能写出一个小例子。"
             disabled={compiling}
             autoFocus
@@ -91,16 +89,9 @@ export function CreateCoursePage({
               <button type="button" className="text-action" onClick={() => onNavigate('/settings')}>前往设置 →</button>
             </div>
           )}
-          <div className="builder-actions">
-            <button type="submit" className="btn-primary btn-large" disabled={compiling || !learningGoal.trim()}>
-              {compiling ? '正在生成路径…' : '开始'} <span aria-hidden="true">→</span>
-            </button>
-          </div>
-        </section>
-
-        <aside className="builder-side">
+        <div className="create-options">
           <fieldset>
-            <legend>我的基础</legend>
+            <legend>基础</legend>
             <div className="choice-list">
               {['零基础', '有一点', '熟悉'].map((item) => (
                 <label key={item} className={background === item ? 'choice selected' : 'choice'}>
@@ -132,7 +123,7 @@ export function CreateCoursePage({
               ))}
             </div>
           </fieldset>
-        </aside>
+        </div>
 
         <details className="material-drop-card">
           <summary>添加资料（可选）</summary>
@@ -143,6 +134,12 @@ export function CreateCoursePage({
             <textarea value={materialContent} onChange={(event) => setMaterialContent(event.target.value)} rows={4} placeholder="或把资料粘贴到这里…" disabled={compiling} />
           </div>
         </details>
+
+        <div className="builder-actions">
+          <button type="submit" className="btn-primary btn-large" disabled={compiling || !learningGoal.trim()}>
+            {compiling ? '正在生成路径…' : '开始'} <span aria-hidden="true">→</span>
+          </button>
+        </div>
       </form>
     </main>
   );

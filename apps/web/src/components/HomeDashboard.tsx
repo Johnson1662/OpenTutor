@@ -40,7 +40,6 @@ export function HomeDashboard({ onNavigate }: { onNavigate: (route: string) => v
   return (
     <main className="page-shell home-page">
       <section className="home-intro">
-        <span className="eyebrow">OpenTutor / 学习入口</span>
         <h1>你现在想学会什么？</h1>
         <p>说出目标，OpenTutor 会把它整理成一条可以真正走完的学习路径。</p>
         <form className="goal-form" onSubmit={startGoal}>
@@ -60,7 +59,7 @@ export function HomeDashboard({ onNavigate }: { onNavigate: (route: string) => v
 
       <section className="home-section home-recent">
         <div className="section-heading">
-          <div><span className="eyebrow">最近学习</span><h2>最近学习</h2></div>
+          <div><h2>继续学习</h2></div>
           <button type="button" className="text-action" onClick={() => onNavigate('/courses')}>查看全部 →</button>
         </div>
         <div className="home-course-list">

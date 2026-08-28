@@ -50,6 +50,7 @@ export function CourseSpacePage({
   const [compiling, setCompiling] = useState(false);
   const [starting, setStarting] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
+  const [addSourceOpen, setAddSourceOpen] = useState(false);
 
   useEffect(() => setTab(initialTab), [initialTab]);
 
@@ -167,8 +168,8 @@ export function CourseSpacePage({
   return (
     <main className="page-shell course-page">
       <header className="course-page-header">
-        <div><button type="button" className="back-link" onClick={() => onNavigate('/courses')}>← 我的学习</button><span className="eyebrow">Course journey</span><h1>{course.title}</h1><p>{course.description || '按路径一步一步建立知识结构。'}</p></div>
-        <div className="course-header-actions"><button type="button" className="btn-secondary" onClick={() => changeTab('materials')}>添加资料</button>{session ? <button type="button" className="btn-primary" disabled={!currentNode} onClick={() => onNavigate('/learn/' + session.sessionId)}>{currentNode ? '继续学习' : '路径完成'} <span aria-hidden="true">→</span></button> : <button type="button" className="btn-primary" disabled={starting || compiling || course.compileStatus === 'compiling'} onClick={startLearning}>{starting ? '正在准备…' : '开始学习'} <span aria-hidden="true">→</span></button>}</div>
+        <div><button type="button" className="back-link" onClick={() => onNavigate('/courses')}>← 我的学习</button><h1>{course.title}</h1></div>
+        <div className="course-header-actions">{session ? <button type="button" className="btn-primary" disabled={!currentNode} onClick={() => onNavigate('/learn/' + session.sessionId)}>{currentNode ? '继续学习' : '路径完成'} <span aria-hidden="true">→</span></button> : <button type="button" className="btn-primary" disabled={starting || compiling || course.compileStatus === 'compiling'} onClick={startLearning}>{starting ? '正在准备…' : '开始学习'} <span aria-hidden="true">→</span></button>}</div>
       </header>
 
       <nav className="course-tabs" aria-label="课程内容">
@@ -178,8 +179,8 @@ export function CourseSpacePage({
       {tab === 'route' && (
         <section className="course-route-layout">
           <div className="route-column">
-            <div className="route-summary"><div><span className="eyebrow">Authoritative path</span><h2>你的学习路线</h2></div><span className="route-progress-value">{progress}%</span><div className="progress-line"><i style={{ width: progress + '%' }} /></div><small>{completedCount} / {path.length || '—'} 个节点完成</small></div>
-            {path.length ? <div className="path-list">{path.map((node, index) => <button type="button" key={node.id} className={'path-node ' + node.status + ' ' + (node.id === currentNode?.id ? 'selected' : '')} onClick={() => setSelectedNodeId(node.knowledgeNodeId)}><span className="path-node-index">{node.status === 'completed' ? '✓' : String(index + 1).padStart(2, '0')}</span><span className="path-node-copy"><small>{node.type === 'detour' ? '补充路径' : node.type === 'prerequisite' ? '先修知识' : '主路径'} · {statusText(node.status)}</small><strong>{node.title}</strong>{node.note && <em>{node.note}</em>}</span><span className="path-node-arrow" aria-hidden="true">{node.status === 'current' ? '→' : '·'}</span></button>)}</div> : <div className="empty-state-card"><h3>路径还没有生成</h3><p>先添加资料或重新编译课程。</p><button type="button" className="btn-primary" onClick={recompile} disabled={compiling}>{compiling ? '编译中…' : '生成学习路径'}</button></div>}
+            <div className="route-summary"><div><h2>学习路径</h2></div><span className="route-progress-value">{progress}%</span><div className="progress-line"><i style={{ width: progress + '%' }} /></div><small>{completedCount} / {path.length || '—'} 个节点完成</small></div>
+            {path.length ? <div className="path-list">{path.map((node, index) => <button type="button" key={node.id} className={'path-node ' + node.status + ' ' + (node.id === currentNode?.id ? 'selected' : '')} onClick={() => setSelectedNodeId(node.knowledgeNodeId)}><span className="path-node-index">{node.status === 'completed' ? '✓' : String(index + 1).padStart(2, '0')}</span><span className="path-node-copy"><small>{node.type === 'detour' ? '补充路径' : node.type === 'prerequisite' ? '先修知识' : '主路径'} · {statusText(node.status)}</small><strong>{node.title}</strong>{node.note && <em>{node.note}</em>}</span></button>)}</div> : <div className="empty-state-card"><h3>路径还没有生成</h3><p>先添加资料或重新编译课程。</p><button type="button" className="btn-primary" onClick={recompile} disabled={compiling}>{compiling ? '编译中…' : '生成学习路径'}</button></div>}
           </div>
           <aside className="node-drawer route-drawer"><NodeDetail node={selectedNode} pathNode={pathNodeForSelection} evidence={selectedNodeEvidence} onOpenKnowledge={() => changeTab('knowledge')} /></aside>
         </section>
@@ -188,7 +189,7 @@ export function CourseSpacePage({
       {tab === 'knowledge' && (
         <section className="knowledge-layout course-child-layout">
           <div className="knowledge-canvas" aria-label="课程知识图谱">
-            <div className="canvas-label"><span className="eyebrow">Course knowledge</span><strong>知识关系</strong><small>点击节点查看来源和前置关系</small></div>
+            <div className="canvas-label"><strong>知识关系</strong><small>点击节点查看来源和前置关系</small></div>
             <svg viewBox="0 0 100 100" role="img" aria-label="课程知识关系图">
               {courseMap?.edges.map((edge) => { const from = graphPoint(courseMap.nodes, edge.fromNodeId); const to = graphPoint(courseMap.nodes, edge.toNodeId); return from && to ? <line key={edge.fromNodeId + '-' + edge.toNodeId} x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null; })}
             </svg>
@@ -201,9 +202,9 @@ export function CourseSpacePage({
 
       {tab === 'materials' && (
         <section className="materials-layout course-child-layout">
-          <div className="materials-main"><div className="child-heading"><div><span className="eyebrow">Course sources</span><h2>课程资料</h2><p>只展示已经加入这门课程的文本来源。</p></div><span className="source-count">{sources.length} 份</span></div><div className="source-list">{sources.length ? sources.map((source) => <button type="button" key={source.documentId} className={'source-row ' + (source.documentId === selectedSourceId ? 'selected' : '')} onClick={() => setSelectedSourceId(source.documentId)}><span className="source-type">{source.title.toLowerCase().endsWith('.md') || source.title.toLowerCase().endsWith('.markdown') ? 'MD' : 'TXT'}</span><span><strong>{source.title}</strong><small>v{source.version} · {source.status}</small></span><span aria-hidden="true">→</span></button>) : <div className="empty-inline">还没有资料。添加一份 .txt、.md 或 .markdown 文件。</div>}</div></div>
+          <div className="materials-main"><div className="child-heading"><div><h2>资料</h2><p>只展示已经加入这门课程的文本来源。</p></div><button type="button" className="text-action" onClick={() => setAddSourceOpen(!addSourceOpen)}>{addSourceOpen ? '收起' : '添加资料'}</button><span className="source-count">{sources.length} 份</span></div><div className="source-list">{sources.length ? sources.map((source) => <button type="button" key={source.documentId} className={'source-row ' + (source.documentId === selectedSourceId ? 'selected' : '')} onClick={() => setSelectedSourceId(source.documentId)}><span className="source-type">{source.title.toLowerCase().endsWith('.md') || source.title.toLowerCase().endsWith('.markdown') ? 'MD' : 'TXT'}</span><span><strong>{source.title}</strong><small>v{source.version} · {source.status}</small></span><span aria-hidden="true">→</span></button>) : <div className="empty-inline">还没有资料。添加一份 .txt、.md 或 .markdown 文件。</div>}</div></div>
           <aside className="source-drawer"><SourceDetail source={selectedSource} evidence={selectedSourceEvidence} onOpenNode={(nodeId) => { setSelectedNodeId(nodeId); changeTab('knowledge'); }} /></aside>
-          <form className="material-add-card" onSubmit={addSource}><div><span className="eyebrow">Add source</span><h2>补充学习资料</h2><p>资料会保存到课程，当前学习进度保持不变。</p></div><label className="file-button">选择文本文件<input type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" onChange={readSourceFile} disabled={addingSource || compiling} /></label><input value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} placeholder="资料名称，例如：我的笔记.md" disabled={addingSource || compiling} /><textarea value={sourceContent} onChange={(event) => setSourceContent(event.target.value)} rows={6} placeholder="也可以直接粘贴文本或 Markdown…" disabled={addingSource || compiling} /><button type="submit" className="btn-primary" disabled={addingSource || compiling || !sourceContent.trim()}>{addingSource ? '正在添加…' : '添加资料'}</button></form>
+          {addSourceOpen && <form className="material-add-card" onSubmit={addSource}><div><h2>补充学习资料</h2><p>资料会保存到课程，当前学习进度保持不变。</p></div><label className="file-button">选择文本文件<input type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" onChange={readSourceFile} disabled={addingSource || compiling} /></label><input value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} placeholder="资料名称，例如：我的笔记.md" disabled={addingSource || compiling} /><textarea value={sourceContent} onChange={(event) => setSourceContent(event.target.value)} rows={6} placeholder="也可以直接粘贴文本或 Markdown…" disabled={addingSource || compiling} /><button type="submit" className="btn-primary" disabled={addingSource || compiling || !sourceContent.trim()}>{addingSource ? '正在添加…' : '添加资料'}</button></form>}
         </section>
       )}
     </main>
@@ -229,8 +230,8 @@ function NodeDetail({
   evidence: CourseEvidenceItem[];
   onOpenKnowledge?: () => void;
 }) {
-  if (!node) return <div className="drawer-empty"><span className="eyebrow">Node detail</span><h2>选择一个节点</h2><p>从左侧路径或图谱选择节点。</p></div>;
-  return <div className="drawer-content"><span className="eyebrow">节点详情</span><h2>{node.title}</h2><p>{node.description || '这是一项课程知识节点。'}</p><dl><dt>路径状态</dt><dd>{pathNode ? statusText(pathNode.status) : '知识节点'}</dd><dt>课程位置</dt><dd>第 {node.position} 步</dd><dt>来源证据</dt><dd>{evidence.length} 条</dd></dl>{evidence.length > 0 && <div className="evidence-snippets"><h3>来源片段</h3>{evidence.slice(0, 3).map((item) => <p key={item.evidenceId}>{item.excerpt || item.statement}<small>{item.sourceTitle}</small></p>)}</div>}{onOpenKnowledge && <button type="button" className="text-action" onClick={onOpenKnowledge}>查看相关知识 →</button>}</div>;
+  if (!node) return <div className="drawer-empty"><h2>选择一个节点</h2><p>从左侧路径或图谱选择节点。</p></div>;
+  return <div className="drawer-content"><h2>{node.title}</h2><p>{node.description || '这是一项课程知识节点。'}</p><dl><dt>路径状态</dt><dd>{pathNode ? statusText(pathNode.status) : '知识节点'}</dd><dt>课程位置</dt><dd>第 {node.position} 步</dd><dt>来源证据</dt><dd>{evidence.length} 条</dd></dl>{evidence.length > 0 && <div className="evidence-snippets"><h3>来源片段</h3>{evidence.slice(0, 3).map((item) => <p key={item.evidenceId}>{item.excerpt || item.statement}<small>{item.sourceTitle}</small></p>)}</div>}{onOpenKnowledge && <button type="button" className="text-action" onClick={onOpenKnowledge}>查看相关知识 →</button>}</div>;
 }
 
 function SourceDetail({
@@ -242,6 +243,6 @@ function SourceDetail({
   evidence: CourseEvidenceItem[];
   onOpenNode: (nodeId: string) => void;
 }) {
-  if (!source) return <div className="drawer-empty"><span className="eyebrow">Source detail</span><h2>选择一份资料</h2><p>资料原文和关联片段会显示在这里。</p></div>;
-  return <div className="drawer-content"><span className="eyebrow">来源详情</span><h2>{source.title}</h2><p className="source-full-preview">{source.content.slice(0, 720)}{source.content.length > 720 ? '…' : ''}</p><small className="source-meta">版本 v{source.version} · {source.status}</small>{evidence.length > 0 && <div className="evidence-snippets"><h3>关联知识片段</h3>{evidence.slice(0, 4).map((item) => <button type="button" className="snippet-button" key={item.evidenceId} onClick={() => onOpenNode(item.knowledgeNodeId)}><strong>{item.statement}</strong><span>{item.excerpt}</span></button>)}</div>}</div>;
+  if (!source) return <div className="drawer-empty"><h2>选择一份资料</h2><p>资料原文和关联片段会显示在这里。</p></div>;
+  return <div className="drawer-content"><h2>{source.title}</h2><p className="source-full-preview">{source.content.slice(0, 720)}{source.content.length > 720 ? '…' : ''}</p><small className="source-meta">版本 v{source.version} · {source.status}</small>{evidence.length > 0 && <div className="evidence-snippets"><h3>关联知识片段</h3>{evidence.slice(0, 4).map((item) => <button type="button" className="snippet-button" key={item.evidenceId} onClick={() => onOpenNode(item.knowledgeNodeId)}><strong>{item.statement}</strong><span>{item.excerpt}</span></button>)}</div>}</div>;
 }

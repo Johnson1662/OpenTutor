@@ -11,6 +11,7 @@ import type {
   LessonUpdatedEventData,
   PathPatchEventData,
   LessonStepProgress,
+  LessonBlock,
 } from '@opentutor/protocol';
 import { applyLessonPatches, applyPathPatches } from '../runtime/patch.ts';
 import { isNewLearningEvent } from '../runtime/events.ts';
@@ -24,12 +25,18 @@ import {
 } from '../runtime/api.ts';
 import { LessonCanvas } from './LessonCanvas.tsx';
 
-const contextActions = [
-  { label: '讲简单一点', message: '请把当前步骤讲得更简单，只保留一个小例子。' },
-  { label: '给一个代码例子', message: '请针对当前步骤补一个最小、可读的代码例子。' },
-  { label: '画关系图', message: '请用一个简单关系图解释当前步骤，不要展开新主题。' },
-  { label: '我卡住了', message: '我卡住了，请先给我一个小探针问题，不要直接告诉答案。' },
-];
+function contextActionsFor(block?: LessonBlock) {
+  if (block?.type === 'code') {
+    return [{ label: '解释这段代码', message: '请解释当前代码步骤的思路，不用展开新主题。' }, { label: '我卡住了', message: '我卡住了，请先给我一个小探针问题，不要直接告诉答案。' }];
+  }
+  if (block?.type === 'diagram') {
+    return [{ label: '解释这张图', message: '请解释当前这张关系图，不要展开新主题。' }, { label: '讲简单一点', message: '请把当前步骤讲得更简单，只保留一个小例子。' }];
+  }
+  if (block?.type === 'quiz') {
+    return [{ label: '给我一点提示', message: '请给当前题目一个小提示，不要直接给答案。' }, { label: '我卡住了', message: '我卡住了，请先给我一个小探针问题，不要直接告诉答案。' }];
+  }
+  return [{ label: '讲简单一点', message: '请把当前步骤讲得更简单，只保留一个小例子。' }, { label: '给个例子', message: '请针对当前步骤给一个最小、可读的例子。' }];
+}
 const reinforcementPrompt = '当前已有学习步骤已经完成，但我还没有掌握这个知识点。请根据我的学习和评估结果，为当前知识点新增一个最有价值的补充教学或检查步骤。主要内容通过 lesson_patch 加入 Canvas，只用一句话回复我。';
 
 function shortText(value: string) {
@@ -58,6 +65,7 @@ export function LearningRoom({
   const [submittedBlockId, setSubmittedBlockId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [message, setMessage] = useState('');
+  const [everConnected, setEverConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assessment, setAssessment] = useState<AssessmentResult>();
   const lastSeqRef = useRef(0);
@@ -85,6 +93,7 @@ export function LearningRoom({
         lastSeqRef.current = nextSnapshot.lastSeq;
         const close = subscribeToLearningEvents(sessionId, lastSeqRef.current, handleEvent, (status) => {
           setConnected(status);
+          if (status) setEverConnected(true);
           onConnectionChange?.(status);
         });
         if (disposed) close();
@@ -130,10 +139,6 @@ export function LearningRoom({
       }
       if (event.type === 'assessment.completed') {
         setAssessment((event.data as AssessmentCompletedEventData).assessment);
-      }
-      if (event.type === 'knowledge.updated') {
-        const data = event.data as { status?: string };
-        setLastAgent(shortText('知识状态已更新：' + (data.status || '学习中')));
       }
       if (event.type === 'error') {
         setBusy(false);
@@ -195,7 +200,6 @@ export function LearningRoom({
       await submitQuizAnswer(lesson.id, blockId, answer, sessionId);
       setSubmittedBlockId(blockId);
       setBusy(false);
-      setLastUser(shortText('提交了当前步骤的回答'));
     } catch (cause) {
       setBusy(false);
       onFlash(cause instanceof Error ? cause.message : '答案提交失败');
@@ -230,26 +234,26 @@ export function LearningRoom({
     }
   }
 
-  if (error) return <main className="player-error"><span className="eyebrow">Learning session</span><h1>学习空间暂时打不开</h1><p>{error}</p><button type="button" className="btn-primary" onClick={() => onNavigate('/courses')}>返回我的学习</button></main>;
+  if (error) return <main className="player-error"><h1>学习空间暂时打不开</h1><p>{error}</p><button type="button" className="btn-primary" onClick={() => onNavigate('/courses')}>返回我的学习</button></main>;
   if (!snapshot || !lesson) return <main className="player-loading"><span className="loading-spinner" />正在打开学习空间…</main>;
 
   return <main className="player-page">
     <header className="player-header">
       <button type="button" className="player-back" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')} aria-label="返回课程路径">←</button>
-      <div className="player-course"><span>{currentNode?.title || lesson.title}</span><strong>{lesson.title}</strong></div>
+      <div className="player-course"><strong>{currentNode?.title || lesson.title}</strong></div>
       <div className="player-progress"><div className="progress-line"><i style={{ width: routeProgress + '%' }} /></div><small>路径 {currentIndex + 1} / {path.length || '—'}</small></div>
-      <span className={'connection-state ' + (connected ? 'online' : '')}><i />{connected ? '同步中' : '连接中'}</span>
+      {everConnected && !connected && <span className="connection-state">连接已断开，正在重连…</span>}
       <div className="player-menu-wrap"><button type="button" className="player-menu-button" onClick={() => setMenuOpen((open) => !open)} aria-expanded={menuOpen} aria-label="打开课程菜单">•••</button>{menuOpen && <div className="player-menu"><button type="button" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')}>课程路径</button><button type="button" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=knowledge' : '/courses')}>知识关系</button><button type="button" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=materials' : '/courses')}>课程资料</button></div>}</div>
     </header>
 
     <section className="player-content">
-      <LessonCanvas lesson={lesson} activeBlock={activeBlock} assessment={assessment?.blockId === activeBlock?.id ? assessment : undefined} busy={busy} submitted={submittedBlockId === activeBlock?.id} canAdvance={canAdvance} onQuizSubmit={submitAnswer} onAdvance={() => void advance()} />
       <div className="player-feedback" aria-live="polite">{lastUser && <p><small>你</small>{lastUser}</p>}{lastAgent && <p><small>OpenTutor</small>{lastAgent}</p>}</div>
+      <LessonCanvas lesson={lesson} activeBlock={activeBlock} assessment={assessment?.blockId === activeBlock?.id ? assessment : undefined} busy={busy} submitted={submittedBlockId === activeBlock?.id} canAdvance={canAdvance} onQuizSubmit={submitAnswer} onAdvance={() => void advance()} />
       {needsReinforcement ? <div className="player-complete"><p>这一轮内容已经完成，但这个知识点还需要再巩固一下。</p><div className="player-complete-actions"><button type="button" className="btn-primary" disabled={busy || advancing} onClick={() => void tutor(reinforcementPrompt)}>再巩固一下</button></div></div> : !activeBlock && <button type="button" className="btn-primary player-complete" onClick={() => onNavigate(courseId ? '/courses/' + courseId + '?tab=route' : '/courses')}>返回课程路径 <span aria-hidden="true">→</span></button>}
     </section>
 
     <section className="player-assist" aria-label="学习帮助">
-      <div className="context-actions">{contextActions.map((item) => <button type="button" key={item.label} disabled={busy || advancing} onClick={() => void tutor(item.message)}>{item.label}</button>)}</div>
+      <div className="context-actions">{contextActionsFor(activeBlock).map((item) => <button type="button" key={item.label} disabled={busy || advancing} onClick={() => void tutor(item.message)}>{item.label}</button>)}</div>
       <form className="player-composer" onSubmit={(event) => { event.preventDefault(); void tutor(message); }}><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={1} placeholder="告诉助教你卡在哪里…" disabled={busy || advancing} /><button type="submit" className="btn-primary" disabled={busy || advancing || !message.trim()}>发送</button></form>
     </section>
   </main>;

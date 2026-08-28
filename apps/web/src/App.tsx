@@ -100,9 +100,6 @@ export function App() {
           <main className="page-shell"><div className="empty-state-card"><h1>页面不存在</h1><button type="button" className="btn-primary" onClick={() => handleNavigate('/courses')}>返回我的学习</button></div></main>
         )}
       </div>
-      {!player && parsed.kind !== 'not-found' && (
-        <footer className="flow-footer"><span>OpenTutor</span><span>目标 → 路径 → 一步一步学会</span></footer>
-      )}
     </div>
   );
 }
